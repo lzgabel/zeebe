@@ -30,9 +30,10 @@ public class FallbackNamespaceTest {
   private static final String COMPAT_FIELD = "compatible";
   private static final String LEGACY_FIELD = "legacy";
 
-  private final Namespace legacy = spy(Namespace.builder().register(TestClass.class).build());
-  private final Namespace compatible =
-      spy(Namespace.builder().register(TestClass.class).setCompatible(true).build());
+  private final NamespaceImpl legacy =
+      spy(new NamespaceImpl.Builder().register(TestClass.class).build());
+  private final NamespaceImpl compatible =
+      spy(new NamespaceImpl.Builder().register(TestClass.class).setCompatible(true).build());
   private final FallbackNamespace fallback = new FallbackNamespace(legacy, compatible);
 
   private final byte[] legacyBytes = legacy.serialize(new TestClass(LEGACY_FIELD));

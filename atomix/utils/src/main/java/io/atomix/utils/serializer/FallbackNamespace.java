@@ -15,8 +15,14 @@
  */
 package io.atomix.utils.serializer;
 
+import static io.atomix.utils.serializer.NamespaceImpl.MAGIC_BYTE;
+import static io.atomix.utils.serializer.NamespaceImpl.VERSION_BYTE;
+import static io.atomix.utils.serializer.NamespaceImpl.VERSION_HEADER;
 import static org.slf4j.LoggerFactory.getLogger;
 
+import com.google.common.collect.ImmutableList;
+import io.atomix.utils.serializer.NamespaceImpl.Builder;
+import io.atomix.utils.serializer.NamespaceImpl.RegistrationBlock;
 import java.nio.ByteBuffer;
 import org.slf4j.Logger;
 
@@ -25,12 +31,18 @@ public class FallbackNamespace implements Namespace {
   private static final Logger LOG = getLogger(FallbackNamespace.class);
   private static final String DESERIALIZE_ERROR =
       "Deserialization failed with both the versioned and fallback serializers. The fallback serializer failed with:\n %s";
-  private final Namespace fallback;
-  private final Namespace namespace;
+  private final NamespaceImpl fallback;
+  private final NamespaceImpl namespace;
 
-  public FallbackNamespace(final Namespace fallback, final Namespace namespace) {
+  FallbackNamespace(final NamespaceImpl fallback, final NamespaceImpl namespace) {
     this.fallback = fallback;
     this.namespace = namespace;
+  }
+
+  public FallbackNamespace(final NamespaceImpl.Builder builder) {
+    final Builder copy = builder.copy();
+    fallback = builder.build();
+    namespace = copy.name(copy.getName() + "-compatible").setCompatible(true).build();
   }
 
   /**
@@ -41,19 +53,9 @@ public class FallbackNamespace implements Namespace {
    * @param obj Object to serialize
    * @return serialized bytes
    */
+  @Override
   public byte[] serialize(final Object obj) {
     return namespace.serialize(obj);
-  }
-
-  /**
-   * Serializes given object to byte array using Kryo instance in pool.
-   *
-   * @param obj Object to serialize
-   * @param bufferSize maximum size of serialized bytes
-   * @return serialized bytes
-   */
-  public byte[] serialize(final Object obj, final int bufferSize) {
-    return namespace.serialize(obj, bufferSize);
   }
 
   /**
@@ -62,6 +64,7 @@ public class FallbackNamespace implements Namespace {
    * @param obj Object to serialize
    * @param buffer to write to
    */
+  @Override
   public void serialize(final Object obj, final ByteBuffer buffer) {
     namespace.serialize(obj, buffer);
   }
@@ -73,9 +76,21 @@ public class FallbackNamespace implements Namespace {
    * @param <T> deserialized Object type
    * @return deserialized Object
    */
+  @Override
   public <T> T deserialize(final byte[] bytes) {
+    if (bytes[1] != MAGIC_BYTE) {
+      return fallback.deserialize(bytes);
+    }
+
     try {
-      return namespace.deserialize(bytes);
+      if (bytes[0] == VERSION_BYTE) {
+        return namespace.deserialize(bytes, VERSION_HEADER.length);
+      } else {
+        LOG.warn(
+            "Magic byte was encountered but version {} is unrecognized. Using FieldSerializer as fallback",
+            (int) bytes[0]);
+        return fallback.deserialize(bytes);
+      }
     } catch (final Exception compatEx) {
       try {
         return fallback.deserialize(bytes);
@@ -94,15 +109,30 @@ public class FallbackNamespace implements Namespace {
    * @param <T> deserialized Object type
    * @return deserialized Object
    */
+  @Override
   public <T> T deserialize(final ByteBuffer buffer) {
     final int position = buffer.position();
-    final int limit = buffer.limit();
+
+    final byte version = buffer.get(buffer.position());
+    final byte magicByte = buffer.get(buffer.position() + 1);
+
+    if (magicByte != MAGIC_BYTE) {
+      return fallback.deserialize(buffer);
+    }
 
     try {
-      return namespace.deserialize(buffer);
+      if (version == VERSION_BYTE) {
+        buffer.position(position + 2);
+        return namespace.deserialize(buffer);
+      } else {
+        LOG.warn(
+            "Magic byte was encountered but version {} is unrecognized. Using FieldSerializer as fallback",
+            (int) version);
+        return fallback.deserialize(buffer);
+      }
     } catch (final Exception compatEx) {
       try {
-        buffer.position(position).limit(limit);
+        buffer.position(position);
         return fallback.deserialize(buffer);
       } catch (final Exception legacyEx) {
         // rethrow most relevant exception and log the second one
@@ -110,5 +140,10 @@ public class FallbackNamespace implements Namespace {
         throw compatEx;
       }
     }
+  }
+
+  @Override
+  public ImmutableList<RegistrationBlock> getRegisteredBlocks() {
+    return namespace.getRegisteredBlocks();
   }
 }
