@@ -15,9 +15,13 @@ import io.zeebe.broker.system.configuration.BrokerCfg;
 import io.zeebe.broker.system.configuration.DataCfg;
 import io.zeebe.broker.system.configuration.ExporterCfg;
 import io.zeebe.exporter.api.Exporter;
+import io.zeebe.exporter.api.context.Context;
+import io.zeebe.exporter.api.context.Context.RecordFilter;
 import io.zeebe.exporter.api.context.Controller;
 import io.zeebe.logstreams.log.LogStreamReader;
 import io.zeebe.protocol.record.Record;
+import io.zeebe.protocol.record.RecordType;
+import io.zeebe.protocol.record.ValueType;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -56,6 +60,28 @@ public class SingleBrokerDataDeletionTest {
     final ExporterCfg exporterCfg = new ExporterCfg();
     exporterCfg.setClassName(ControllableExporter.class.getName());
     brokerCfg.setExporters(Collections.singletonMap("snapshot-test-exporter", exporterCfg));
+  }
+
+  @Test
+  public void shouldCompactEvenIfOnlyUnexportedRecords() {
+    // given
+    final Broker broker = clusteringRule.getBroker(0);
+
+    // - write records and update the exporter position
+    ControllableExporter.updatePosition(true);
+    writeSegments(broker, SEGMENT_COUNT);
+
+    // - trigger a snapshot creation
+    final var segmentsBeforeSnapshot = getSegmentsCount(broker);
+    clusteringRule.getClock().addTime(SNAPSHOT_PERIOD);
+
+    assertThat(clusteringRule.waitForSnapshotAtBroker(broker)).isNotNull();
+    await()
+        .untilAsserted(
+            () ->
+                assertThat(getSegmentsCount(broker))
+                    .describedAs("Expected less segments after a snapshot is taken")
+                    .isLessThan(segmentsBeforeSnapshot));
   }
 
   @Test
@@ -154,7 +180,9 @@ public class SingleBrokerDataDeletionTest {
     await()
         .untilAsserted(
             () ->
-                assertThat(ControllableExporter.EXPORTED_RECORDS.get())
+                assertThat(
+                        ControllableExporter.EXPORTED_RECORDS.get()
+                            + ControllableExporter.FILTERED_RECORDS.get())
                     .describedAs("Expected all written records to be exported")
                     .isGreaterThanOrEqualTo(writtenRecords.get()));
   }
@@ -223,11 +251,33 @@ public class SingleBrokerDataDeletionTest {
     static volatile boolean shouldExport = true;
 
     static final AtomicLong EXPORTED_RECORDS = new AtomicLong(0);
+    static final AtomicLong FILTERED_RECORDS = new AtomicLong(0);
 
     private Controller controller;
 
     static void updatePosition(final boolean flag) {
       shouldExport = flag;
+    }
+
+    @Override
+    public void configure(final Context context) throws Exception {
+      context.setFilter(
+          new RecordFilter() {
+            @Override
+            public boolean acceptType(final RecordType recordType) {
+              return recordType == RecordType.COMMAND;
+            }
+
+            @Override
+            public boolean acceptValue(final ValueType valueType) {
+              if (valueType == ValueType.JOB_BATCH) {
+                return true;
+              } else {
+                FILTERED_RECORDS.incrementAndGet();
+                return false;
+              }
+            }
+          });
     }
 
     @Override

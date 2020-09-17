@@ -10,6 +10,7 @@ package io.zeebe.broker.exporter.stream;
 import io.zeebe.broker.Loggers;
 import io.zeebe.broker.exporter.context.ExporterContext;
 import io.zeebe.broker.exporter.repo.ExporterDescriptor;
+import io.zeebe.db.DbContext;
 import io.zeebe.db.ZeebeDb;
 import io.zeebe.engine.processing.streamprocessor.EventFilter;
 import io.zeebe.engine.processing.streamprocessor.RecordValues;
@@ -22,6 +23,7 @@ import io.zeebe.logstreams.log.LogStreamReader;
 import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.protocol.impl.record.RecordMetadata;
 import io.zeebe.protocol.impl.record.UnifiedRecordValue;
+import io.zeebe.protocol.record.Record;
 import io.zeebe.protocol.record.RecordType;
 import io.zeebe.protocol.record.ValueType;
 import io.zeebe.util.LangUtil;
@@ -51,6 +53,8 @@ public final class ExporterDirector extends Actor {
       "Expected to find event with the snapshot position %s in log stream, but nothing was found. Failed to recover '%s'.";
 
   private static final Logger LOG = Loggers.EXPORTER_LOGGER;
+  private static final String SKIP_POSITION_UPDATE_ERROR_MESSAGE =
+      "Failed to update exporter position when skipping filtered record, can be skipped, but may indicate an issue if it occurs often";
   private final AtomicBoolean isOpened = new AtomicBoolean(false);
   private final List<ExporterContainer> containers;
   private final LogStream logStream;
@@ -63,6 +67,7 @@ public final class ExporterDirector extends Actor {
   private LogStreamReader logStreamReader;
   private EventFilter eventFilter;
   private ExportersState state;
+  private DbContext dbContext;
 
   private ActorCondition onCommitPositionUpdatedCondition;
   private boolean inExportingPhase;
@@ -129,7 +134,7 @@ public final class ExporterDirector extends Actor {
       eventFilter = createEventFilter(containers);
       LOG.debug("Set event filter for exporters: {}", eventFilter);
 
-    } catch (final Throwable e) {
+    } catch (final Exception e) {
       onFailure();
       LangUtil.rethrowUnchecked(e);
     }
@@ -165,7 +170,8 @@ public final class ExporterDirector extends Actor {
   }
 
   private void recoverFromSnapshot() {
-    state = new ExportersState(zeebeDb, zeebeDb.createContext());
+    dbContext = zeebeDb.createContext();
+    state = new ExportersState(zeebeDb, dbContext);
 
     final long snapshotPosition = state.getLowestPosition();
     final boolean failedToRecoverReader = !logStreamReader.seekToNextEvent(snapshotPosition);
@@ -216,6 +222,7 @@ public final class ExporterDirector extends Actor {
     // start reading
     for (final ExporterContainer container : containers) {
       container.position = state.getPosition(container.getId());
+      container.lastUnacknowledgedPosition = container.position;
       if (container.position == ExportersState.VALUE_NOT_FOUND) {
         state.setPosition(container.getId(), -1L);
       }
@@ -234,8 +241,17 @@ public final class ExporterDirector extends Actor {
 
   private void skipRecord(final LoggedEvent currentEvent) {
     final RecordMetadata metadata = new RecordMetadata();
+    final long eventPosition = currentEvent.getPosition();
+
     currentEvent.readMetadata(metadata);
     metrics.eventSkipped(metadata.getValueType());
+
+    // increase position of all up to date exporters - an up to date exporter is one which has
+    // acknowledged the last record we passed to it
+    for (final ExporterContainer container : containers) {
+      container.updatePositionOnSkipIfUpToDate(eventPosition);
+    }
+
     actor.submit(this::readNextEvent);
   }
 
@@ -306,6 +322,15 @@ public final class ExporterDirector extends Actor {
     return !isOpened.get();
   }
 
+  private void updateExporterLastExportedRecordPosition(
+      final ExporterContainer exporterContainer, final long position) {
+    final String exporterId = exporterContainer.getId();
+
+    state.setPosition(exporterId, position);
+    metrics.setLastUpdatedExportedPosition(exporterId, position);
+    exporterContainer.position = position;
+  }
+
   private static class RecordExporter {
 
     private final RecordValues recordValues = new RecordValues();
@@ -352,9 +377,12 @@ public final class ExporterDirector extends Actor {
         final ExporterContainer container = containers.get(exporterIndex);
 
         try {
-          if (container.position < typedEvent.getPosition()
-              && container.acceptRecord(rawMetadata)) {
-            container.exporter.export(typedEvent);
+          if (container.position < typedEvent.getPosition()) {
+            if (container.acceptRecord(rawMetadata)) {
+              container.export(typedEvent);
+            } else {
+              container.updatePositionOnSkipIfUpToDate(typedEvent.getPosition());
+            }
           }
 
           exporterIndex++;
@@ -414,6 +442,7 @@ public final class ExporterDirector extends Actor {
     private final ExporterContext context;
     private final Exporter exporter;
     private long position;
+    private long lastUnacknowledgedPosition;
 
     ExporterContainer(final ExporterDescriptor descriptor) {
       context =
@@ -423,14 +452,31 @@ public final class ExporterDirector extends Actor {
       exporter = descriptor.newInstance();
     }
 
+    private void export(final Record<?> record) {
+      exporter.export(record);
+      lastUnacknowledgedPosition = record.getPosition();
+    }
+
+    /**
+     * Updates the exporter's position if it is up to date - that is, if it's last acknowledged
+     * position is greater than or equal to its last unacknowledged position. This is safe to do
+     * when skipping records as it means we passed no record to this exporter between both.
+     *
+     * @param eventPosition the new, up to date position
+     */
+    private void updatePositionOnSkipIfUpToDate(final long eventPosition) {
+      if (position >= lastUnacknowledgedPosition && position < eventPosition) {
+        try {
+          updateExporterLastExportedRecordPosition(this, eventPosition);
+        } catch (final Exception e) {
+          LOG.warn(SKIP_POSITION_UPDATE_ERROR_MESSAGE, e);
+        }
+      }
+    }
+
     @Override
     public void updateLastExportedRecordPosition(final long position) {
-      actor.run(
-          () -> {
-            state.setPosition(getId(), position);
-            metrics.setLastUpdatedExportedPosition(getId(), position);
-            this.position = position;
-          });
+      actor.run(() -> updateExporterLastExportedRecordPosition(this, position));
     }
 
     @Override
