@@ -226,7 +226,7 @@ public class NamespaceImpl implements Namespace, KryoFactory, KryoPool {
   public <T> T deserialize(final byte[] bytes, final int offset) {
     return kryoInputPool.run(
         input -> {
-          input.setInputStream(new ByteArrayInputStream(bytes, offset, bytes.length));
+          input.setInputStream(new ByteArrayInputStream(bytes, offset, bytes.length - offset));
           return kryoPool.run(
               kryo -> {
                 @SuppressWarnings("unchecked")
