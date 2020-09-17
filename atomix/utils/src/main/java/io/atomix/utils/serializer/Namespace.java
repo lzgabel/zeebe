@@ -32,15 +32,6 @@ public interface Namespace {
   byte[] serialize(final Object obj);
 
   /**
-   * Serializes given object to byte array using Kryo instance in pool.
-   *
-   * @param obj Object to serialize
-   * @param bufferSize maximum size of serialized bytes
-   * @return serialized bytes
-   */
-  byte[] serialize(final Object obj, final int bufferSize);
-
-  /**
    * Serializes given object to byte buffer using Kryo instance in pool.
    *
    * @param obj Object to serialize

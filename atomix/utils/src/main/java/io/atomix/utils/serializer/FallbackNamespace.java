@@ -28,10 +28,11 @@ public class FallbackNamespace implements Namespace {
   private static final Logger LOG = getLogger(FallbackNamespace.class);
   private static final String DESERIALIZE_ERROR =
       "Deserialization failed with both the versioned and fallback serializers. The fallback serializer failed with:\n %s";
-  private final Namespace fallback;
-  private final Namespace namespace;
+  private static final byte MAGIC_BYTE = Byte.MIN_VALUE;
+  private final NamespaceImpl fallback;
+  private final NamespaceImpl namespace;
 
-  FallbackNamespace(final Namespace fallback, final Namespace namespace) {
+  FallbackNamespace(final NamespaceImpl fallback, final NamespaceImpl namespace) {
     this.fallback = fallback;
     this.namespace = namespace;
   }
@@ -55,17 +56,6 @@ public class FallbackNamespace implements Namespace {
   }
 
   /**
-   * Serializes given object to byte array using Kryo instance in pool.
-   *
-   * @param obj Object to serialize
-   * @param bufferSize maximum size of serialized bytes
-   * @return serialized bytes
-   */
-  public byte[] serialize(final Object obj, final int bufferSize) {
-    return fallback.serialize(obj, bufferSize);
-  }
-
-  /**
    * Serializes given object to byte buffer using Kryo instance in pool.
    *
    * @param obj Object to serialize
@@ -83,8 +73,12 @@ public class FallbackNamespace implements Namespace {
    * @return deserialized Object
    */
   public <T> T deserialize(final byte[] bytes) {
+    if (bytes[0] != MAGIC_BYTE) {
+      return fallback.deserialize(bytes);
+    }
+
     try {
-      return namespace.deserialize(bytes);
+      return namespace.deserialize(bytes, 1);
     } catch (final Exception compatEx) {
       try {
         return fallback.deserialize(bytes);
@@ -104,14 +98,17 @@ public class FallbackNamespace implements Namespace {
    * @return deserialized Object
    */
   public <T> T deserialize(final ByteBuffer buffer) {
-    final int position = buffer.position();
-    final int limit = buffer.limit();
+    final ByteBuffer bufferView = buffer.asReadOnlyBuffer();
+
+    if (buffer.get(buffer.position()) != MAGIC_BYTE) {
+      return fallback.deserialize(bufferView);
+    }
 
     try {
-      return namespace.deserialize(buffer);
+      bufferView.position(bufferView.position() + 1);
+      return namespace.deserialize(bufferView);
     } catch (final Exception compatEx) {
       try {
-        buffer.position(position).limit(limit);
         return fallback.deserialize(buffer);
       } catch (final Exception legacyEx) {
         // rethrow most relevant exception and log the second one

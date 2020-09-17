@@ -27,7 +27,6 @@ import com.esotericsoftware.kryo.io.ByteBufferOutput;
 import com.esotericsoftware.kryo.pool.KryoCallback;
 import com.esotericsoftware.kryo.pool.KryoFactory;
 import com.esotericsoftware.kryo.pool.KryoPool;
-import com.esotericsoftware.kryo.serializers.CompatibleFieldSerializer;
 import com.esotericsoftware.kryo.serializers.VersionFieldSerializer;
 import com.esotericsoftware.minlog.Log;
 import com.google.common.base.MoreObjects;
@@ -159,18 +158,8 @@ public class NamespaceImpl implements Namespace, KryoFactory, KryoPool {
    * @param obj Object to serialize
    * @return serialized bytes
    */
+  @Override
   public byte[] serialize(final Object obj) {
-    return serialize(obj, DEFAULT_BUFFER_SIZE);
-  }
-
-  /**
-   * Serializes given object to byte array using Kryo instance in pool.
-   *
-   * @param obj Object to serialize
-   * @param bufferSize maximum size of serialized bytes
-   * @return serialized bytes
-   */
-  public byte[] serialize(final Object obj, final int bufferSize) {
     return kryoOutputPool.run(
         output ->
             kryoPool.run(
@@ -179,7 +168,7 @@ public class NamespaceImpl implements Namespace, KryoFactory, KryoPool {
                   output.flush();
                   return output.getByteArrayOutputStream().toByteArray();
                 }),
-        bufferSize);
+        DEFAULT_BUFFER_SIZE);
   }
 
   /**
@@ -188,6 +177,7 @@ public class NamespaceImpl implements Namespace, KryoFactory, KryoPool {
    * @param obj Object to serialize
    * @param buffer to write to
    */
+  @Override
   public void serialize(final Object obj, final ByteBuffer buffer) {
     final Kryo kryo = borrow();
     try (final ByteBufferOutput out = new ByteBufferOutput(buffer)) {
@@ -204,18 +194,9 @@ public class NamespaceImpl implements Namespace, KryoFactory, KryoPool {
    * @param <T> deserialized Object type
    * @return deserialized Object
    */
+  @Override
   public <T> T deserialize(final byte[] bytes) {
-    return kryoInputPool.run(
-        input -> {
-          input.setInputStream(new ByteArrayInputStream(bytes));
-          return kryoPool.run(
-              kryo -> {
-                @SuppressWarnings("unchecked")
-                final T obj = (T) kryo.readClassAndObject(input);
-                return obj;
-              });
-        },
-        DEFAULT_BUFFER_SIZE);
+    return deserialize(bytes, 0);
   }
 
   /**
@@ -225,6 +206,7 @@ public class NamespaceImpl implements Namespace, KryoFactory, KryoPool {
    * @param <T> deserialized Object type
    * @return deserialized Object
    */
+  @Override
   public <T> T deserialize(final ByteBuffer buffer) {
     final Kryo kryo = borrow();
     try (final ByteBufferInput in = new ByteBufferInput(buffer)) {
@@ -239,6 +221,20 @@ public class NamespaceImpl implements Namespace, KryoFactory, KryoPool {
   @Override
   public ImmutableList<RegistrationBlock> getRegisteredBlocks() {
     return registeredBlocks;
+  }
+
+  public <T> T deserialize(final byte[] bytes, final int offset) {
+    return kryoInputPool.run(
+        input -> {
+          input.setInputStream(new ByteArrayInputStream(bytes, offset, bytes.length));
+          return kryoPool.run(
+              kryo -> {
+                @SuppressWarnings("unchecked")
+                final T obj = (T) kryo.readClassAndObject(input);
+                return obj;
+              });
+        },
+        DEFAULT_BUFFER_SIZE);
   }
 
   private String friendlyName() {
@@ -517,9 +513,8 @@ public class NamespaceImpl implements Namespace, KryoFactory, KryoPool {
     /**
      * Sets whether backwards/forwards compatible versioned serialization is enabled.
      *
-     * <p>When compatible serialization is enabled, the {@link CompatibleFieldSerializer} will be
-     * set as the default serializer for types that do not otherwise explicitly specify a
-     * serializer.
+     * <p>When compatible serialization is enabled, the {@link VersionFieldSerializer} will be set
+     * as the default serializer for types that do not otherwise explicitly specify a serializer.
      *
      * @param compatible whether versioned serialization is enabled
      * @return this
