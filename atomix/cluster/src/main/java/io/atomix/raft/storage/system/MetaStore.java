@@ -65,8 +65,10 @@ public class MetaStore implements AutoCloseable {
       final File confFile =
           new File(storage.directory(), String.format("%s.conf", storage.prefix()));
       configurationBuffer = FileBuffer.allocate(confFile, 32);
-      // TODO: maybe remove/rework
-      configurationBuffer.write(new byte[32]);
+
+      if (!confFile.exists()) {
+        configurationBuffer.write(new byte[32]);
+      }
     }
   }
 

@@ -73,12 +73,12 @@ public class FallbackNamespace implements Namespace {
    * @return deserialized Object
    */
   public <T> T deserialize(final byte[] bytes) {
-    if (bytes[0] != MAGIC_BYTE) {
+    if (bytes[1] != MAGIC_BYTE) {
       return fallback.deserialize(bytes);
     }
 
     try {
-      return namespace.deserialize(bytes, 1);
+      return namespace.deserialize(bytes, 2);
     } catch (final Exception compatEx) {
       try {
         return fallback.deserialize(bytes);
@@ -100,7 +100,7 @@ public class FallbackNamespace implements Namespace {
   public <T> T deserialize(final ByteBuffer buffer) {
     final ByteBuffer bufferView = buffer.asReadOnlyBuffer();
 
-    if (bufferView.get() != MAGIC_BYTE) {
+    if (bufferView.get(bufferView.position() + 1) != MAGIC_BYTE) {
       return fallback.deserialize(buffer);
     }
 
