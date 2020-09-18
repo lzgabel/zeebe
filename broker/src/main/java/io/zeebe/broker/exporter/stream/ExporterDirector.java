@@ -67,7 +67,6 @@ public final class ExporterDirector extends Actor {
   private LogStreamReader logStreamReader;
   private EventFilter eventFilter;
   private ExportersState state;
-  private DbContext dbContext;
 
   private ActorCondition onCommitPositionUpdatedCondition;
   private boolean inExportingPhase;
@@ -170,8 +169,7 @@ public final class ExporterDirector extends Actor {
   }
 
   private void recoverFromSnapshot() {
-    dbContext = zeebeDb.createContext();
-    state = new ExportersState(zeebeDb, dbContext);
+    state = new ExportersState(zeebeDb, zeebeDb.createContext());
 
     final long snapshotPosition = state.getLowestPosition();
     final boolean failedToRecoverReader = !logStreamReader.seekToNextEvent(snapshotPosition);
@@ -322,15 +320,6 @@ public final class ExporterDirector extends Actor {
     return !isOpened.get();
   }
 
-  private void updateExporterLastExportedRecordPosition(
-      final ExporterContainer exporterContainer, final long position) {
-    final String exporterId = exporterContainer.getId();
-
-    state.setPosition(exporterId, position);
-    metrics.setLastUpdatedExportedPosition(exporterId, position);
-    exporterContainer.position = position;
-  }
-
   private static class RecordExporter {
 
     private final RecordValues recordValues = new RecordValues();
@@ -467,16 +456,22 @@ public final class ExporterDirector extends Actor {
     private void updatePositionOnSkipIfUpToDate(final long eventPosition) {
       if (position >= lastUnacknowledgedPosition && position < eventPosition) {
         try {
-          updateExporterLastExportedRecordPosition(this, eventPosition);
+          updateExporterLastExportedRecordPosition(eventPosition);
         } catch (final Exception e) {
           LOG.warn(SKIP_POSITION_UPDATE_ERROR_MESSAGE, e);
         }
       }
     }
 
+    private void updateExporterLastExportedRecordPosition(final long eventPosition) {
+      state.setPosition(getId(), eventPosition);
+      metrics.setLastUpdatedExportedPosition(getId(), eventPosition);
+      position = eventPosition;
+    }
+
     @Override
     public void updateLastExportedRecordPosition(final long position) {
-      actor.run(() -> updateExporterLastExportedRecordPosition(this, position));
+      actor.run(() -> updateExporterLastExportedRecordPosition(position));
     }
 
     @Override

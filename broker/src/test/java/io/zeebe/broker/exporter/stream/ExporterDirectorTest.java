@@ -22,15 +22,18 @@ import io.zeebe.broker.exporter.util.PojoConfigurationExporter;
 import io.zeebe.broker.exporter.util.PojoConfigurationExporter.PojoExporterConfiguration;
 import io.zeebe.engine.Loggers;
 import io.zeebe.exporter.api.context.Context;
+import io.zeebe.exporter.api.context.Context.RecordFilter;
 import io.zeebe.protocol.impl.record.value.deployment.DeploymentRecord;
 import io.zeebe.protocol.impl.record.value.incident.IncidentRecord;
 import io.zeebe.protocol.impl.record.value.job.JobRecord;
+import io.zeebe.protocol.impl.record.value.variable.VariableRecord;
 import io.zeebe.protocol.record.Record;
 import io.zeebe.protocol.record.RecordType;
 import io.zeebe.protocol.record.ValueType;
 import io.zeebe.protocol.record.intent.DeploymentIntent;
 import io.zeebe.protocol.record.intent.IncidentIntent;
 import io.zeebe.protocol.record.intent.JobIntent;
+import io.zeebe.protocol.record.intent.VariableIntent;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -42,6 +45,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import org.awaitility.Awaitility;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -58,7 +62,6 @@ public final class ExporterDirectorTest {
   @Rule public final ExporterRule rule = new ExporterRule(PARTITION_ID);
   private final List<ControlledTestExporter> exporters = new ArrayList<>();
   private final List<ExporterDescriptor> exporterDescriptors = new ArrayList<>();
-  private ExportersState state;
 
   @Before
   public void init() {
@@ -82,6 +85,110 @@ public final class ExporterDirectorTest {
 
   private void startExporterDirector(final List<ExporterDescriptor> exporterDescriptors) {
     rule.startExporterDirector(exporterDescriptors);
+  }
+
+  @Test
+  public void shouldUpdatePositionOfUpToDateExportersOnSkip() {
+    // given
+    // used to make sure we exported everything
+    final ControlledTestExporter tailingExporter = exporters.get(0);
+    final ControlledTestExporter filteringExporter = exporters.get(1);
+    tailingExporter
+        .onConfigure(withFilter(List.of(RecordType.COMMAND), List.of(ValueType.INCIDENT)))
+        .shouldAutoUpdatePosition(false);
+    filteringExporter
+        .onConfigure(withFilter(List.of(RecordType.COMMAND), List.of(ValueType.DEPLOYMENT)))
+        .shouldAutoUpdatePosition(false);
+
+    // when
+    startExporterDirector(exporterDescriptors);
+    final ExportersState state = rule.getExportersState();
+    final List<Long> recordPositions =
+        Arrays.asList(
+            rule.writeEvent(DeploymentIntent.CREATED, new DeploymentRecord()),
+            rule.writeCommand(DeploymentIntent.CREATE, new DeploymentRecord()));
+
+    // then
+    Awaitility.await("director has read all records until now")
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(() -> assertThat(filteringExporter.getExportedRecords()).hasSize(1));
+    assertThat(state.getPosition(EXPORTER_ID_1)).isEqualTo(recordPositions.get(1));
+    assertThat(state.getPosition(EXPORTER_ID_2)).isEqualTo(recordPositions.get(0));
+    filteringExporter.getController().updateLastExportedRecordPosition(recordPositions.get(1));
+
+    // then
+    final long lastRecordPosition = rule.writeCommand(IncidentIntent.CREATE, new IncidentRecord());
+    Awaitility.await("director has read all records until now")
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(() -> assertThat(tailingExporter.getExportedRecords()).hasSize(1));
+    assertThat(state.getPosition(EXPORTER_ID_1)).isEqualTo(recordPositions.get(1));
+    assertThat(state.getPosition(EXPORTER_ID_2)).isEqualTo(lastRecordPosition);
+  }
+
+  @Test
+  public void shouldUpdatePositionIfSkippingFirstEvent() {
+    // given
+    // used to make sure we exported everything
+    final ControlledTestExporter tailingExporter = exporters.get(0);
+    final ControlledTestExporter filteringExporter = exporters.get(1);
+    filteringExporter
+        .onConfigure(withFilter(List.of(RecordType.COMMAND), List.of(ValueType.DEPLOYMENT)))
+        .shouldAutoUpdatePosition(false);
+
+    // when
+    startExporterDirector(exporterDescriptors);
+    final List<Long> recordPositions =
+        Arrays.asList(
+            rule.writeEvent(DeploymentIntent.CREATED, new DeploymentRecord()),
+            rule.writeCommand(DeploymentIntent.CREATE, new DeploymentRecord()));
+
+    // then
+    final ExportersState state = rule.getExportersState();
+    final List<Record<?>> exportedRecords = tailingExporter.getExportedRecords();
+    Awaitility.await("director has read all records")
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(() -> assertThat(exportedRecords.size()).isEqualTo(recordPositions.size()));
+    assertThat(state.getPosition(EXPORTER_ID_2)).isEqualTo(recordPositions.get(0));
+  }
+
+  @Test
+  public void shouldUpdatePositionOfUpToDateExportersOnSingleExporterFilter() {
+    // given
+    final RecordFilter deploymentCommandFilter =
+        new RecordFilter() {
+          @Override
+          public boolean acceptType(final RecordType recordType) {
+            return recordType == RecordType.COMMAND;
+          }
+
+          @Override
+          public boolean acceptValue(final ValueType valueType) {
+            return valueType == ValueType.DEPLOYMENT;
+          }
+        };
+    exporters.get(0).onConfigure(context -> context.setFilter(deploymentCommandFilter));
+    exporters.forEach(e -> e.shouldAutoUpdatePosition(true));
+
+    // when
+    startExporterDirector(exporterDescriptors);
+    final List<Long> recordPositions =
+        Arrays.asList(
+            rule.writeCommand(DeploymentIntent.CREATE, new DeploymentRecord()),
+            rule.writeEvent(DeploymentIntent.CREATED, new DeploymentRecord()),
+            rule.writeEvent(DeploymentIntent.CREATED, new DeploymentRecord()));
+
+    // then
+    final ExportersState state = rule.getExportersState();
+    final Long lastEventPosition = recordPositions.get(2);
+
+    Awaitility.await("director has read all records")
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(() -> assertThat(exporters.get(1).getExportedRecords().size()).isEqualTo(3));
+    Awaitility.await("exporters have updated their position")
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(() -> assertThat(state.getLowestPosition()).isEqualTo(lastEventPosition));
+    assertThat(state.getPosition(exporterDescriptors.get(0).getId())).isEqualTo(lastEventPosition);
+    assertThat(state.getPosition(exporterDescriptors.get(1).getId())).isEqualTo(lastEventPosition);
   }
 
   @Test
