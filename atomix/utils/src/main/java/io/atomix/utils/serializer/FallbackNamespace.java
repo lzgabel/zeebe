@@ -78,7 +78,14 @@ public class FallbackNamespace implements Namespace {
     }
 
     try {
-      return namespace.deserialize(bytes, 2);
+      if (bytes[0] == 0x01) {
+        return namespace.deserialize(bytes, 2);
+      } else {
+        LOG.warn(
+            "Magic byte was encountered, signalling newer version of serializer, but version {} is unrecognized. Using FieldSerializer as fallback",
+            (int) bytes[0]);
+        return fallback.deserialize(bytes);
+      }
     } catch (final Exception compatEx) {
       try {
         return fallback.deserialize(bytes);
@@ -105,7 +112,16 @@ public class FallbackNamespace implements Namespace {
     }
 
     try {
-      return namespace.deserialize(bufferView);
+      final byte version = bufferView.get(bufferView.position());
+      if (version == 0x01) {
+        bufferView.position(bufferView.position() + 2);
+        return namespace.deserialize(bufferView);
+      } else {
+        LOG.warn(
+            "Magic byte was encountered, signalling newer version of serializer, but version {} is unrecognized. Using FieldSerializer as fallback",
+            (int) version);
+        return fallback.deserialize(buffer);
+      }
     } catch (final Exception compatEx) {
       try {
         return fallback.deserialize(buffer);
