@@ -92,6 +92,7 @@ pipeline {
 
                 container('docker') {
                     sh '.ci/scripts/docker/build.sh'
+                    sh '.ci/scripts/docker/build_zeebe-hazelcast-exporter.sh'
                 }
             }
         }
@@ -187,14 +188,19 @@ pipeline {
                     }
                 }
 
-                stage('Build Docs') {
+                stage('BPMN TCK') {
                     steps {
-                      retry(3) {
                         container('maven') {
-                            sh '.ci/scripts/docs/prepare.sh'
-                            sh '.ci/scripts/docs/build.sh'
+                            configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
+                                sh '.ci/scripts/distribution/test-tck.sh'
+                            }
                         }
-                      }
+                    }
+
+                    post {
+                        always {
+                            junit testResults: "bpmn-tck/**/*/TEST*.xml", keepLongStdio: true
+                        }
                     }
                 }
             }
@@ -260,18 +266,6 @@ pipeline {
                         }
                     }
                 }
-
-                stage('Docs') {
-                    when { anyOf { branch masterBranchName; branch developBranchName } }
-                    steps {
-                        retry(3) {
-                            build job: 'zeebe-docs', parameters: [
-                                string(name: 'BRANCH', value: env.BRANCH_NAME),
-                                booleanParam(name: 'LIVE', value: isMasterBranch)
-                            ]
-                        }
-                    }
-                }
             }
         }
     }
@@ -286,11 +280,37 @@ pipeline {
 
                     build job: currentBuild.projectName, propagate: false, quietPeriod: 60, wait: false
                 }
+
+                String userReason = null
+                if (currentBuild.description ==~ /.*Flaky Tests.*/) {
+                    userReason = 'flaky-tests'
+                }
+                org.camunda.helper.CIAnalytics.trackBuildStatus(this, userReason)
+            }
+        }
+        failure {
+            script {
+                if (env.BRANCH_NAME != 'develop' || agentDisconnected()) {
+                    return
+                }
+
+                echo "Send slack message"
+                slackSend(
+                    channel: "#zeebe-ci${jenkins.model.JenkinsLocationConfiguration.get()?.getUrl()?.contains('stage') ? '-stage' : ''}",
+                    message: "Zeebe ${env.BRANCH_NAME} build ${currentBuild.absoluteUrl} changed status to ${currentBuild.currentResult}")
             }
         }
         changed {
             script {
-                if (env.BRANCH_NAME == 'develop' && !agentDisconnected()) {
+                if (env.BRANCH_NAME != 'develop' || agentDisconnected()) {
+                    return
+                }
+                if (currentBuild.currentResult == 'FAILURE') {
+                    return // already handled above
+                }
+
+                if (hasBuildResultChanged()) {
+                    echo "Send slack message"
                     slackSend(
                         channel: "#zeebe-ci${jenkins.model.JenkinsLocationConfiguration.get()?.getUrl()?.contains('stage') ? '-stage' : ''}",
                         message: "Zeebe ${env.BRANCH_NAME} build ${currentBuild.absoluteUrl} changed status to ${currentBuild.currentResult}")

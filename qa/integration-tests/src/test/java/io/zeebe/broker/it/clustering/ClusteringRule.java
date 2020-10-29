@@ -19,7 +19,6 @@ import static io.zeebe.protocol.Protocol.START_PARTITION_ID;
 import io.atomix.cluster.AtomixCluster;
 import io.atomix.cluster.MemberId;
 import io.atomix.cluster.discovery.BootstrapDiscoveryProvider;
-import io.atomix.cluster.messaging.impl.NettyBroadcastService;
 import io.atomix.cluster.messaging.impl.NettyMessagingService;
 import io.atomix.cluster.messaging.impl.NettyUnicastService;
 import io.atomix.cluster.protocol.SwimMembershipProtocol;
@@ -378,7 +377,7 @@ public final class ClusteringRule extends ExternalResource {
         io.zeebe.util.SocketUtil.toHostAndPortString(
             gateway.getGatewayCfg().getNetwork().toSocketAddress());
     final ZeebeClientBuilder zeebeClientBuilder =
-        ZeebeClient.newClientBuilder().brokerContactPoint(contactPoint);
+        ZeebeClient.newClientBuilder().gatewayAddress(contactPoint);
 
     clientConfigurator.accept(zeebeClientBuilder);
 
@@ -569,7 +568,6 @@ public final class ClusteringRule extends ExternalResource {
 
     ((NettyUnicastService) atomix.getUnicastService()).stop().join();
     ((NettyMessagingService) atomix.getMessagingService()).stop().join();
-    ((NettyBroadcastService) atomix.getBroadcastService()).stop().join();
   }
 
   public void connect(final Broker broker) {
@@ -577,7 +575,6 @@ public final class ClusteringRule extends ExternalResource {
 
     ((NettyUnicastService) atomix.getUnicastService()).start().join();
     ((NettyMessagingService) atomix.getMessagingService()).start().join();
-    ((NettyBroadcastService) atomix.getBroadcastService()).start().join();
   }
 
   public void stopBrokerAndAwaitNewLeader(final int nodeId) {
@@ -630,7 +627,7 @@ public final class ClusteringRule extends ExternalResource {
   public void waitForTopology(final Predicate<List<BrokerInfo>> topologyPredicate) {
     Awaitility.await()
         .pollInterval(Duration.ofMillis(100))
-        .atMost(Duration.ofSeconds(10))
+        .atMost(Duration.ofSeconds(60))
         .ignoreExceptions()
         .until(() -> getTopologyFromClient().getBrokers(), topologyPredicate);
   }

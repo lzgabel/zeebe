@@ -19,6 +19,7 @@ import io.zeebe.engine.processing.message.command.SubscriptionCommandMessageHand
 import io.zeebe.engine.processing.message.command.SubscriptionCommandSender;
 import io.zeebe.engine.processing.streamprocessor.ReadonlyProcessingContext;
 import io.zeebe.engine.processing.streamprocessor.RecordValues;
+import io.zeebe.engine.processing.streamprocessor.StreamProcessor;
 import io.zeebe.engine.processing.streamprocessor.StreamProcessorLifecycleAware;
 import io.zeebe.engine.processing.streamprocessor.TypedEventImpl;
 import io.zeebe.engine.processing.streamprocessor.writers.CommandResponseWriter;
@@ -78,6 +79,7 @@ public final class EngineRule extends ExternalResource {
   private final int partitionCount;
   private final boolean explicitStart;
   private Consumer<String> jobsAvailableCallback = type -> {};
+  private DeploymentDistributor deploymentDistributor = new DeploymentDistributionImpl();
 
   private final Int2ObjectHashMap<SubscriptionCommandMessageHandler> subscriptionHandlers =
       new Int2ObjectHashMap<>();
@@ -142,6 +144,11 @@ public final class EngineRule extends ExternalResource {
     return this;
   }
 
+  public EngineRule withDeploymentDistributor(final DeploymentDistributor deploymentDistributor) {
+    this.deploymentDistributor = deploymentDistributor;
+    return this;
+  }
+
   private void startProcessors() {
     final DeploymentRecord deploymentRecord = new DeploymentRecord();
     final UnsafeBuffer deploymentBuffer = new UnsafeBuffer(new byte[deploymentRecord.getLength()]);
@@ -161,7 +168,7 @@ public final class EngineRule extends ExternalResource {
                           partitionCount,
                           new SubscriptionCommandSender(
                               partitionId, new PartitionCommandSenderImpl()),
-                          new DeploymentDistributionImpl(),
+                          deploymentDistributor,
                           (key, partition) -> {},
                           jobsAvailableCallback)
                       .withListener(new ProcessingExporterTransistor()));
@@ -219,6 +226,10 @@ public final class EngineRule extends ExternalResource {
 
   public ZeebeState getZeebeState() {
     return environmentRule.getZeebeState();
+  }
+
+  public StreamProcessor getStreamProcessor(final int partitionId) {
+    return environmentRule.getStreamProcessor(partitionId);
   }
 
   public DeploymentClient deployment() {
