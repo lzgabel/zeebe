@@ -377,8 +377,10 @@ public class ElasticsearchClient {
 
   protected String indexFor(final Record<?> record) {
     final Instant timestamp = Instant.ofEpochMilli(record.getTimestamp());
-    return indexPrefixForValueTypeWithDelimiter(record.getValueType())
-        + formatter.format(timestamp);
+    //    return indexPrefixForValueTypeWithDelimiter(record.getValueType())
+    //        + formatter.format(timestamp);
+    // 不再根据时间创建索引
+    return indexPrefixForValueTypeWithDelimiter(record.getValueType());
   }
 
   protected String idFor(final Record<?> record) {
