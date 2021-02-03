@@ -103,11 +103,19 @@ public final class ProcessingStateMachine {
       "Error record was written at {}, we will continue with processing if event was committed. Current commit position is {}.";
 
   private static final Duration PROCESSING_RETRY_DELAY = Duration.ofMillis(250);
-  protected final ZeebeState zeebeState;
-  protected final RecordMetadata metadata = new RecordMetadata();
-  protected final TypedResponseWriterImpl responseWriter;
+
+  private static final MetadataFilter PROCESSING_FILTER =
+      recordMetadata ->
+          recordMetadata.getRecordType() == RecordType.COMMAND
+              || !MigratedStreamProcessors.isMigrated(recordMetadata.getValueType());
+
+  private final EventFilter eventFilter =
+      new MetadataEventFilter(new RecordProtocolVersionFilter().and(PROCESSING_FILTER));
+
+  private final ZeebeState zeebeState;
+  private final RecordMetadata metadata = new RecordMetadata();
+  private final TypedResponseWriterImpl responseWriter;
   private final ActorControl actor;
-  private final EventFilter eventFilter;
   private final LogStream logStream;
   private final LogStreamReader logStreamReader;
   private final TypedStreamWriter logStreamWriter;
@@ -143,7 +151,6 @@ public final class ProcessingStateMachine {
       final ProcessingContext context, final BooleanSupplier shouldProcessNext) {
 
     actor = context.getActor();
-    eventFilter = context.getEventFilter();
     recordProcessorMap = context.getRecordProcessorMap();
     recordValues = context.getRecordValues();
     logStreamReader = context.getLogStreamReader();
@@ -201,7 +208,7 @@ public final class ProcessingStateMachine {
     if (shouldProcessNext.getAsBoolean() && logStreamReader.hasNext() && currentProcessor == null) {
       currentEvent = logStreamReader.next();
 
-      if (eventFilter == null || eventFilter.applies(currentEvent)) {
+      if (eventFilter.applies(currentEvent)) {
         processEvent(currentEvent);
       } else {
         skipRecord();
@@ -220,11 +227,22 @@ public final class ProcessingStateMachine {
     }
 
     processingStartTime = ActorClock.currentTimeMillis();
-    metrics.processingLatency(metadata.getRecordType(), event.getTimestamp(), processingStartTime);
 
     try {
       final UnifiedRecordValue value = recordValues.readRecordValue(event, metadata.getValueType());
       typedEvent.wrap(event, metadata, value);
+
+      // process only commands - skip events and rejections
+      if (MigratedStreamProcessors.isMigrated(typedEvent)
+          && typedEvent.getRecordType() != RecordType.COMMAND) {
+
+        currentProcessor = null;
+        skipRecord();
+        return;
+      }
+
+      metrics.processingLatency(
+          metadata.getRecordType(), event.getTimestamp(), processingStartTime);
 
       processInTransaction(typedEvent);
 
@@ -264,7 +282,8 @@ public final class ProcessingStateMachine {
 
           // default side effect is responses; can be changed by processor
           sideEffectProducer = responseWriter;
-          final boolean isNotOnBlacklist = !zeebeState.isOnBlacklist(typedRecord);
+          final boolean isNotOnBlacklist =
+              !zeebeState.getBlackListState().isOnBlacklist(typedRecord);
           if (isNotOnBlacklist) {
             currentProcessor.processRecord(
                 position,
@@ -274,7 +293,7 @@ public final class ProcessingStateMachine {
                 this::setSideEffectProducer);
           }
 
-          zeebeState.markAsProcessed(position);
+          zeebeState.getLastProcessedPositionState().markAsProcessed(position);
         });
   }
 
@@ -328,7 +347,9 @@ public final class ProcessingStateMachine {
           writeRejectionOnCommand(processingException);
           errorRecord.initErrorRecord(processingException, position);
 
-          zeebeState.tryToBlacklist(typedEvent, errorRecord::setWorkflowInstanceKey);
+          zeebeState
+              .getBlackListState()
+              .tryToBlacklist(typedEvent, errorRecord::setWorkflowInstanceKey);
 
           logStreamWriter.appendFollowUpEvent(
               typedEvent.getKey(), ErrorIntent.CREATED, errorRecord);
