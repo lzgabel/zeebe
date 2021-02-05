@@ -12,11 +12,14 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.regex.Pattern;
+import org.springframework.util.unit.DataSize;
 
 public final class RocksdbCfg implements ConfigurationEntry {
 
   private Properties columnFamilyOptions;
   private boolean statisticsEnabled;
+  private DataSize memoryLimit = DataSize.ofBytes(RocksDbConfiguration.DEFAULT_MEMORY_LIMIT);
+  private int maxOpenFiles = RocksDbConfiguration.DEFAULT_UNLIMITED_MAX_OPEN_FILES;
 
   @Override
   public void init(final BrokerCfg globalConfig, final String brokerBase) {
@@ -54,8 +57,39 @@ public final class RocksdbCfg implements ConfigurationEntry {
     this.statisticsEnabled = statisticsEnabled;
   }
 
+  public DataSize getMemoryLimit() {
+    return memoryLimit;
+  }
+
+  public void setMemoryLimit(final DataSize memoryLimit) {
+    this.memoryLimit = memoryLimit;
+  }
+
+  public int getMaxOpenFiles() {
+    return maxOpenFiles;
+  }
+
+  public void setMaxOpenFiles(final int maxOpenFiles) {
+    this.maxOpenFiles = maxOpenFiles;
+  }
+
   public RocksDbConfiguration createRocksDbConfiguration() {
-    return RocksDbConfiguration.of(columnFamilyOptions, statisticsEnabled);
+    return RocksDbConfiguration.of(
+        columnFamilyOptions, statisticsEnabled, memoryLimit.toBytes(), maxOpenFiles);
+  }
+
+  @Override
+  public String toString() {
+    return "RocksdbCfg{"
+        + "columnFamilyOptions="
+        + columnFamilyOptions
+        + ", statisticsEnabled="
+        + statisticsEnabled
+        + ", memoryLimit="
+        + memoryLimit
+        + ", maxOpenFiles="
+        + maxOpenFiles
+        + '}';
   }
 
   private static final class RocksDBColumnFamilyOption {
