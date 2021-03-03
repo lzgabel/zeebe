@@ -60,6 +60,7 @@ public class BlockSequenceBuilder implements BlockBuilder {
     }
   }
 
+  @Override
   public AbstractFlowNodeBuilder<?, ?> buildFlowNodes(
       final AbstractFlowNodeBuilder<?, ?> nodeBuilder) {
     AbstractFlowNodeBuilder<?, ?> workflowWorkInProgress = nodeBuilder;

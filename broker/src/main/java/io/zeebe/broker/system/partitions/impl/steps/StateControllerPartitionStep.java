@@ -28,17 +28,14 @@ public class StateControllerPartitionStep implements PartitionStep {
     final var stateController =
         new StateControllerImpl(
             context.getPartitionId(),
-            DefaultZeebeDbFactory.defaultFactory(databaseCfg.getColumnFamilyOptions()),
+            DefaultZeebeDbFactory.defaultFactory(databaseCfg.createRocksDbConfiguration()),
             context
                 .getSnapshotStoreSupplier()
-                .getConstructableSnapshotStore(context.getRaftPartition().name()),
-            context
-                .getSnapshotStoreSupplier()
-                .getReceivableSnapshotStore(context.getRaftPartition().name()),
+                .getConstructableSnapshotStore(context.getPartitionId()),
+            context.getSnapshotStoreSupplier().getReceivableSnapshotStore(context.getPartitionId()),
             runtimeDirectory,
             context.getSnapshotReplication(),
-            new AtomixRecordEntrySupplierImpl(
-                context.getZeebeIndexMapping(), context.getRaftLogReader()),
+            new AtomixRecordEntrySupplierImpl(context.getRaftLogReader()),
             StatePositionSupplier::getHighestExportedPosition);
 
     context.setSnapshotController(stateController);

@@ -50,6 +50,7 @@ import io.zeebe.broker.system.partitions.ZeebePartition;
 import io.zeebe.broker.system.partitions.impl.AtomixPartitionMessagingService;
 import io.zeebe.broker.system.partitions.impl.PartitionProcessingState;
 import io.zeebe.broker.system.partitions.impl.PartitionTransitionImpl;
+import io.zeebe.broker.system.partitions.impl.steps.AtomixLogStoragePartitionStep;
 import io.zeebe.broker.system.partitions.impl.steps.ExporterDirectorPartitionStep;
 import io.zeebe.broker.system.partitions.impl.steps.FollowerPostStoragePartitionStep;
 import io.zeebe.broker.system.partitions.impl.steps.LeaderPostStoragePartitionStep;
@@ -69,7 +70,6 @@ import io.zeebe.engine.processing.message.command.SubscriptionCommandSender;
 import io.zeebe.engine.processing.streamprocessor.ProcessingContext;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.logstreams.log.LogStream;
-import io.zeebe.logstreams.storage.atomix.ZeebeIndexAdapter;
 import io.zeebe.protocol.impl.encoding.BrokerInfo;
 import io.zeebe.snapshots.broker.SnapshotStoreSupplier;
 import io.zeebe.snapshots.broker.impl.FileBasedSnapshotStoreFactory;
@@ -84,9 +84,7 @@ import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.ActorScheduler;
 import io.zeebe.util.sched.clock.ActorClock;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -97,6 +95,7 @@ public final class Broker implements AutoCloseable {
   public static final Logger LOG = Loggers.SYSTEM_LOGGER;
   private static final List<PartitionStep> LEADER_STEPS =
       List.of(
+          new AtomixLogStoragePartitionStep(),
           new LogStreamPartitionStep(),
           new RaftLogReaderPartitionStep(),
           new SnapshotReplicationPartitionStep(),
@@ -128,7 +127,6 @@ public final class Broker implements AutoCloseable {
   private EmbeddedGatewayService embeddedGatewayService;
   private ServerTransport serverTransport;
   private BrokerHealthCheckService healthCheckService;
-  private Map<Integer, ZeebeIndexAdapter> partitionIndexes;
   private final List<DiskSpaceUsageListener> diskSpaceUsageListeners = new ArrayList<>();
   private final SpringBrokerBridge springBrokerBridge;
   private DiskSpaceUsageMonitor diskSpaceUsageMonitor;
@@ -206,7 +204,8 @@ public final class Broker implements AutoCloseable {
     final StartProcess startContext = new StartProcess("Broker-" + localBroker.getNodeId());
 
     startContext.addStep("actor scheduler", this::actorSchedulerStep);
-    startContext.addStep("membership and replication protocol", () -> atomixCreateStep(brokerCfg));
+    startContext.addStep(
+        "membership and replication protocol", () -> atomixCreateStep(brokerCfg, localBroker));
     startContext.addStep(
         "command api transport",
         () ->
@@ -232,7 +231,7 @@ public final class Broker implements AutoCloseable {
         "leader management request handler", () -> managementRequestStep(localBroker));
     startContext.addStep(
         "zeebe partitions", () -> partitionsStep(brokerCfg, clusterCfg, localBroker));
-    startContext.addStep("register diskspace usage listeners", () -> addDiskSpaceUsageListeners());
+    startContext.addStep("register diskspace usage listeners", this::addDiskSpaceUsageListeners);
     startContext.addStep("upgrade manager", this::addBrokerAdminService);
 
     return startContext;
@@ -253,25 +252,11 @@ public final class Broker implements AutoCloseable {
         scheduler.stop().get(brokerContext.getStepTimeout().toMillis(), TimeUnit.MILLISECONDS);
   }
 
-  private AutoCloseable atomixCreateStep(final BrokerCfg brokerCfg) {
-    final var snapshotStoreFactory = new FileBasedSnapshotStoreFactory();
+  private AutoCloseable atomixCreateStep(final BrokerCfg brokerCfg, final BrokerInfo localBroker) {
+    final var snapshotStoreFactory =
+        new FileBasedSnapshotStoreFactory(scheduler, localBroker.getNodeId());
     snapshotStoreSupplier = snapshotStoreFactory;
     atomix = AtomixFactory.fromConfiguration(brokerCfg, snapshotStoreFactory);
-
-    final var partitionGroup =
-        (RaftPartitionGroup)
-            atomix.getPartitionService().getPartitionGroup(AtomixFactory.GROUP_NAME);
-
-    partitionIndexes = new HashMap<>();
-    final var logIndexDensity = brokerCfg.getData().getLogIndexDensity();
-    partitionGroup.getPartitions().stream()
-        .map(RaftPartition.class::cast)
-        .forEach(
-            raftPartition -> {
-              final var zeebeIndex = ZeebeIndexAdapter.ofDensity(logIndexDensity);
-              partitionIndexes.put(raftPartition.id().id(), zeebeIndex);
-              raftPartition.setJournalIndexFactory(() -> zeebeIndex);
-            });
 
     return () ->
         atomix.stop().get(brokerContext.getStepTimeout().toMillis(), TimeUnit.MILLISECONDS);
@@ -417,7 +402,6 @@ public final class Broker implements AutoCloseable {
                     scheduler,
                     brokerCfg,
                     commandHandler,
-                    partitionIndexes.get(partitionId),
                     snapshotStoreSupplier,
                     createFactory(topologyManager, clusterCfg, atomix, managementRequestHandler),
                     buildExporterRepository(brokerCfg),
@@ -471,7 +455,7 @@ public final class Broker implements AutoCloseable {
 
       final DeploymentDistributorImpl deploymentDistributor =
           new DeploymentDistributorImpl(
-              clusterCfg, atomix, partitionListener, zeebeState.getDeploymentState(), actor);
+              atomix, partitionListener, zeebeState.getDeploymentState(), actor);
 
       final PartitionCommandSenderImpl partitionCommandSender =
           new PartitionCommandSenderImpl(atomix, topologyManager, actor);

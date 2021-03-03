@@ -10,23 +10,35 @@ package io.zeebe.engine.processing.streamprocessor;
 import io.zeebe.db.TransactionContext;
 import io.zeebe.db.TransactionOperation;
 import io.zeebe.db.ZeebeDbTransaction;
+import io.zeebe.engine.processing.deployment.model.element.ExecutableSequenceFlow;
 import io.zeebe.engine.processing.streamprocessor.writers.NoopResponseWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.ReprocessingStreamWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedResponseWriter;
+import io.zeebe.engine.state.EventApplier;
+import io.zeebe.engine.state.KeyGeneratorControls;
 import io.zeebe.engine.state.ZeebeState;
+import io.zeebe.engine.state.mutable.MutableLastProcessedPositionState;
+import io.zeebe.engine.state.mutable.MutableWorkflowState;
 import io.zeebe.logstreams.impl.Loggers;
 import io.zeebe.logstreams.log.LogStreamReader;
 import io.zeebe.logstreams.log.LoggedEvent;
+import io.zeebe.protocol.Protocol;
 import io.zeebe.protocol.impl.record.RecordMetadata;
 import io.zeebe.protocol.impl.record.UnifiedRecordValue;
 import io.zeebe.protocol.impl.record.value.error.ErrorRecord;
+import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceRecord;
+import io.zeebe.protocol.record.RecordType;
 import io.zeebe.protocol.record.ValueType;
+import io.zeebe.protocol.record.value.BpmnElementType;
 import io.zeebe.util.retry.EndlessRetryStrategy;
 import io.zeebe.util.retry.RetryStrategy;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -87,8 +99,16 @@ public final class ReProcessingStateMachine {
       "Expected that position '%d' of current event is higher then position '%d' of last event, but was not. Inconsistent log detected!";
 
   private static final Consumer<Long> NOOP_LONG_CONSUMER = (instanceKey) -> {};
-  protected final RecordMetadata metadata = new RecordMetadata();
+
+  private static final MetadataFilter REPLAY_FILTER =
+      recordMetadata ->
+          recordMetadata.getRecordType() == RecordType.EVENT
+              || !MigratedStreamProcessors.isMigrated(recordMetadata.getValueType());
+
+  private final RecordMetadata metadata = new RecordMetadata();
   private final ZeebeState zeebeState;
+  private final KeyGeneratorControls keyGeneratorControls;
+  private final MutableLastProcessedPositionState lastProcessedPositionState;
   private final ActorControl actor;
   private final ErrorRecord errorRecord = new ErrorRecord();
   private final TypedEventImpl typedEvent;
@@ -97,11 +117,17 @@ public final class ReProcessingStateMachine {
   private final RecordProcessorMap recordProcessorMap;
 
   private final EventFilter eventFilter =
-      new MetadataEventFilter(new RecordProtocolVersionFilter());
+      new MetadataEventFilter(
+          new RecordProtocolVersionFilter()
+          // TODO (saig0): enable the replay filter after all stream processors are migrated (#6202)
+          // until then, we need to restore the key generator for already migrated processors
+          //          .and(REPLAY_FILTER)
+          );
 
   private final LogStreamReader logStreamReader;
   private final ReprocessingStreamWriter reprocessingStreamWriter = new ReprocessingStreamWriter();
   private final TypedResponseWriter noopResponseWriter = new NoopResponseWriter();
+  private final EventApplier eventApplier;
 
   private final TransactionContext transactionContext;
   private final RetryStrategy updateStateRetryStrategy;
@@ -113,12 +139,16 @@ public final class ReProcessingStateMachine {
   private long lastSourceEventPosition;
   private long lastFollowUpEventPosition;
   private long snapshotPosition;
+  private long highestRecordKey = -1L;
+
+  private final Map<Long, Long> lastGeneratedKeyBySourceCommandPosition = new HashMap<>();
 
   private ActorFuture<Long> recoveryFuture;
   private LoggedEvent currentEvent;
   private TypedRecordProcessor eventProcessor;
   private ZeebeDbTransaction zeebeDbTransaction;
   private final boolean detectReprocessingInconsistency;
+  private final MutableWorkflowState workflowState;
 
   public ReProcessingStateMachine(final ProcessingContext context) {
     actor = context.getActor();
@@ -128,8 +158,12 @@ public final class ReProcessingStateMachine {
     transactionContext = context.getTransactionContext();
     zeebeState = context.getZeebeState();
     abortCondition = context.getAbortCondition();
-    typedEvent = new TypedEventImpl(context.getLogStream().getPartitionId());
+    eventApplier = context.getEventApplier();
+    keyGeneratorControls = context.getKeyGeneratorControls();
+    lastProcessedPositionState = context.getLastProcessedPositionState();
+    workflowState = context.getZeebeState().getWorkflowState();
 
+    typedEvent = new TypedEventImpl(context.getLogStream().getPartitionId());
     updateStateRetryStrategy = new EndlessRetryStrategy(actor);
     processRetryStrategy = new EndlessRetryStrategy(actor);
     detectReprocessingInconsistency = context.isDetectReprocessingInconsistency();
@@ -206,6 +240,27 @@ public final class ReProcessingStateMachine {
             lastFollowUpEventPosition = currentPosition;
           }
         }
+
+        final UnifiedRecordValue recordValue =
+            recordValues.readRecordValue(newEvent, metadata.getValueType());
+        typedEvent.wrap(newEvent, metadata, recordValue);
+
+        if (MigratedStreamProcessors.isMigrated(typedEvent)
+            && typedEvent.getRecordType() == RecordType.COMMAND) {
+          // store the highest key of a processed command for supporting legacy processors
+          // - initialize the map to store the key of the follow-up record afterward
+          lastGeneratedKeyBySourceCommandPosition.put(currentPosition, -1L);
+        }
+
+        final var recordKey = newEvent.getKey();
+        // records from other partitions should not influence the key generator of this partition
+        if (Protocol.decodePartitionId(recordKey) == zeebeState.getPartitionId()) {
+          lastGeneratedKeyBySourceCommandPosition.computeIfPresent(
+              sourceEventPosition, (position, key) -> Math.max(recordKey, key));
+
+          // remember the highest key on the stream to restore the key generator after replay
+          highestRecordKey = Math.max(recordKey, highestRecordKey);
+        }
       }
 
       // reset position
@@ -259,11 +314,6 @@ public final class ReProcessingStateMachine {
       LOG.error(ERROR_MESSAGE_ON_EVENT_FAILED_SKIP_EVENT, currentEvent, e);
     }
 
-    if (eventProcessor == null) {
-      onRecordReprocessed(currentEvent);
-      return;
-    }
-
     final UnifiedRecordValue value =
         recordValues.readRecordValue(currentEvent, metadata.getValueType());
     typedEvent.wrap(currentEvent, metadata, value);
@@ -272,14 +322,7 @@ public final class ReProcessingStateMachine {
       verifyRecordMatchesToReprocessing(typedEvent);
     }
 
-    if (currentEvent.getPosition() <= lastSourceEventPosition) {
-      // don't reprocess records after the last source event
-      reprocessingStreamWriter.configureSourceContext(currentEvent.getPosition());
-      processUntilDone(currentEvent.getPosition(), typedEvent);
-
-    } else {
-      onRecordReprocessed(currentEvent);
-    }
+    processUntilDone(currentEvent.getPosition(), typedEvent);
   }
 
   private void processUntilDone(final long position, final TypedRecord<?> currentEvent) {
@@ -311,6 +354,7 @@ public final class ReProcessingStateMachine {
   private TransactionOperation chooseOperationForEvent(
       final long position, final TypedRecord<?> currentEvent) {
     final TransactionOperation operationOnProcessing;
+
     if (failedEventPositions.contains(position)) {
       LOG.info(LOG_STMT_FAILED_ON_PROCESSING, currentEvent);
       operationOnProcessing =
@@ -321,17 +365,68 @@ public final class ReProcessingStateMachine {
             final boolean isNotOnBlacklist =
                 !zeebeState.getBlackListState().isOnBlacklist(typedEvent);
             if (isNotOnBlacklist) {
-              eventProcessor.processRecord(
-                  position,
-                  typedEvent,
-                  noopResponseWriter,
-                  reprocessingStreamWriter,
-                  NOOP_SIDE_EFFECT_CONSUMER);
+              reprocessRecord(currentEvent);
             }
-            zeebeState.getLastProcessedPositionState().markAsProcessed(position);
+            lastProcessedPositionState.markAsProcessed(position);
           };
     }
     return operationOnProcessing;
+  }
+
+  private void reprocessRecord(final TypedRecord<?> currentEvent) {
+    final long recordPosition = currentEvent.getPosition();
+
+    if (typedEvent.getValueType() == ValueType.WORKFLOW_INSTANCE) {
+      dirtySequenceFlowReplayHack();
+    }
+
+    if (MigratedStreamProcessors.isMigrated(currentEvent)) {
+      // replay only events - skip commands and rejections
+      // skip events if the state changes are already applied to the state in the snapshot
+      if (currentEvent.getRecordType() == RecordType.EVENT
+          && currentEvent.getSourceRecordPosition() > snapshotPosition) {
+
+        eventApplier.applyState(
+            currentEvent.getKey(), currentEvent.getIntent(), currentEvent.getValue());
+
+      } else if (currentEvent.getRecordType() == RecordType.COMMAND) {
+        // restore the key generator because it is used by not yet migrated processors
+        Optional.ofNullable(lastGeneratedKeyBySourceCommandPosition.get(currentEvent.getPosition()))
+            .ifPresent(keyGeneratorControls::setKeyIfHigher);
+      }
+
+    } else if (recordPosition <= lastSourceEventPosition && eventProcessor != null) {
+      // skip records that are not yet processed
+      reprocessingStreamWriter.configureSourceContext(recordPosition);
+
+      eventProcessor.processRecord(
+          recordPosition,
+          typedEvent,
+          noopResponseWriter,
+          reprocessingStreamWriter,
+          NOOP_SIDE_EFFECT_CONSUMER);
+    }
+  }
+
+  /**
+   * 💩 This is a dirty hack! It spawns a token for the taken sequence flow.
+   *
+   * <p>The migrated element processors already spawn this token when writing the
+   * SEQUENCE_FLOW_TAKEN using the statewriter. However, as long as the sequence flow processor is
+   * not migrated, this record will not be replayed. This is only necessary for reprocessing
+   * SEQUENCE_FLOW_TAKEN that is outgoing of an element with an already migrated processor
+   */
+  // todo (#6190): this should be removed once the sequence flow processor is removed
+  private void dirtySequenceFlowReplayHack() {
+    final var value = (WorkflowInstanceRecord) typedEvent.getValue();
+    if (value.getBpmnElementType() == BpmnElementType.SEQUENCE_FLOW) {
+      final var sequenceFlow =
+          workflowState.getFlowElement(
+              value.getWorkflowKey(), value.getElementIdBuffer(), ExecutableSequenceFlow.class);
+      if (MigratedStreamProcessors.isMigrated(sequenceFlow.getSource().getElementType())) {
+        eventApplier.applyState(typedEvent.getKey(), typedEvent.getIntent(), typedEvent.getValue());
+      }
+    }
   }
 
   private void updateStateUntilDone() {
@@ -372,8 +467,12 @@ public final class ReProcessingStateMachine {
   }
 
   private void onRecovered(final long lastProcessedPosition) {
-    recoveryFuture.complete(lastProcessedPosition);
+    keyGeneratorControls.setKeyIfHigher(highestRecordKey);
+
     failedEventPositions.clear();
+    lastGeneratedKeyBySourceCommandPosition.clear();
+
+    recoveryFuture.complete(lastProcessedPosition);
   }
 
   private void verifyRecordMatchesToReprocessing(final TypedRecord<?> currentEvent) {

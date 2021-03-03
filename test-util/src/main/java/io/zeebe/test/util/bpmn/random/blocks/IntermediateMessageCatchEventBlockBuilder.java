@@ -16,8 +16,6 @@ import io.zeebe.test.util.bpmn.random.ConstructionContext;
 import io.zeebe.test.util.bpmn.random.ExecutionPathSegment;
 import io.zeebe.test.util.bpmn.random.IDGenerator;
 import java.util.Random;
-import org.apache.commons.lang3.builder.EqualsBuilder;
-import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 /**
  * Generates an intermediate message catch event. It waits for a message with name {@code
@@ -78,19 +76,23 @@ public class IntermediateMessageCatchEventBlockBuilder implements BlockBuilder {
       if (this == o) {
         return true;
       }
-
       if (o == null || getClass() != o.getClass()) {
         return false;
       }
 
       final StepPublishMessage that = (StepPublishMessage) o;
 
-      return new EqualsBuilder().append(messageName, that.messageName).isEquals();
+      if (messageName != null ? !messageName.equals(that.messageName) : that.messageName != null) {
+        return false;
+      }
+      return variables.equals(that.variables);
     }
 
     @Override
     public int hashCode() {
-      return new HashCodeBuilder(17, 37).append(messageName).toHashCode();
+      int result = messageName != null ? messageName.hashCode() : 0;
+      result = 31 * result + variables.hashCode();
+      return result;
     }
   }
 

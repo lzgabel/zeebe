@@ -21,6 +21,7 @@ import io.zeebe.snapshots.raft.ReceivedSnapshot;
 import io.zeebe.snapshots.raft.SnapshotChunk;
 import io.zeebe.snapshots.raft.TransientSnapshot;
 import io.zeebe.util.FileUtil;
+import io.zeebe.util.sched.future.ActorFuture;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -82,7 +83,7 @@ public class StateControllerImpl implements StateController, PersistedSnapshotLi
     final long exportedPosition = exporterPositionSupplier.applyAsLong(openDb());
     final long snapshotPosition =
         determineSnapshotPosition(lowerBoundSnapshotPosition, exportedPosition);
-    final var optionalIndexed = entrySupplier.getIndexedEntry(snapshotPosition);
+    final var optionalIndexed = entrySupplier.getPreviousIndexedEntry(snapshotPosition);
     if (optionalIndexed.isEmpty()) {
       LOG.warn(
           "Failed to take snapshot. Expected to find an indexed entry for determined snapshot position {}, but found no matching indexed entry which contains this position.",
@@ -164,8 +165,8 @@ public class StateControllerImpl implements StateController, PersistedSnapshotLi
     return db != null;
   }
 
-  private void takeSnapshot(final TransientSnapshot snapshot) {
-    snapshot.take(
+  private ActorFuture<Boolean> takeSnapshot(final TransientSnapshot snapshot) {
+    return snapshot.take(
         snapshotDir -> {
           if (db == null) {
             LOG.error("Expected to take a snapshot, but no database was opened");
@@ -340,7 +341,7 @@ public class StateControllerImpl implements StateController, PersistedSnapshotLi
     }
 
     public boolean apply(final SnapshotChunk snapshotChunk) throws IOException {
-      return receivedSnapshot.apply(snapshotChunk);
+      return receivedSnapshot.apply(snapshotChunk).join();
     }
   }
 }

@@ -7,36 +7,27 @@
  */
 package io.zeebe.broker.system.partitions.impl;
 
+import io.atomix.raft.storage.log.Indexed;
 import io.atomix.raft.storage.log.RaftLogReader;
 import io.atomix.raft.storage.log.entry.RaftLogEntry;
-import io.atomix.storage.journal.Indexed;
 import io.zeebe.broker.system.partitions.AtomixRecordEntrySupplier;
-import io.zeebe.logstreams.storage.atomix.ZeebeIndexMapping;
 import java.util.Optional;
 
 public final class AtomixRecordEntrySupplierImpl implements AtomixRecordEntrySupplier {
-  private final ZeebeIndexMapping indexMapping;
   private final RaftLogReader reader;
 
-  public AtomixRecordEntrySupplierImpl(
-      final ZeebeIndexMapping indexMapping, final RaftLogReader reader) {
-    this.indexMapping = indexMapping;
+  public AtomixRecordEntrySupplierImpl(final RaftLogReader reader) {
     this.reader = reader;
   }
 
   @Override
-  public Optional<Indexed<RaftLogEntry>> getIndexedEntry(final long position) {
-    final var index = indexMapping.lookupPosition(position);
-    if (index == -1) {
-      return Optional.empty();
-    }
-
-    reader.reset(index - 1);
-    if (reader.hasNext()) {
-      final var indexedEntry = reader.next();
-      if (indexedEntry.index() < index) {
-        return Optional.of(indexedEntry);
-      }
+  public Optional<Indexed<RaftLogEntry>> getPreviousIndexedEntry(final long position) {
+    // Here we are seeking twice. Since this method is only called when taking a snapshot it is ok
+    // to be not very efficient.
+    final long recordIndex = reader.seekToAsqn(position);
+    final long prevIndex = recordIndex - 1;
+    if (reader.reset(prevIndex) == prevIndex) {
+      return Optional.of(reader.next());
     }
 
     return Optional.empty();

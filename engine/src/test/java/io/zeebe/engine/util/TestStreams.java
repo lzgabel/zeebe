@@ -22,11 +22,14 @@ import io.zeebe.engine.processing.streamprocessor.TypedEventRegistry;
 import io.zeebe.engine.processing.streamprocessor.TypedRecord;
 import io.zeebe.engine.processing.streamprocessor.TypedRecordProcessorFactory;
 import io.zeebe.engine.processing.streamprocessor.writers.CommandResponseWriter;
+import io.zeebe.engine.state.EventApplier;
+import io.zeebe.engine.state.ZeebeState;
+import io.zeebe.engine.state.appliers.EventAppliers;
 import io.zeebe.logstreams.log.LogStreamBatchWriter;
 import io.zeebe.logstreams.log.LogStreamReader;
 import io.zeebe.logstreams.log.LogStreamRecordWriter;
 import io.zeebe.logstreams.log.LoggedEvent;
-import io.zeebe.logstreams.spi.LogStorage;
+import io.zeebe.logstreams.storage.LogStorage;
 import io.zeebe.logstreams.util.SyncLogStream;
 import io.zeebe.logstreams.util.SynchronousLogStream;
 import io.zeebe.msgpack.UnpackedObject;
@@ -51,6 +54,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.junit.rules.TemporaryFolder;
@@ -74,6 +78,8 @@ public final class TestStreams {
   private final Map<String, ProcessorContext> streamContextMap = new HashMap<>();
   private boolean snapshotWasTaken = false;
 
+  private Function<ZeebeState, EventApplier> eventApplierFactory = EventAppliers::new;
+
   public TestStreams(
       final TemporaryFolder dataDirectory,
       final AutoCloseableRule closeables,
@@ -94,6 +100,11 @@ public final class TestStreams {
 
     when(mockCommandResponseWriter.tryWriteResponse(anyInt(), anyLong())).thenReturn(true);
     mockOnProcessedListener = mock(Consumer.class);
+  }
+
+  public void withEventApplierFactory(
+      final Function<ZeebeState, EventApplier> eventApplierFactory) {
+    this.eventApplierFactory = eventApplierFactory;
   }
 
   public CommandResponseWriter getMockedResponseWriter() {
@@ -126,7 +137,7 @@ public final class TestStreams {
         logStream -> listLogStorage.setPositionListener(logStream::setCommitPosition));
   }
 
-  public SynchronousLogStream createLogStream(
+  private SynchronousLogStream createLogStream(
       final String name,
       final int partitionId,
       final LogStorage logStorage,
@@ -146,6 +157,11 @@ public final class TestStreams {
     closeables.manage(logContext);
     closeables.manage(() -> logContextMap.remove(name));
     return logStream;
+  }
+
+  public long getLastWrittenPosition(final String name) {
+    // the position of a written record is directly committed, we can use it as a synonym
+    return getLogStream(name).getCommitPosition();
   }
 
   public SynchronousLogStream getLogStream(final String name) {
@@ -239,6 +255,7 @@ public final class TestStreams {
             .onProcessedListener(mockOnProcessedListener)
             .streamProcessorFactory(factory)
             .detectReprocessingInconsistency(detectReprocessingInconsistency)
+            .eventApplierFactory(eventApplierFactory)
             .build();
     streamProcessor.openAsync(false).join(15, TimeUnit.SECONDS);
 
@@ -377,13 +394,11 @@ public final class TestStreams {
 
   private static final class LogContext implements AutoCloseable {
     private final SynchronousLogStream logStream;
-    private final LogStorage logStorage;
     private final LogStreamRecordWriter logStreamWriter;
 
     private LogContext(final SynchronousLogStream logStream, final LogStorage logStorage) {
       this.logStream = logStream;
       logStreamWriter = logStream.newLogStreamRecordWriter();
-      this.logStorage = logStorage;
     }
 
     public static LogContext createLogContext(
@@ -394,7 +409,6 @@ public final class TestStreams {
     @Override
     public void close() {
       logStream.close();
-      logStorage.close();
     }
 
     public LogStreamRecordWriter getLogStreamWriter() {

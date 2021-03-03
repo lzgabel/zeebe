@@ -15,6 +15,7 @@ import io.zeebe.db.ZeebeDb;
 import io.zeebe.db.ZeebeDbException;
 import io.zeebe.db.impl.DbNil;
 import io.zeebe.db.impl.rocksdb.Loggers;
+import io.zeebe.db.impl.rocksdb.RocksDbConfiguration;
 import java.io.File;
 import java.util.Collections;
 import java.util.List;
@@ -31,7 +32,7 @@ import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
 public class ZeebeTransactionDb<ColumnFamilyNames extends Enum<ColumnFamilyNames>>
-    implements ZeebeDb<ColumnFamilyNames> {
+    implements ZeebeDb<ColumnFamilyNames>, TransactionRenovator {
 
   private static final Logger LOG = Loggers.DB_LOGGER;
   private static final String ERROR_MESSAGE_CLOSE_RESOURCE =
@@ -47,7 +48,8 @@ public class ZeebeTransactionDb<ColumnFamilyNames extends Enum<ColumnFamilyNames
   protected ZeebeTransactionDb(
       final ColumnFamilyHandle defaultHandle,
       final OptimisticTransactionDB optimisticTransactionDB,
-      final List<AutoCloseable> closables) {
+      final List<AutoCloseable> closables,
+      final RocksDbConfiguration rocksDbConfiguration) {
     this.defaultHandle = defaultHandle;
     defaultNativeHandle = getNativeHandle(defaultHandle);
     this.optimisticTransactionDB = optimisticTransactionDB;
@@ -64,20 +66,24 @@ public class ZeebeTransactionDb<ColumnFamilyNames extends Enum<ColumnFamilyNames
     closables.add(prefixReadOptions);
     defaultReadOptions = new ReadOptions();
     closables.add(defaultReadOptions);
-    defaultWriteOptions = new WriteOptions();
+    defaultWriteOptions = new WriteOptions().setDisableWAL(rocksDbConfiguration.isWalDisabled());
     closables.add(defaultWriteOptions);
   }
 
   public static <ColumnFamilyNames extends Enum<ColumnFamilyNames>>
       ZeebeTransactionDb<ColumnFamilyNames> openTransactionalDb(
-          final Options options, final String path, final List<AutoCloseable> closables)
+          final Options options,
+          final String path,
+          final List<AutoCloseable> closables,
+          final RocksDbConfiguration rocksDbConfiguration)
           throws RocksDBException {
     final OptimisticTransactionDB optimisticTransactionDB =
         OptimisticTransactionDB.open(options, path);
     closables.add(optimisticTransactionDB);
     final var defaultColumnFamilyHandle = optimisticTransactionDB.getDefaultColumnFamily();
 
-    return new ZeebeTransactionDb<>(defaultColumnFamilyHandle, optimisticTransactionDB, closables);
+    return new ZeebeTransactionDb<>(
+        defaultColumnFamilyHandle, optimisticTransactionDB, closables, rocksDbConfiguration);
   }
 
   static long getNativeHandle(final RocksObject object) {
@@ -128,14 +134,6 @@ public class ZeebeTransactionDb<ColumnFamilyNames extends Enum<ColumnFamilyNames
   }
 
   @Override
-  public TransactionContext createContext() {
-    final Transaction transaction = optimisticTransactionDB.beginTransaction(defaultWriteOptions);
-    final ZeebeTransaction zeebeTransaction = new ZeebeTransaction(transaction);
-    closables.add(zeebeTransaction);
-    return new DefaultTransactionContext(zeebeTransaction);
-  }
-
-  @Override
   public Optional<String> getProperty(final String propertyName) {
     String propertyValue = null;
     try {
@@ -147,10 +145,23 @@ public class ZeebeTransactionDb<ColumnFamilyNames extends Enum<ColumnFamilyNames
   }
 
   @Override
+  public TransactionContext createContext() {
+    final Transaction transaction = optimisticTransactionDB.beginTransaction(defaultWriteOptions);
+    final ZeebeTransaction zeebeTransaction = new ZeebeTransaction(transaction, this);
+    closables.add(zeebeTransaction);
+    return new DefaultTransactionContext(zeebeTransaction);
+  }
+
+  @Override
   public boolean isEmpty(
       final ColumnFamilyNames columnFamilyName, final TransactionContext context) {
     return createColumnFamily(columnFamilyName, context, DbNullKey.INSTANCE, DbNil.INSTANCE)
         .isEmpty();
+  }
+
+  @Override
+  public Transaction renewTransaction(final Transaction oldTransaction) {
+    return optimisticTransactionDB.beginTransaction(defaultWriteOptions, oldTransaction);
   }
 
   @Override

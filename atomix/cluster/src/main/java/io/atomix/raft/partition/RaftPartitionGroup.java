@@ -34,7 +34,6 @@ import io.atomix.primitive.partition.PartitionId;
 import io.atomix.primitive.partition.PartitionManagementService;
 import io.atomix.primitive.partition.PartitionMetadata;
 import io.atomix.raft.zeebe.EntryValidator;
-import io.atomix.storage.StorageLevel;
 import io.atomix.utils.concurrent.Futures;
 import io.atomix.utils.logging.ContextualLoggerFactory;
 import io.atomix.utils.logging.LoggerContext;
@@ -273,7 +272,6 @@ public class RaftPartitionGroup implements ManagedPartitionGroup {
           .nextId(Namespaces.BEGIN_USER_CUSTOM_ID + 100)
           .register(RaftPartitionGroupConfig.class)
           .register(RaftStorageConfig.class)
-          .register(StorageLevel.class)
           .build();
     }
 
@@ -390,17 +388,6 @@ public class RaftPartitionGroup implements ManagedPartitionGroup {
     }
 
     /**
-     * Sets the storage level.
-     *
-     * @param storageLevel the storage level
-     * @return the Raft partition group builder
-     */
-    public Builder withStorageLevel(final StorageLevel storageLevel) {
-      config.getStorageConfig().setLevel(storageLevel);
-      return this;
-    }
-
-    /**
      * Sets the path to the data directory.
      *
      * @param dataDir the path to the replica's data directory
@@ -497,6 +484,11 @@ public class RaftPartitionGroup implements ManagedPartitionGroup {
      */
     public Builder withEntryValidator(final EntryValidator entryValidator) {
       config.setEntryValidator(entryValidator);
+      return this;
+    }
+
+    public Builder withJournalIndexDensity(final int journalIndexDensity) {
+      config.getStorageConfig().setJournalIndexDensity(journalIndexDensity);
       return this;
     }
 

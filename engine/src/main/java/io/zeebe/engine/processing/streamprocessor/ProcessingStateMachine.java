@@ -14,6 +14,7 @@ import io.zeebe.engine.processing.streamprocessor.sideeffect.SideEffectProducer;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedResponseWriterImpl;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
 import io.zeebe.engine.state.ZeebeState;
+import io.zeebe.engine.state.mutable.MutableLastProcessedPositionState;
 import io.zeebe.logstreams.impl.Loggers;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.log.LogStreamReader;
@@ -94,8 +95,10 @@ public final class ProcessingStateMachine {
       "Expected to process event '{}' successfully on stream processor, but caught recoverable exception. Retry processing.";
   private static final String PROCESSING_ERROR_MESSAGE =
       "Expected to process event '%s' without errors, but exception occurred with message '%s' .";
-  private static final String NOTIFY_LISTENER_ERROR_MESSAGE =
-      "Expected to invoke processed listener for event {} successfully, but exception was thrown.";
+  private static final String NOTIFY_PROCESSED_LISTENER_ERROR_MESSAGE =
+      "Expected to invoke processed listener for record {} successfully, but exception was thrown.";
+  private static final String NOTIFY_SKIPPED_LISTENER_ERROR_MESSAGE =
+      "Expected to invoke skipped listener for record {} successfully, but exception was thrown.";
 
   private static final String LOG_ERROR_EVENT_COMMITTED =
       "Error event was committed, we continue with processing.";
@@ -113,6 +116,7 @@ public final class ProcessingStateMachine {
       new MetadataEventFilter(new RecordProtocolVersionFilter().and(PROCESSING_FILTER));
 
   private final ZeebeState zeebeState;
+  private final MutableLastProcessedPositionState lastProcessedPositionState;
   private final RecordMetadata metadata = new RecordMetadata();
   private final TypedResponseWriterImpl responseWriter;
   private final ActorControl actor;
@@ -130,7 +134,8 @@ public final class ProcessingStateMachine {
   private final RecordProcessorMap recordProcessorMap;
   private final TypedEventImpl typedEvent;
   private final StreamProcessorMetrics metrics;
-  private final Consumer<TypedRecord> onProcessed;
+  private final Consumer<TypedRecord> onProcessedListener;
+  private final Consumer<LoggedEvent> onSkippedListener;
 
   // current iteration
   private SideEffectProducer sideEffectProducer;
@@ -159,6 +164,7 @@ public final class ProcessingStateMachine {
     zeebeState = context.getZeebeState();
     transactionContext = context.getTransactionContext();
     abortCondition = context.getAbortCondition();
+    lastProcessedPositionState = context.getLastProcessedPositionState();
 
     writeRetryStrategy = new AbortableRetryStrategy(actor);
     sideEffectsRetryStrategy = new AbortableRetryStrategy(actor);
@@ -167,13 +173,15 @@ public final class ProcessingStateMachine {
 
     final int partitionId = logStream.getPartitionId();
     typedEvent = new TypedEventImpl(partitionId);
-    responseWriter = new TypedResponseWriterImpl(context.getCommandResponseWriter(), partitionId);
+    responseWriter = new TypedResponseWriterImpl(context.getWriters().response(), partitionId);
 
     metrics = new StreamProcessorMetrics(partitionId);
-    onProcessed = context.getOnProcessedListener();
+    onProcessedListener = context.getOnProcessedListener();
+    onSkippedListener = context.getOnSkippedListener();
   }
 
   private void skipRecord() {
+    notifySkippedListener(currentEvent);
     actor.submit(this::readNextEvent);
     metrics.eventSkipped();
   }
@@ -293,7 +301,7 @@ public final class ProcessingStateMachine {
                 this::setSideEffectProducer);
           }
 
-          zeebeState.getLastProcessedPositionState().markAsProcessed(position);
+          lastProcessedPositionState.markAsProcessed(position);
         });
   }
 
@@ -434,14 +442,6 @@ public final class ProcessingStateMachine {
         });
   }
 
-  private void notifyListener() {
-    try {
-      onProcessed.accept(typedEvent);
-    } catch (final Exception e) {
-      LOG.error(NOTIFY_LISTENER_ERROR_MESSAGE, currentEvent, e);
-    }
-  }
-
   private void executeSideEffects() {
     final ActorFuture<Boolean> retryFuture =
         sideEffectsRetryStrategy.runWithRetry(sideEffectProducer::flush, abortCondition);
@@ -453,7 +453,7 @@ public final class ProcessingStateMachine {
             LOG.error(ERROR_MESSAGE_EXECUTE_SIDE_EFFECT_ABORTED, currentEvent, throwable);
           }
 
-          notifyListener();
+          notifyProcessedListener(typedEvent);
 
           metrics.processingDuration(
               metadata.getRecordType(), processingStartTime, ActorClock.currentTimeMillis());
@@ -461,6 +461,22 @@ public final class ProcessingStateMachine {
           currentProcessor = null;
           actor.submit(this::readNextEvent);
         });
+  }
+
+  private void notifyProcessedListener(final TypedRecord processedRecord) {
+    try {
+      onProcessedListener.accept(processedRecord);
+    } catch (final Exception e) {
+      LOG.error(NOTIFY_PROCESSED_LISTENER_ERROR_MESSAGE, processedRecord, e);
+    }
+  }
+
+  private void notifySkippedListener(final LoggedEvent skippedRecord) {
+    try {
+      onSkippedListener.accept(skippedRecord);
+    } catch (final Exception e) {
+      LOG.error(NOTIFY_SKIPPED_LISTENER_ERROR_MESSAGE, skippedRecord, e);
+    }
   }
 
   public long getLastSuccessfulProcessedEventPosition() {

@@ -118,7 +118,8 @@ public final class WorkflowInstanceStreamProcessorRule extends ExternalResource
               mockSubscriptionCommandSender,
               new CatchEventBehavior(
                   zeebeState, expressionProcessor, mockSubscriptionCommandSender, 1),
-              new DueDateTimerChecker(zeebeState.getTimerState()));
+              new DueDateTimerChecker(zeebeState.getTimerState()),
+              processingContext.getWriters());
 
           JobEventProcessors.addJobProcessors(
               typedRecordProcessors, zeebeState, type -> {}, Integer.MAX_VALUE);
@@ -145,7 +146,9 @@ public final class WorkflowInstanceStreamProcessorRule extends ExternalResource
         .setKey(WORKFLOW_KEY)
         .setResourceName(resourceName)
         .setBpmnProcessId(BufferUtil.wrapString(process.getId()))
-        .setVersion(version);
+        .setVersion(version)
+        .setChecksum(wrapString("checksum"))
+        .setResource(xmlBuffer);
 
     actor.call(() -> workflowState.putDeployment(record)).join();
   }

@@ -16,7 +16,6 @@
 package io.atomix.raft;
 
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 
 import io.atomix.cluster.ClusterMembershipService;
@@ -33,14 +32,13 @@ import io.atomix.raft.roles.LeaderRole;
 import io.atomix.raft.snapshot.InMemorySnapshot;
 import io.atomix.raft.snapshot.TestSnapshotStore;
 import io.atomix.raft.storage.RaftStorage;
+import io.atomix.raft.storage.log.Indexed;
+import io.atomix.raft.storage.log.RaftLogReader.Mode;
 import io.atomix.raft.storage.log.entry.RaftLogEntry;
 import io.atomix.raft.zeebe.EntryValidator;
 import io.atomix.raft.zeebe.NoopEntryValidator;
 import io.atomix.raft.zeebe.ZeebeEntry;
 import io.atomix.raft.zeebe.ZeebeLogAppender;
-import io.atomix.storage.StorageLevel;
-import io.atomix.storage.journal.Indexed;
-import io.atomix.storage.journal.JournalReader.Mode;
 import io.atomix.utils.AbstractIdentifier;
 import io.atomix.utils.concurrent.SingleThreadContext;
 import io.atomix.utils.concurrent.ThreadContext;
@@ -70,6 +68,7 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.awaitility.Awaitility;
 import org.junit.rules.ExternalResource;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.Description;
@@ -395,17 +394,10 @@ public final class RaftRule extends ExternalResource {
   }
 
   public void awaitSameLogSizeOnAllNodes(final long lastIndex) {
-    waitUntil(
-        () -> {
-          final var lastIndexes =
-              memberLog.values().stream().distinct().collect(Collectors.toList());
-          return lastIndexes.size() == 1 && lastIndexes.get(0) == lastIndex;
-        },
-        () -> memberLog.toString());
-  }
-
-  private void waitUntil(final BooleanSupplier condition, final Supplier<String> errorMessage) {
-    waitUntil(condition, 100, errorMessage);
+    Awaitility.await("awaitSameLogSizeOnAllNodes")
+        .until(
+            () -> memberLog.values().stream().distinct().collect(Collectors.toList()),
+            lastIndexes -> lastIndexes.size() == 1 && lastIndexes.get(0) == lastIndex);
   }
 
   private void waitUntil(final BooleanSupplier condition, final int retries) {
@@ -486,9 +478,7 @@ public final class RaftRule extends ExternalResource {
     final var memberDirectory = getMemberDirectory(directory, memberId.toString());
     final RaftStorage.Builder defaults =
         RaftStorage.builder()
-            .withStorageLevel(StorageLevel.DISK)
             .withDirectory(memberDirectory)
-            .withMaxEntriesPerSegment(10)
             .withMaxSegmentSize(1024 * 10)
             .withFreeDiskSpace(100)
             .withSnapshotStore(
@@ -616,11 +606,8 @@ public final class RaftRule extends ExternalResource {
     private final CompletableFuture<Long> commitFuture = new CompletableFuture<>();
 
     @Override
-    public void onWrite(final Indexed<ZeebeEntry> indexed) {}
-
-    @Override
     public void onWriteError(final Throwable error) {
-      fail("Unexpected write error: " + error.getMessage());
+      commitFuture.completeExceptionally(error);
     }
 
     @Override
@@ -630,7 +617,7 @@ public final class RaftRule extends ExternalResource {
 
     @Override
     public void onCommitError(final Indexed<ZeebeEntry> indexed, final Throwable error) {
-      fail("Unexpected write error: " + error.getMessage());
+      commitFuture.completeExceptionally(error);
     }
 
     public long awaitCommit() throws Exception {

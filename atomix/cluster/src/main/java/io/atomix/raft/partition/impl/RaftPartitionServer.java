@@ -31,10 +31,9 @@ import io.atomix.raft.partition.RaftStorageConfig;
 import io.atomix.raft.roles.RaftRole;
 import io.atomix.raft.storage.RaftStorage;
 import io.atomix.raft.storage.log.RaftLogReader;
+import io.atomix.raft.storage.log.RaftLogReader.Mode;
 import io.atomix.raft.zeebe.ZeebeLogAppender;
 import io.atomix.storage.StorageException;
-import io.atomix.storage.journal.JournalReader.Mode;
-import io.atomix.storage.journal.index.JournalIndex;
 import io.atomix.utils.Managed;
 import io.atomix.utils.concurrent.Futures;
 import io.atomix.utils.logging.ContextualLoggerFactory;
@@ -52,7 +51,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.function.Supplier;
 import org.slf4j.Logger;
 
 /** {@link Partition} server. */
@@ -71,21 +69,18 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer> {
 
   private RaftServer server;
   private ReceivableSnapshotStore persistedSnapshotStore;
-  private final Supplier<JournalIndex> journalIndexFactory;
 
   public RaftPartitionServer(
       final RaftPartition partition,
       final RaftPartitionGroupConfig config,
       final MemberId localMemberId,
       final ClusterMembershipService membershipService,
-      final ClusterCommunicationService clusterCommunicator,
-      final Supplier<JournalIndex> journalIndexFactory) {
+      final ClusterCommunicationService clusterCommunicator) {
     this.partition = partition;
     this.config = config;
     this.localMemberId = localMemberId;
     this.membershipService = membershipService;
     this.clusterCommunicator = clusterCommunicator;
-    this.journalIndexFactory = journalIndexFactory;
     log =
         ContextualLoggerFactory.getLogger(
             getClass(),
@@ -160,11 +155,12 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer> {
   }
 
   private RaftServer buildServer() {
+    final var partitionId = partition.id().id();
     persistedSnapshotStore =
         config
             .getStorageConfig()
             .getPersistedSnapshotStoreFactory()
-            .createReceivableSnapshotStore(partition.dataDirectory().toPath(), partition.name());
+            .createReceivableSnapshotStore(partition.dataDirectory().toPath(), partitionId);
 
     return RaftServer.builder(localMemberId)
         .withName(partition.name())
@@ -175,7 +171,6 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer> {
         .withMaxAppendBatchSize(config.getMaxAppendBatchSize())
         .withMaxAppendsPerFollower(config.getMaxAppendsPerFollower())
         .withStorage(createRaftStorage())
-        .withJournalIndexFactory(journalIndexFactory)
         .withEntryValidator(config.getEntryValidator())
         .build();
   }
@@ -245,7 +240,7 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer> {
     try {
       Files.walkFileTree(
           partition.dataDirectory().toPath(),
-          new SimpleFileVisitor<Path>() {
+          new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs)
                 throws IOException {
@@ -287,14 +282,13 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer> {
     return RaftStorage.builder()
         .withPrefix(partition.name())
         .withDirectory(partition.dataDirectory())
-        .withStorageLevel(storageConfig.getLevel())
         .withMaxSegmentSize((int) storageConfig.getSegmentSize().bytes())
         .withMaxEntrySize((int) storageConfig.getMaxEntrySize().bytes())
         .withFlushExplicitly(storageConfig.shouldFlushExplicitly())
         .withFreeDiskSpace(storageConfig.getFreeDiskSpace())
         .withNamespace(RaftNamespaces.RAFT_STORAGE)
         .withSnapshotStore(persistedSnapshotStore)
-        .withJournalIndexFactory(journalIndexFactory)
+        .withJournalIndexDensity(storageConfig.getJournalIndexDensity())
         .build();
   }
 

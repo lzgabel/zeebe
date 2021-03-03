@@ -17,8 +17,8 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.atomix.raft.storage.log.Indexed;
 import io.atomix.raft.zeebe.ZeebeEntry;
-import io.atomix.storage.journal.Indexed;
 import io.zeebe.broker.system.partitions.impl.AsyncSnapshotDirector;
 import io.zeebe.broker.system.partitions.impl.NoneSnapshotReplication;
 import io.zeebe.broker.system.partitions.impl.StateControllerImpl;
@@ -67,17 +67,17 @@ public final class AsyncSnapshotingTest {
   @Before
   public void setup() throws IOException {
     final var rootDirectory = tempFolderRule.getRoot().toPath();
-    final var factory = new FileBasedSnapshotStoreFactory();
-    final String partitionName = "1";
-    factory.createReceivableSnapshotStore(rootDirectory, partitionName);
-    persistedSnapshotStore = factory.getConstructableSnapshotStore(partitionName);
+    final var factory = new FileBasedSnapshotStoreFactory(actorSchedulerRule.get(), 1);
+    final int partitionId = 1;
+    factory.createReceivableSnapshotStore(rootDirectory, partitionId);
+    persistedSnapshotStore = factory.getConstructableSnapshotStore(partitionId);
 
     snapshotController =
         new StateControllerImpl(
             1,
             ZeebeRocksDbFactory.newFactory(),
             persistedSnapshotStore,
-            factory.getReceivableSnapshotStore(partitionName),
+            factory.getReceivableSnapshotStore(partitionId),
             rootDirectory.resolve("runtime"),
             new NoneSnapshotReplication(),
             l ->

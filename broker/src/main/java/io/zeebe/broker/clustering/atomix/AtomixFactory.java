@@ -111,10 +111,10 @@ public final class AtomixFactory {
             .withSnapshotStoreFactory(snapshotStoreFactory)
             .withMaxAppendBatchSize((int) experimentalCfg.getMaxAppendBatchSizeInBytes())
             .withMaxAppendsPerFollower(experimentalCfg.getMaxAppendsPerFollower())
-            .withStorageLevel(dataCfg.getAtomixStorageLevel())
             .withEntryValidator(new ZeebeEntryValidator())
             .withFlushExplicitly(!experimentalCfg.isDisableExplicitRaftFlush())
-            .withFreeDiskSpace(dataCfg.getFreeDiskSpaceReplicationWatermark());
+            .withFreeDiskSpace(dataCfg.getFreeDiskSpaceReplicationWatermark())
+            .withJournalIndexDensity(dataCfg.getLogIndexDensity());
 
     // by default, the Atomix max entry size is 1 MB
     final int maxMessageSize = (int) networkCfg.getMaxMessageSizeInBytes();

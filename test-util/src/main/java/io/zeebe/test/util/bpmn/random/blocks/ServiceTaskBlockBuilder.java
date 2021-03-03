@@ -16,8 +16,6 @@ import io.zeebe.test.util.bpmn.random.ConstructionContext;
 import io.zeebe.test.util.bpmn.random.ExecutionPathSegment;
 import io.zeebe.test.util.bpmn.random.IDGenerator;
 import java.util.Random;
-import org.apache.commons.lang3.builder.EqualsBuilder;
-import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 /** Generates a service task * */
 public class ServiceTaskBlockBuilder implements BlockBuilder {
@@ -49,16 +47,21 @@ public class ServiceTaskBlockBuilder implements BlockBuilder {
     if (random.nextBoolean()) {
       result.append(new StepActivateAndFailJob(jobTypeId));
     }
+
     result.append(new StepActivateAndCompleteJob(jobTypeId));
 
     return result;
   }
 
   public static final class StepActivateAndCompleteJob extends AbstractExecutionStep {
-    private final String jobTypeId;
+    private final String jobType;
 
-    public StepActivateAndCompleteJob(final String jobTypeId) {
-      this.jobTypeId = jobTypeId;
+    public StepActivateAndCompleteJob(final String jobType) {
+      this.jobType = jobType;
+    }
+
+    public String getJobType() {
+      return jobType;
     }
 
     @Override
@@ -66,27 +69,35 @@ public class ServiceTaskBlockBuilder implements BlockBuilder {
       if (this == o) {
         return true;
       }
-
       if (o == null || getClass() != o.getClass()) {
         return false;
       }
 
       final StepActivateAndCompleteJob that = (StepActivateAndCompleteJob) o;
 
-      return new EqualsBuilder().append(jobTypeId, that.jobTypeId).isEquals();
+      if (jobType != null ? !jobType.equals(that.jobType) : that.jobType != null) {
+        return false;
+      }
+      return variables.equals(that.variables);
     }
 
     @Override
     public int hashCode() {
-      return new HashCodeBuilder(17, 37).append(jobTypeId).toHashCode();
+      int result = jobType != null ? jobType.hashCode() : 0;
+      result = 31 * result + variables.hashCode();
+      return result;
     }
   }
 
   public static final class StepActivateAndFailJob extends AbstractExecutionStep {
-    private final String jobTypeId;
+    private final String jobType;
 
-    public StepActivateAndFailJob(final String jobTypeId) {
-      this.jobTypeId = jobTypeId;
+    public StepActivateAndFailJob(final String jobType) {
+      this.jobType = jobType;
+    }
+
+    public String getJobType() {
+      return jobType;
     }
 
     @Override
@@ -94,19 +105,23 @@ public class ServiceTaskBlockBuilder implements BlockBuilder {
       if (this == o) {
         return true;
       }
-
       if (o == null || getClass() != o.getClass()) {
         return false;
       }
 
       final StepActivateAndFailJob that = (StepActivateAndFailJob) o;
 
-      return new EqualsBuilder().append(jobTypeId, that.jobTypeId).isEquals();
+      if (jobType != null ? !jobType.equals(that.jobType) : that.jobType != null) {
+        return false;
+      }
+      return variables.equals(that.variables);
     }
 
     @Override
     public int hashCode() {
-      return new HashCodeBuilder(17, 37).append(jobTypeId).toHashCode();
+      int result = jobType != null ? jobType.hashCode() : 0;
+      result = 31 * result + variables.hashCode();
+      return result;
     }
   }
 

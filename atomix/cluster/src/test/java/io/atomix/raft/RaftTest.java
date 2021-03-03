@@ -41,14 +41,14 @@ import io.atomix.raft.protocol.TestRaftServerProtocol;
 import io.atomix.raft.roles.LeaderRole;
 import io.atomix.raft.snapshot.TestSnapshotStore;
 import io.atomix.raft.storage.RaftStorage;
+import io.atomix.raft.storage.log.Indexed;
+import io.atomix.raft.storage.log.RaftLog;
 import io.atomix.raft.storage.log.RaftLogReader;
+import io.atomix.raft.storage.log.RaftLogReader.Mode;
 import io.atomix.raft.storage.log.entry.InitializeEntry;
 import io.atomix.raft.storage.log.entry.RaftLogEntry;
 import io.atomix.raft.zeebe.ZeebeEntry;
 import io.atomix.raft.zeebe.ZeebeLogAppender;
-import io.atomix.storage.StorageLevel;
-import io.atomix.storage.journal.Indexed;
-import io.atomix.storage.journal.JournalReader.Mode;
 import io.atomix.utils.concurrent.SingleThreadContext;
 import io.atomix.utils.concurrent.ThreadContext;
 import java.io.File;
@@ -190,9 +190,7 @@ public class RaftTest extends ConcurrentTestCase {
     final var directory = new File(this.directory.toFile(), memberId.toString());
     final RaftStorage.Builder defaults =
         RaftStorage.builder()
-            .withStorageLevel(StorageLevel.DISK)
             .withDirectory(directory)
-            .withMaxEntriesPerSegment(10)
             .withSnapshotStore(new TestSnapshotStore(new AtomicReference<>()))
             .withMaxSegmentSize(1024 * 10)
             .withNamespace(RaftNamespaces.RAFT_STORAGE);
@@ -373,8 +371,9 @@ public class RaftTest extends ConcurrentTestCase {
       final RaftServer server,
       final CountDownLatch transitionCompleted) {
     if (role == Role.LEADER) {
-      final RaftLogReader raftLogReader = server.getContext().getLog().openReader(0, Mode.COMMITS);
-      raftLogReader.reset(raftLogReader.getLastIndex());
+      final RaftLog raftLog = server.getContext().getLog();
+      final RaftLogReader raftLogReader = raftLog.openReader(0, Mode.COMMITS);
+      raftLogReader.reset(raftLog.getLastIndex());
       final RaftLogEntry entry = raftLogReader.next().entry();
       assert (entry instanceof InitializeEntry);
       assertEquals(term, entry.term());
@@ -586,9 +585,6 @@ public class RaftTest extends ConcurrentTestCase {
   private static final class TestAppendListener implements ZeebeLogAppender.AppendListener {
 
     private final CompletableFuture<Long> commitFuture = new CompletableFuture<>();
-
-    @Override
-    public void onWrite(final Indexed<ZeebeEntry> indexed) {}
 
     @Override
     public void onWriteError(final Throwable error) {

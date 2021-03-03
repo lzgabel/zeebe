@@ -7,37 +7,36 @@
  */
 package io.zeebe.logstreams.storage.atomix;
 
-import io.atomix.raft.partition.RaftPartition;
-import io.zeebe.logstreams.spi.LogStorage;
-import io.zeebe.logstreams.spi.LogStorageReader;
+import io.atomix.raft.zeebe.ZeebeLogAppender;
+import io.zeebe.logstreams.storage.LogStorage;
 import java.nio.ByteBuffer;
-import java.util.NoSuchElementException;
 
+/**
+ * Implementation of {@link LogStorage} for the Atomix {@link io.atomix.raft.storage.log.RaftLog}.
+ *
+ * <p>Note that this class cannot be made final because we currently spy on it in our tests. This
+ * should be changed when the log storage implementation is taken out of this module, at which point
+ * it can be made final.
+ */
 public class AtomixLogStorage implements LogStorage {
-  private final AtomixReaderFactory readerFactory;
-  private final AtomixAppenderSupplier appenderSupplier;
 
-  private boolean opened;
-  private final ZeebeIndexMapping zeebeIndexMapping;
+  private final AtomixReaderFactory readerFactory;
+  private final ZeebeLogAppender logAppender;
 
   public AtomixLogStorage(
-      final ZeebeIndexMapping zeebeIndexMapping,
-      final AtomixReaderFactory readerFactory,
-      final AtomixAppenderSupplier appenderSupplier) {
-    this.zeebeIndexMapping = zeebeIndexMapping;
+      final AtomixReaderFactory readerFactory, final ZeebeLogAppender logAppender) {
     this.readerFactory = readerFactory;
-    this.appenderSupplier = appenderSupplier;
+    this.logAppender = logAppender;
   }
 
   public static AtomixLogStorage ofPartition(
-      final ZeebeIndexMapping zeebeIndexMapping, final RaftPartition partition) {
-    final var server = new AtomixRaftServer(partition.getServer());
-    return new AtomixLogStorage(zeebeIndexMapping, server, server);
+      final AtomixReaderFactory readerFactory, final ZeebeLogAppender appender) {
+    return new AtomixLogStorage(readerFactory, appender);
   }
 
   @Override
-  public LogStorageReader newReader() {
-    return new AtomixLogStorageReader(zeebeIndexMapping, readerFactory.create());
+  public AtomixLogStorageReader newReader() {
+    return new AtomixLogStorageReader(readerFactory.create());
   }
 
   @Override
@@ -46,42 +45,7 @@ public class AtomixLogStorage implements LogStorage {
       final long highestPosition,
       final ByteBuffer buffer,
       final AppendListener listener) {
-    final var optionalAppender = appenderSupplier.getAppender();
-
-    if (optionalAppender.isPresent()) {
-      final var appender = optionalAppender.get();
-      final var adapter = new AtomixAppendListenerAdapter(listener);
-      appender.appendEntry(lowestPosition, highestPosition, buffer, adapter);
-    } else {
-      // todo: better error message
-      listener.onWriteError(
-          new NoSuchElementException(
-              "Expected an appender, but none found, most likely we are not the leader"));
-    }
-  }
-
-  @Override
-  public void open() {
-    opened = true;
-  }
-
-  @Override
-  public void close() {
-    opened = false;
-  }
-
-  @Override
-  public boolean isOpen() {
-    return opened;
-  }
-
-  @Override
-  public boolean isClosed() {
-    return !opened;
-  }
-
-  @Override
-  public void flush() throws Exception {
-    // does nothing as append guarantees blocks are appended immediately
+    final var adapter = new AtomixAppendListenerAdapter(listener);
+    logAppender.appendEntry(lowestPosition, highestPosition, buffer, adapter);
   }
 }

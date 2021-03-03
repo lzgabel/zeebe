@@ -17,6 +17,7 @@ import io.zeebe.protocol.impl.record.CopiedRecord;
 import io.zeebe.protocol.impl.record.RecordMetadata;
 import io.zeebe.protocol.impl.record.UnifiedRecordValue;
 import io.zeebe.protocol.impl.record.VersionInfo;
+import io.zeebe.protocol.impl.record.value.deployment.DeploymentDistributionRecord;
 import io.zeebe.protocol.impl.record.value.deployment.DeploymentRecord;
 import io.zeebe.protocol.impl.record.value.error.ErrorRecord;
 import io.zeebe.protocol.impl.record.value.incident.IncidentRecord;
@@ -122,6 +123,8 @@ public final class JsonSerializableToJsonTest {
               final String bpmnProcessId = "testProcess";
               final long workflowKey = 123;
               final int workflowVersion = 12;
+              final DirectBuffer checksum = wrapString("checksum");
+
               final DeploymentRecord record = new DeploymentRecord();
               record
                   .resources()
@@ -135,7 +138,9 @@ public final class JsonSerializableToJsonTest {
                   .setBpmnProcessId(wrapString(bpmnProcessId))
                   .setKey(workflowKey)
                   .setResourceName(wrapString(resourceName))
-                  .setVersion(workflowVersion);
+                  .setVersion(workflowVersion)
+                  .setChecksum(checksum)
+                  .setResource(resource);
 
               final int key = 1234;
               final int position = 4321;
@@ -145,7 +150,7 @@ public final class JsonSerializableToJsonTest {
               return new CopiedRecord<>(
                   record, recordMetadata, key, 0, position, sourcePosition, timestamp);
             },
-        "{'partitionId':0,'recordType':'COMMAND','intent':'CREATE','valueType':'DEPLOYMENT','rejectionType':'INVALID_ARGUMENT','rejectionReason':'fails','key':1234,'position':4321,'sourceRecordPosition':231,'value':{'deployedWorkflows':[{'bpmnProcessId':'testProcess','version':12,'resourceName':'resource','workflowKey':123}],'resources':[{'resourceName':'resource','resourceType':'BPMN_XML','resource':'Y29udGVudHM='}]},'timestamp':2191, 'brokerVersion':'1.2.3'}"
+        "{'valueType':'DEPLOYMENT','key':1234,'position':4321,'timestamp':2191,'recordType':'COMMAND','intent':'CREATE','partitionId':0,'rejectionType':'INVALID_ARGUMENT','rejectionReason':'fails','brokerVersion':'1.2.3','sourceRecordPosition':231,'value':{'deployedWorkflows':[{'resource':'Y29udGVudHM=','version':12,'bpmnProcessId':'testProcess','resourceName':'resource','checksum':'Y2hlY2tzdW0=','workflowKey':123}],'resources':[{'resourceName':'resource','resourceType':'BPMN_XML','resource':'Y29udGVudHM='}]}}"
       },
       /////////////////////////////////////////////////////////////////////////////////////////////
       //////////////////////////////////// DeploymentRecord ///////////////////////////////////////
@@ -160,6 +165,7 @@ public final class JsonSerializableToJsonTest {
               final String bpmnProcessId = "testProcess";
               final long workflowKey = 123;
               final int workflowVersion = 12;
+              final DirectBuffer checksum = wrapString("checksum");
               final DeploymentRecord record = new DeploymentRecord();
               record
                   .resources()
@@ -173,10 +179,25 @@ public final class JsonSerializableToJsonTest {
                   .setBpmnProcessId(wrapString(bpmnProcessId))
                   .setKey(workflowKey)
                   .setResourceName(wrapString(resourceName))
-                  .setVersion(workflowVersion);
+                  .setVersion(workflowVersion)
+                  .setChecksum(checksum)
+                  .setResource(resource);
               return record;
             },
-        "{'resources':[{'resourceType':'BPMN_XML','resourceName':'resource','resource':'Y29udGVudHM='}],'deployedWorkflows':[{'bpmnProcessId':'testProcess','version':12,'workflowKey':123,'resourceName':'resource'}]}"
+        "{'resources':[{'resourceType':'BPMN_XML','resourceName':'resource','resource':'Y29udGVudHM='}],'deployedWorkflows':[{'resource':'Y29udGVudHM=','checksum':'Y2hlY2tzdW0=','bpmnProcessId':'testProcess','version':12,'workflowKey':123,'resourceName':'resource'}]}"
+      },
+      /////////////////////////////////////////////////////////////////////////////////////////////
+      ////////////////////////////// DeploymentDistributionRecord /////////////////////////////////
+      /////////////////////////////////////////////////////////////////////////////////////////////
+      new Object[] {
+        "DeploymentDistributionRecord",
+        (Supplier<UnifiedRecordValue>)
+            () -> {
+              final var record = new DeploymentDistributionRecord();
+              record.setPartition(2);
+              return record;
+            },
+        "{'partitionId':2}"
       },
       /////////////////////////////////////////////////////////////////////////////////////////////
       //////////////////////////////////// Empty DeploymentRecord /////////////////////////////////
@@ -381,9 +402,10 @@ public final class JsonSerializableToJsonTest {
                   .setName(wrapString(messageName))
                   .setVariables(VARIABLES_MSGPACK)
                   .setTimeToLive(timeToLive)
+                  .setDeadline(22L)
                   .setMessageId(wrapString(messageId));
             },
-        "{'timeToLive':12,'correlationKey':'test-key','variables':{'foo':'bar'},'messageId':'test-id','name':'test-message'}"
+        "{'timeToLive':12,'correlationKey':'test-key','variables':{'foo':'bar'},'messageId':'test-id','name':'test-message','deadline':22}"
       },
       /////////////////////////////////////////////////////////////////////////////////////////////
       ///////////////////////////////// Empty MessageRecord ///////////////////////////////////////
@@ -401,7 +423,7 @@ public final class JsonSerializableToJsonTest {
                   .setCorrelationKey(correlationKey)
                   .setName(messageName);
             },
-        "{'timeToLive':12,'correlationKey':'test-key','variables':{},'messageId':'','name':'test-message'}"
+        "{'timeToLive':12,'correlationKey':'test-key','variables':{},'messageId':'','name':'test-message','deadline':-1}"
       },
 
       /////////////////////////////////////////////////////////////////////////////////////////////
@@ -420,9 +442,13 @@ public final class JsonSerializableToJsonTest {
                   .setMessageName(wrapString(messageName))
                   .setStartEventId(wrapString(startEventId))
                   .setWorkflowKey(workflowKey)
-                  .setBpmnProcessId(wrapString(bpmnProcessId));
+                  .setBpmnProcessId(wrapString(bpmnProcessId))
+                  .setWorkflowInstanceKey(2L)
+                  .setMessageKey(3L)
+                  .setCorrelationKey(wrapString("test-key"))
+                  .setVariables(VARIABLES_MSGPACK);
             },
-        "{'workflowKey':22334,'messageName':'name','startEventId':'startEvent','bpmnProcessId':'workflow'}"
+        "{'workflowKey':22334,'messageName':'name','startEventId':'startEvent','bpmnProcessId':'workflow','workflowInstanceKey':2,'messageKey':3,'correlationKey':'test-key','variables':{'foo':'bar'}}"
       },
 
       /////////////////////////////////////////////////////////////////////////////////////////////
@@ -436,7 +462,7 @@ public final class JsonSerializableToJsonTest {
 
               return new MessageStartEventSubscriptionRecord().setWorkflowKey(workflowKey);
             },
-        "{'workflowKey':22334,'messageName':'','startEventId':'','bpmnProcessId':''}"
+        "{'workflowKey':22334,'messageName':'','startEventId':'','bpmnProcessId':'','workflowInstanceKey':-1,'messageKey':-1,'correlationKey':'','variables':{}}"
       },
 
       /////////////////////////////////////////////////////////////////////////////////////////////
@@ -459,9 +485,10 @@ public final class JsonSerializableToJsonTest {
                   .setMessageKey(messageKey)
                   .setMessageName(wrapString(messageName))
                   .setWorkflowInstanceKey(workflowInstanceKey)
-                  .setCorrelationKey(wrapString(correlationKey));
+                  .setCorrelationKey(wrapString(correlationKey))
+                  .setVariables(VARIABLES_MSGPACK);
             },
-        "{'workflowInstanceKey':2,'elementInstanceKey':1,'messageName':'name','correlationKey':'key','bpmnProcessId':'workflow','messageKey':3}"
+        "{'workflowInstanceKey':2,'elementInstanceKey':1,'messageName':'name','correlationKey':'key','bpmnProcessId':'workflow','messageKey':3,'variables':{'foo':'bar'}}"
       },
       /////////////////////////////////////////////////////////////////////////////////////////////
       ///////////////////////////////// Empty MessageSubscriptionRecord
@@ -478,7 +505,7 @@ public final class JsonSerializableToJsonTest {
                   .setWorkflowInstanceKey(workflowInstanceKey)
                   .setElementInstanceKey(elementInstanceKey);
             },
-        "{'workflowInstanceKey':1,'elementInstanceKey':13,'messageName':'','correlationKey':'','bpmnProcessId':'','messageKey':-1}"
+        "{'workflowInstanceKey':1,'elementInstanceKey':13,'messageName':'','correlationKey':'','bpmnProcessId':'','messageKey':-1,'variables':{}}"
       },
 
       /////////////////////////////////////////////////////////////////////////////////////////////

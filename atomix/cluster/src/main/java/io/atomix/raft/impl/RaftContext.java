@@ -49,7 +49,6 @@ import io.atomix.raft.roles.RaftRole;
 import io.atomix.raft.storage.RaftStorage;
 import io.atomix.raft.storage.log.RaftLog;
 import io.atomix.raft.storage.log.RaftLogReader;
-import io.atomix.raft.storage.log.RaftLogWriter;
 import io.atomix.raft.storage.system.MetaStore;
 import io.atomix.raft.zeebe.EntryValidator;
 import io.atomix.storage.StorageException;
@@ -57,6 +56,7 @@ import io.atomix.utils.concurrent.ComposableFuture;
 import io.atomix.utils.concurrent.ThreadContext;
 import io.atomix.utils.logging.ContextualLoggerFactory;
 import io.atomix.utils.logging.LoggerContext;
+import io.zeebe.snapshots.raft.PersistedSnapshot;
 import io.zeebe.snapshots.raft.ReceivableSnapshotStore;
 import java.time.Duration;
 import java.util.Objects;
@@ -94,7 +94,6 @@ public class RaftContext implements AutoCloseable {
   private final RaftReplicationMetrics replicationMetrics;
   private final MetaStore meta;
   private final RaftLog raftLog;
-  private final RaftLogWriter logWriter;
   private final RaftLogReader logReader;
   private final ReceivableSnapshotStore persistedSnapshotStore;
   private final LogCompactor logCompactor;
@@ -113,6 +112,7 @@ public class RaftContext implements AutoCloseable {
   private final int maxAppendsPerFollower;
   // Used for randomizing election timeout
   private final Random random;
+  private PersistedSnapshot currentSnapshot;
 
   public RaftContext(
       final String name,
@@ -153,11 +153,17 @@ public class RaftContext implements AutoCloseable {
 
     // Construct the core log, reader, writer, and compactor.
     raftLog = storage.openLog();
-    logWriter = raftLog.writer();
     logReader = raftLog.openReader(1, RaftLogReader.Mode.ALL);
 
     // Open the snapshot store.
     persistedSnapshotStore = storage.getPersistedSnapshotStore();
+    persistedSnapshotStore.addSnapshotListener(this::setSnapshot);
+    // Update the current snapshot because the listener only notifies when a new snapshot is
+    // created.
+    persistedSnapshotStore
+        .getLatestSnapshot()
+        .ifPresent(persistedSnapshot -> currentSnapshot = persistedSnapshot);
+    verifySnapshotLogConsistent();
 
     logCompactor = new LogCompactor(this);
 
@@ -170,8 +176,25 @@ public class RaftContext implements AutoCloseable {
 
     raftRoleMetrics = new RaftRoleMetrics(name);
     replicationMetrics = new RaftReplicationMetrics(name);
-    replicationMetrics.setAppendIndex(logWriter.getLastIndex());
+    replicationMetrics.setAppendIndex(raftLog.getLastIndex());
     started = true;
+  }
+
+  private void verifySnapshotLogConsistent() {
+    final long currentSnapshotIndex = getCurrentSnapshotIndex();
+    if ((currentSnapshotIndex <= 0L && raftLog.getFirstIndex() != 1)
+        || (currentSnapshotIndex > 0L
+            && currentSnapshot.getIndex() + 1 < raftLog.getFirstIndex())) {
+      // There is no snapshot, but the log has been compacted!
+      throw new IllegalStateException(
+          String.format(
+              "Expected to find a snapshot at index >= log's first index %d, but found snapshot %d",
+              raftLog.getFirstIndex(), currentSnapshotIndex));
+    }
+  }
+
+  private void setSnapshot(final PersistedSnapshot persistedSnapshot) {
+    threadContext.execute(() -> currentSnapshot = persistedSnapshot);
   }
 
   private void onUncaughtException(final Throwable error) {
@@ -346,10 +369,10 @@ public class RaftContext implements AutoCloseable {
     final long previousCommitIndex = this.commitIndex;
     if (commitIndex > previousCommitIndex) {
       this.commitIndex = commitIndex;
-      logWriter.commit(Math.min(commitIndex, logWriter.getLastIndex()));
+      raftLog.setCommitIndex(Math.min(commitIndex, raftLog.getLastIndex()));
       if (raftLog.shouldFlushExplicitly() && isLeader()) {
         // leader counts itself in quorum, so in order to commit the leader must persist
-        logWriter.flush();
+        raftLog.flush();
       }
       final long configurationIndex = cluster.getConfiguration().index();
       if (configurationIndex > previousCommitIndex && configurationIndex <= commitIndex) {
@@ -619,21 +642,6 @@ public class RaftContext implements AutoCloseable {
     protocol.unregisterVoteHandler();
   }
 
-  /** Deletes the server context. */
-  public void delete() {
-    // Delete the log.
-    storage.deleteLog();
-
-    // Delete the snapshot store.
-    storage.deleteSnapshotStore();
-
-    // Delete the metadata store.
-    storage.deleteMetaStore();
-
-    // Unlock the store.
-    storage.unlock();
-  }
-
   @Override
   public String toString() {
     return getClass().getCanonicalName();
@@ -771,15 +779,6 @@ public class RaftContext implements AutoCloseable {
    */
   public RaftLogReader getLogReader() {
     return logReader;
-  }
-
-  /**
-   * Returns the server log writer.
-   *
-   * @return The log writer.
-   */
-  public RaftLogWriter getLogWriter() {
-    return logWriter;
   }
 
   /**
@@ -946,6 +945,14 @@ public class RaftContext implements AutoCloseable {
 
       log.trace("Set leader {}", this.leader);
     }
+  }
+
+  public PersistedSnapshot getCurrentSnapshot() {
+    return currentSnapshot;
+  }
+
+  public long getCurrentSnapshotIndex() {
+    return currentSnapshot != null ? currentSnapshot.getIndex() : 0L;
   }
 
   public boolean isRunning() {

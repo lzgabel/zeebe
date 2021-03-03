@@ -39,6 +39,8 @@ import io.atomix.raft.protocol.TransferRequest;
 import io.atomix.raft.protocol.TransferResponse;
 import io.atomix.raft.protocol.VoteRequest;
 import io.atomix.raft.protocol.VoteResponse;
+import io.atomix.raft.storage.log.Indexed;
+import io.atomix.raft.storage.log.RaftLogReader;
 import io.atomix.raft.storage.log.entry.ConfigurationEntry;
 import io.atomix.raft.storage.log.entry.InitializeEntry;
 import io.atomix.raft.storage.log.entry.RaftLogEntry;
@@ -47,7 +49,6 @@ import io.atomix.raft.zeebe.ValidationResult;
 import io.atomix.raft.zeebe.ZeebeEntry;
 import io.atomix.raft.zeebe.ZeebeLogAppender;
 import io.atomix.storage.StorageException;
-import io.atomix.storage.journal.Indexed;
 import io.atomix.utils.concurrent.Futures;
 import io.atomix.utils.concurrent.Scheduled;
 import io.zeebe.snapshots.raft.PersistedSnapshotListener;
@@ -191,17 +192,21 @@ public final class LeaderRole extends ActiveRole implements ZeebeLogAppender {
     return future;
   }
 
+  // TODO: good candidate to use a seekToLastASQN()
   private ZeebeEntry findLastZeebeEntry() {
-    long index = raft.getLogWriter().getLastIndex();
-    while (index > 0) {
-      raft.getLogReader().reset(index);
-      final Indexed<RaftLogEntry> lastEntry = raft.getLogReader().next();
+    long index = raft.getLog().getLastIndex();
+    final RaftLogReader reader = raft.getLogReader();
 
-      if (lastEntry != null && lastEntry.type() == ZeebeEntry.class) {
-        return ((ZeebeEntry) lastEntry.entry());
+    while (index > 0) {
+      reader.reset(index);
+      if (reader.hasNext()) {
+        final Indexed<RaftLogEntry> lastEntry = reader.next();
+        if (lastEntry != null && lastEntry.type() == ZeebeEntry.class) {
+          return ((ZeebeEntry) lastEntry.entry());
+        }
       }
 
-      --index;
+      index--;
     }
 
     return null;
@@ -361,7 +366,7 @@ public final class LeaderRole extends ActiveRole implements ZeebeLogAppender {
 
     final CompletableFuture<TransferResponse> future = new CompletableFuture<>();
     appender
-        .appendEntries(raft.getLogWriter().getLastIndex())
+        .appendEntries(raft.getLog().getLastIndex())
         .whenComplete(
             (result, error) -> {
               if (isRunning()) {
@@ -422,8 +427,8 @@ public final class LeaderRole extends ActiveRole implements ZeebeLogAppender {
                   .withStatus(RaftResponse.Status.OK)
                   .withTerm(raft.getTerm())
                   .withSucceeded(false)
-                  .withLastLogIndex(raft.getLogWriter().getLastIndex())
-                  .withLastSnapshotIndex(raft.getPersistedSnapshotStore().getCurrentSnapshotIndex())
+                  .withLastLogIndex(raft.getLog().getLastIndex())
+                  .withLastSnapshotIndex(raft.getCurrentSnapshotIndex())
                   .build()));
     } else {
       raft.setLeader(request.leader());
@@ -512,7 +517,7 @@ public final class LeaderRole extends ActiveRole implements ZeebeLogAppender {
     CompletableFuture<Indexed<E>> resultingFuture = null;
 
     try {
-      final Indexed<E> indexedEntry = raft.getLogWriter().append(entry);
+      final Indexed<E> indexedEntry = raft.getLog().append(entry);
       raft.getReplicationMetrics().setAppendIndex(indexedEntry.index());
       log.trace("Appended {}", indexedEntry);
       resultingFuture = CompletableFuture.completedFuture(indexedEntry);
@@ -568,27 +573,28 @@ public final class LeaderRole extends ActiveRole implements ZeebeLogAppender {
     if (result.failed()) {
       appendListener.onWriteError(new IllegalStateException(result.getErrorMessage()));
       raft.transition(Role.FOLLOWER);
+    } else {
+      append(entry)
+          .whenComplete(
+              (indexed, error) -> {
+                if (error != null) {
+                  appendListener.onWriteError(Throwables.getRootCause(error));
+                  if (!(error instanceof StorageException)) {
+                    // step down. Otherwise the following event can get appended resulting in gaps
+                    log.info(
+                        "Unexpected error occurred while appending to local log, stepping down");
+                    raft.transition(Role.FOLLOWER);
+                  }
+                } else {
+                  if (indexed.type().equals(ZeebeEntry.class)) {
+                    lastZbEntry = indexed.entry();
+                  }
+
+                  appendListener.onWrite(indexed);
+                  replicate(indexed, appendListener);
+                }
+              });
     }
-
-    append(entry)
-        .whenComplete(
-            (indexed, error) -> {
-              if (error != null) {
-                appendListener.onWriteError(Throwables.getRootCause(error));
-                if (!(error instanceof StorageException)) {
-                  // step down. Otherwise the following event can get appended resulting in gaps
-                  log.info("Unexpected error occurred while appending to local log, stepping down");
-                  raft.transition(Role.FOLLOWER);
-                }
-              } else {
-                if (indexed.type().equals(ZeebeEntry.class)) {
-                  lastZbEntry = indexed.entry();
-                }
-
-                appendListener.onWrite(indexed);
-                replicate(indexed, appendListener);
-              }
-            });
   }
 
   private void replicate(final Indexed<ZeebeEntry> indexed, final AppendListener appendListener) {

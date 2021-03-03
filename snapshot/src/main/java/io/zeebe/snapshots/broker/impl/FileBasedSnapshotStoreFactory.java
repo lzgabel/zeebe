@@ -12,10 +12,10 @@ import io.zeebe.snapshots.broker.SnapshotStoreSupplier;
 import io.zeebe.snapshots.raft.PersistedSnapshotStore;
 import io.zeebe.snapshots.raft.ReceivableSnapshotStore;
 import io.zeebe.snapshots.raft.ReceivableSnapshotStoreFactory;
+import io.zeebe.util.sched.ActorScheduler;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 import org.agrona.IoUtil;
+import org.agrona.collections.Int2ObjectHashMap;
 
 /**
  * Loads existing snapshots in memory, cleaning out old and/or invalid snapshots if present.
@@ -32,11 +32,19 @@ public final class FileBasedSnapshotStoreFactory
   public static final String SNAPSHOTS_DIRECTORY = "snapshots";
   public static final String PENDING_DIRECTORY = "pending";
 
-  private final Map<String, FileBasedSnapshotStore> partitionSnapshotStores = new HashMap();
+  private final Int2ObjectHashMap<FileBasedSnapshotStore> partitionSnapshotStores =
+      new Int2ObjectHashMap<>();
+  private final ActorScheduler actorScheduler;
+  private final int nodeId;
+
+  public FileBasedSnapshotStoreFactory(final ActorScheduler actorScheduler, final int nodeId) {
+    this.actorScheduler = actorScheduler;
+    this.nodeId = nodeId;
+  }
 
   @Override
   public ReceivableSnapshotStore createReceivableSnapshotStore(
-      final Path root, final String partitionName) {
+      final Path root, final int partitionId) {
     final var snapshotDirectory = root.resolve(SNAPSHOTS_DIRECTORY);
     final var pendingDirectory = root.resolve(PENDING_DIRECTORY);
 
@@ -44,24 +52,35 @@ public final class FileBasedSnapshotStoreFactory
     IoUtil.ensureDirectoryExists(pendingDirectory.toFile(), "Pending snapshot directory");
 
     return partitionSnapshotStores.computeIfAbsent(
-        partitionName,
-        p ->
-            new FileBasedSnapshotStore(
-                new SnapshotMetrics(partitionName), snapshotDirectory, pendingDirectory));
+        partitionId,
+        p -> createAndOpenNewSnapshotStore(partitionId, snapshotDirectory, pendingDirectory));
+  }
+
+  private FileBasedSnapshotStore createAndOpenNewSnapshotStore(
+      final int partitionId, final Path snapshotDirectory, final Path pendingDirectory) {
+    final var snapshotStore =
+        new FileBasedSnapshotStore(
+            nodeId,
+            partitionId,
+            new SnapshotMetrics(Integer.toString(partitionId)),
+            snapshotDirectory,
+            pendingDirectory);
+    actorScheduler.submitActor(snapshotStore).join();
+    return snapshotStore;
   }
 
   @Override
-  public ConstructableSnapshotStore getConstructableSnapshotStore(final String partitionName) {
-    return partitionSnapshotStores.get(partitionName);
+  public ConstructableSnapshotStore getConstructableSnapshotStore(final int partitionId) {
+    return partitionSnapshotStores.get(partitionId);
   }
 
   @Override
-  public ReceivableSnapshotStore getReceivableSnapshotStore(final String partitionName) {
-    return partitionSnapshotStores.get(partitionName);
+  public ReceivableSnapshotStore getReceivableSnapshotStore(final int partitionId) {
+    return partitionSnapshotStores.get(partitionId);
   }
 
   @Override
-  public PersistedSnapshotStore getPersistedSnapshotStore(final String partitionName) {
-    return partitionSnapshotStores.get(partitionName);
+  public PersistedSnapshotStore getPersistedSnapshotStore(final int partitionId) {
+    return partitionSnapshotStores.get(partitionId);
   }
 }
