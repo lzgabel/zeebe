@@ -19,6 +19,7 @@ import io.zeebe.protocol.record.intent.JobIntent;
 import io.zeebe.protocol.record.intent.MessageIntent;
 import io.zeebe.protocol.record.intent.MessageStartEventSubscriptionIntent;
 import io.zeebe.protocol.record.intent.MessageSubscriptionIntent;
+import io.zeebe.protocol.record.intent.VariableIntent;
 import io.zeebe.protocol.record.intent.WorkflowInstanceIntent;
 import io.zeebe.protocol.record.intent.WorkflowIntent;
 import java.util.HashMap;
@@ -66,10 +67,7 @@ public final class EventAppliers implements EventApplier {
     register(MessageIntent.PUBLISHED, new MessagePublishedApplier(state.getMessageState()));
     register(MessageIntent.EXPIRED, new MessageExpiredApplier(state.getMessageState()));
 
-    register(
-        MessageSubscriptionIntent.CORRELATING,
-        new MessageSubscriptionCorrelatingApplier(
-            state.getMessageSubscriptionState(), state.getMessageState()));
+    registerMessageSubscriptionAppliers(state);
 
     register(
         MessageStartEventSubscriptionIntent.CORRELATED,
@@ -77,17 +75,26 @@ public final class EventAppliers implements EventApplier {
             state.getMessageState(), state.getEventScopeInstanceState()));
 
     registerJobIntentEventAppliers(state);
+    registerVariableEventAppliers(state);
+  }
+
+  private void registerVariableEventAppliers(final ZeebeState state) {
+    final VariableApplier variableApplier = new VariableApplier(state.getVariableState());
+    register(VariableIntent.CREATED, variableApplier);
+    register(VariableIntent.UPDATED, variableApplier);
   }
 
   private void registerWorkflowInstanceEventAppliers(final ZeebeState state) {
     final var elementInstanceState = state.getElementInstanceState();
     final var eventScopeInstanceState = state.getEventScopeInstanceState();
+    final var workflowState = state.getWorkflowState();
     register(
         WorkflowInstanceIntent.ELEMENT_ACTIVATING,
         new WorkflowInstanceElementActivatingApplier(elementInstanceState));
     register(
         WorkflowInstanceIntent.ELEMENT_ACTIVATED,
-        new WorkflowInstanceElementActivatedApplier(elementInstanceState));
+        new WorkflowInstanceElementActivatedApplier(
+            elementInstanceState, workflowState, eventScopeInstanceState));
     register(
         WorkflowInstanceIntent.ELEMENT_COMPLETING,
         new WorkflowInstanceElementCompletingApplier(elementInstanceState));
@@ -107,9 +114,29 @@ public final class EventAppliers implements EventApplier {
   }
 
   private void registerJobIntentEventAppliers(final ZeebeState state) {
+    register(JobIntent.CANCELED, new JobCanceledApplier(state));
+    register(JobIntent.COMPLETED, new JobCompletedApplier(state));
     register(JobIntent.CREATED, new JobCreatedApplier(state));
-    register(JobIntent.COMPLETED, new JobCompletedEventApplier(state));
+    register(JobIntent.ERROR_THROWN, new JobErrorThrownApplier(state));
     register(JobIntent.FAILED, new JobFailedApplier(state));
+    register(JobIntent.RETRIES_UPDATED, new JobRetriesUpdatedApplier(state));
+    register(JobIntent.TIMED_OUT, new JobTimedOutApplier(state));
+  }
+
+  private void registerMessageSubscriptionAppliers(final ZeebeState state) {
+    register(
+        MessageSubscriptionIntent.CREATED,
+        new MessageSubscriptionCreatedApplier(state.getMessageSubscriptionState()));
+    register(
+        MessageSubscriptionIntent.CORRELATING,
+        new MessageSubscriptionCorrelatingApplier(
+            state.getMessageSubscriptionState(), state.getMessageState()));
+    register(
+        MessageSubscriptionIntent.CORRELATED,
+        new MessageSubscriptionCorrelatedApplier(state.getMessageSubscriptionState()));
+    register(
+        MessageSubscriptionIntent.DELETED,
+        new MessageSubscriptionDeletedApplier(state.getMessageSubscriptionState()));
   }
 
   private <I extends Intent> void register(final I intent, final TypedEventApplier<I, ?> applier) {

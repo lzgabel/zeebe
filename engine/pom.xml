@@ -32,7 +32,6 @@
       <artifactId>slf4j-api</artifactId>
     </dependency>
 
-
     <dependency>
       <groupId>io.zeebe</groupId>
       <artifactId>zeebe-protocol</artifactId>
@@ -152,7 +151,6 @@
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
-      <scope>test</scope>
     </dependency>
 
     <!-- TEMPORARY -->

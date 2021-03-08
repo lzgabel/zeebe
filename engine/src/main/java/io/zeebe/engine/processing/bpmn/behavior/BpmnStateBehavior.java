@@ -10,6 +10,7 @@ package io.zeebe.engine.processing.bpmn.behavior;
 import io.zeebe.engine.processing.bpmn.BpmnElementContext;
 import io.zeebe.engine.processing.bpmn.BpmnProcessingException;
 import io.zeebe.engine.processing.streamprocessor.MigratedStreamProcessors;
+import io.zeebe.engine.processing.variable.VariableBehavior;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.engine.state.deployment.DeployedWorkflow;
 import io.zeebe.engine.state.immutable.JobState;
@@ -33,8 +34,11 @@ public final class BpmnStateBehavior {
   private final MutableVariableState variablesState;
   private final JobState jobState;
   private final WorkflowState workflowState;
+  private final VariableBehavior variableBehavior;
 
-  public BpmnStateBehavior(final ZeebeState zeebeState) {
+  public BpmnStateBehavior(final ZeebeState zeebeState, final VariableBehavior variableBehavior) {
+    this.variableBehavior = variableBehavior;
+
     workflowState = zeebeState.getWorkflowState();
     elementInstanceState = zeebeState.getElementInstanceState();
     eventScopeInstanceState = zeebeState.getEventScopeInstanceState();
@@ -201,9 +205,10 @@ public final class BpmnStateBehavior {
       final DirectBuffer variableValue,
       final int valueOffset,
       final int valueLength) {
-    variablesState.setVariableLocal(
+    variableBehavior.setLocalVariable(
         context.getElementInstanceKey(),
         context.getWorkflowKey(),
+        context.getWorkflowInstanceKey(),
         variableName,
         variableValue,
         valueOffset,
@@ -218,14 +223,20 @@ public final class BpmnStateBehavior {
     final var variablesAsDocument =
         variablesState.getVariablesAsDocument(sourceScope, List.of(variableName));
 
-    variablesState.setVariablesFromDocument(
-        targetScope, context.getWorkflowKey(), variablesAsDocument);
+    variableBehavior.mergeDocument(
+        targetScope,
+        context.getWorkflowKey(),
+        context.getWorkflowInstanceKey(),
+        variablesAsDocument);
   }
 
-  public void copyVariables(
-      final long source, final long target, final DeployedWorkflow targetWorkflow) {
-    final var variables = variablesState.getVariablesAsDocument(source);
-    variablesState.setVariablesFromDocument(target, targetWorkflow.getKey(), variables);
+  public void copyVariablesToWorkflowInstance(
+      final long sourceScopeKey,
+      final long targetWorkflowInstanceKey,
+      final DeployedWorkflow targetWorkflow) {
+    final var variables = variablesState.getVariablesAsDocument(sourceScopeKey);
+    variableBehavior.mergeDocument(
+        targetWorkflowInstanceKey, targetWorkflow.getKey(), targetWorkflowInstanceKey, variables);
   }
 
   public void propagateTemporaryVariables(

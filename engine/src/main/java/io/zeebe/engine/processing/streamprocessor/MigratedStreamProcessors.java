@@ -51,7 +51,15 @@ public final class MigratedStreamProcessors {
                 JobIntent.COMPLETE,
                 JobIntent.COMPLETED,
                 JobIntent.FAIL,
-                JobIntent.FAILED)));
+                JobIntent.FAILED,
+                JobIntent.THROW_ERROR,
+                JobIntent.ERROR_THROWN,
+                JobIntent.TIME_OUT,
+                JobIntent.TIMED_OUT,
+                JobIntent.UPDATE_RETRIES,
+                JobIntent.RETRIES_UPDATED,
+                JobIntent.CANCEL,
+                JobIntent.CANCELED)));
     MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.TESTING_ONLY);
     MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.EXCLUSIVE_GATEWAY);
     MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.PARALLEL_GATEWAY);
@@ -59,14 +67,26 @@ public final class MigratedStreamProcessors {
     MIGRATED_VALUE_TYPES.put(ValueType.ERROR, MIGRATED);
     MIGRATED_VALUE_TYPES.put(ValueType.WORKFLOW, MIGRATED);
     MIGRATED_VALUE_TYPES.put(ValueType.DEPLOYMENT_DISTRIBUTION, MIGRATED);
+    MIGRATED_VALUE_TYPES.put(ValueType.DEPLOYMENT, MIGRATED);
     MIGRATED_VALUE_TYPES.put(ValueType.MESSAGE, MIGRATED);
 
     MIGRATED_VALUE_TYPES.put(
         ValueType.MESSAGE_SUBSCRIPTION,
-        record -> record.getIntent() == MessageSubscriptionIntent.CORRELATING);
+        MIGRATED_INTENT_FILTER_FACTORY.apply(
+            List.of(
+                MessageSubscriptionIntent.CREATE,
+                MessageSubscriptionIntent.CREATED,
+                MessageSubscriptionIntent.CORRELATING,
+                MessageSubscriptionIntent.CORRELATE,
+                MessageSubscriptionIntent.CORRELATED,
+                MessageSubscriptionIntent.DELETE,
+                MessageSubscriptionIntent.DELETED)));
     MIGRATED_VALUE_TYPES.put(
         ValueType.MESSAGE_START_EVENT_SUBSCRIPTION,
         record -> record.getIntent() == MessageStartEventSubscriptionIntent.CORRELATED);
+
+    MIGRATED_VALUE_TYPES.put(ValueType.VARIABLE_DOCUMENT, MIGRATED);
+    MIGRATED_VALUE_TYPES.put(ValueType.VARIABLE, MIGRATED);
   }
 
   private MigratedStreamProcessors() {}

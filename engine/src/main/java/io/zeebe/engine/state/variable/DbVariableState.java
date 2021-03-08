@@ -13,28 +13,24 @@ import io.zeebe.db.ZeebeDb;
 import io.zeebe.db.impl.DbCompositeKey;
 import io.zeebe.db.impl.DbLong;
 import io.zeebe.db.impl.DbString;
-import io.zeebe.engine.state.KeyGenerator;
 import io.zeebe.engine.state.ZbColumnFamilies;
 import io.zeebe.engine.state.instance.ParentScopeKey;
 import io.zeebe.engine.state.instance.TemporaryVariables;
 import io.zeebe.engine.state.mutable.MutableVariableState;
-import io.zeebe.msgpack.spec.MsgPackReader;
 import io.zeebe.msgpack.spec.MsgPackWriter;
-import io.zeebe.util.buffer.BufferUtil;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.agrona.MutableDirectBuffer;
+import org.agrona.collections.MutableInteger;
 import org.agrona.collections.ObjectHashSet;
 import org.agrona.concurrent.UnsafeBuffer;
 
 public class DbVariableState implements MutableVariableState {
 
-  private final MsgPackReader reader = new MsgPackReader();
   private final MsgPackWriter writer = new MsgPackWriter();
   private final ExpandableArrayBuffer documentResultBuffer = new ExpandableArrayBuffer();
   private final DirectBuffer resultView = new UnsafeBuffer(0, 0);
@@ -62,19 +58,8 @@ public class DbVariableState implements MutableVariableState {
   private final ObjectHashSet<DirectBuffer> collectedVariables = new ObjectHashSet<>();
   private final ObjectHashSet<DirectBuffer> variablesToCollect = new ObjectHashSet<>();
 
-  // setting variables
-  private final IndexedDocument indexedDocument = new IndexedDocument(reader);
-  private final KeyGenerator keyGenerator;
-
-  private VariableListener listener;
-  private int variableCount = 0;
-
   public DbVariableState(
-      final ZeebeDb<ZbColumnFamilies> zeebeDb,
-      final TransactionContext transactionContext,
-      final KeyGenerator keyGenerator) {
-    this.keyGenerator = keyGenerator;
-
+      final ZeebeDb<ZbColumnFamilies> zeebeDb, final TransactionContext transactionContext) {
     childKey = new DbLong();
     childParentColumnFamily =
         zeebeDb.createColumnFamily(
@@ -102,41 +87,19 @@ public class DbVariableState implements MutableVariableState {
   }
 
   @Override
-  public void setVariablesLocalFromDocument(
-      final long scopeKey, final long workflowKey, final DirectBuffer document) {
-    indexedDocument.index(document);
-    if (indexedDocument.isEmpty()) {
-      return;
-    }
-
-    for (final DocumentEntry entry : indexedDocument) {
-      setVariableLocal(scopeKey, workflowKey, entry.getName(), entry.getValue());
-    }
-  }
-
-  @Override
   public void setVariableLocal(
+      final long key,
       final long scopeKey,
       final long workflowKey,
       final DirectBuffer name,
       final DirectBuffer value) {
-    setVariableLocal(scopeKey, workflowKey, name, 0, name.capacity(), value, 0, value.capacity());
-  }
-
-  @Override
-  public void setVariableLocal(
-      final long scopeKey,
-      final long workflowKey,
-      final DirectBuffer name,
-      final DirectBuffer value,
-      final int valueOffset,
-      final int valueLength) {
     setVariableLocal(
-        scopeKey, workflowKey, name, 0, name.capacity(), value, valueOffset, valueLength);
+        key, scopeKey, workflowKey, name, 0, name.capacity(), value, 0, value.capacity());
   }
 
   @Override
   public void setVariableLocal(
+      final long key,
       final long scopeKey,
       final long workflowKey,
       final DirectBuffer name,
@@ -148,74 +111,13 @@ public class DbVariableState implements MutableVariableState {
 
     newVariable.reset();
     newVariable.setValue(value, valueOffset, valueLength);
+    newVariable.setKey(key);
 
-    final VariableInstance currentVariable =
-        getVariableLocal(scopeKey, name, nameOffset, nameLength);
+    this.scopeKey.wrapLong(scopeKey);
+    variableNameView.wrap(name, nameOffset, nameLength);
+    variableName.wrapBuffer(variableNameView);
 
-    if (currentVariable == null) {
-      newVariable.setKey(keyGenerator.nextKey());
-      variablesColumnFamily.put(scopeKeyVariableNameKey, newVariable);
-
-      if (listener != null) {
-        final long rootScopeKey = getRootScopeKey(scopeKey);
-        listener.onCreate(
-            newVariable.getKey(),
-            workflowKey,
-            variableName.getBuffer(),
-            newVariable.getValue(),
-            scopeKey,
-            rootScopeKey);
-      }
-
-    } else if (!BufferUtil.equals(currentVariable.getValue(), newVariable.getValue())) {
-      newVariable.setKey(currentVariable.getKey());
-      variablesColumnFamily.put(scopeKeyVariableNameKey, newVariable);
-
-      if (listener != null) {
-        final long rootScopeKey = getRootScopeKey(scopeKey);
-        listener.onUpdate(
-            newVariable.getKey(),
-            workflowKey,
-            variableName.getBuffer(),
-            newVariable.getValue(),
-            scopeKey,
-            rootScopeKey);
-      }
-
-    } else {
-      // not updated
-    }
-  }
-
-  @Override
-  public void setVariablesFromDocument(
-      final long scopeKey, final long workflowKey, final DirectBuffer document) {
-    indexedDocument.index(document);
-    if (indexedDocument.isEmpty()) {
-      return;
-    }
-
-    long currentScope = scopeKey;
-    long parentScope;
-
-    while ((parentScope = getParentScopeKey(currentScope)) > 0) {
-      final Iterator<DocumentEntry> entryIterator = indexedDocument.iterator();
-
-      while (entryIterator.hasNext()) {
-        final DocumentEntry entry = entryIterator.next();
-        final boolean hasVariable = hasVariableLocal(currentScope, entry.getName());
-
-        if (hasVariable) {
-          setVariableLocal(currentScope, workflowKey, entry.getName(), entry.getValue());
-          entryIterator.remove();
-        }
-      }
-      currentScope = parentScope;
-    }
-
-    for (final DocumentEntry entry : indexedDocument) {
-      setVariableLocal(currentScope, workflowKey, entry.getName(), entry.getValue());
-    }
+    variablesColumnFamily.put(scopeKeyVariableNameKey, newVariable);
   }
 
   @Override
@@ -370,13 +272,10 @@ public class DbVariableState implements MutableVariableState {
 
   @Override
   public DirectBuffer getVariablesLocalAsDocument(final long scopeKey) {
-
     writer.wrap(documentResultBuffer, 0);
-
     writer.reserveMapHeader();
 
-    variableCount = 0;
-
+    final MutableInteger variableCount = new MutableInteger();
     visitVariablesLocal(
         scopeKey,
         name -> true,
@@ -384,11 +283,11 @@ public class DbVariableState implements MutableVariableState {
           writer.writeString(name.getBuffer());
           writer.writeRaw(value.getValue());
 
-          variableCount += 1;
+          variableCount.addAndGet(1);
         },
         () -> false);
 
-    writer.writeReservedMapHeader(0, variableCount);
+    writer.writeReservedMapHeader(0, variableCount.get());
 
     resultView.wrap(documentResultBuffer, 0, writer.getOffset());
     return resultView;
@@ -410,21 +309,8 @@ public class DbVariableState implements MutableVariableState {
   }
 
   @Override
-  public boolean hasVariableLocal(final long scopeKey, final DirectBuffer name) {
-    this.scopeKey.wrapLong(scopeKey);
-    variableNameView.wrap(name, 0, name.capacity());
-    variableName.wrapBuffer(variableNameView);
-
-    return variablesColumnFamily.exists(scopeKeyVariableNameKey);
-  }
-
-  @Override
-  public void setListener(final VariableListener listener) {
-    if (this.listener != null) {
-      throw new IllegalStateException("variable listener is already set");
-    }
-
-    this.listener = listener;
+  public VariableInstance getVariableInstanceLocal(final long scopeKey, final DirectBuffer name) {
+    return getVariableLocal(scopeKey, name, 0, name.capacity());
   }
 
   @Override
@@ -483,47 +369,14 @@ public class DbVariableState implements MutableVariableState {
     variablesColumnFamily.whileEqualPrefix(
         this.scopeKey,
         (compositeKey, variable) -> {
-          final DbString variableName = compositeKey.getSecond();
+          final DbString name = compositeKey.getSecond();
 
-          if (variableFilter.test(variableName)) {
-            variableConsumer.accept(variableName, variable);
+          if (variableFilter.test(name)) {
+            variableConsumer.accept(name, variable);
           }
 
           return !completionCondition.getAsBoolean();
         });
     return false;
-  }
-
-  private long getRootScopeKey(final long scopeKey) {
-    long rootScopeKey = scopeKey;
-    long currentScopeKey = scopeKey;
-
-    do {
-      currentScopeKey = getParentScopeKey(currentScopeKey);
-      if (currentScopeKey != NO_PARENT) {
-        rootScopeKey = currentScopeKey;
-      }
-    } while (currentScopeKey != NO_PARENT);
-
-    return rootScopeKey;
-  }
-
-  public interface VariableListener {
-
-    void onCreate(
-        long key,
-        long workflowKey,
-        DirectBuffer name,
-        DirectBuffer value,
-        long variableScopeKey,
-        long rootScopeKey);
-
-    void onUpdate(
-        long key,
-        long workflowKey,
-        DirectBuffer name,
-        DirectBuffer value,
-        long variableScopeKey,
-        long rootScopeKey);
   }
 }

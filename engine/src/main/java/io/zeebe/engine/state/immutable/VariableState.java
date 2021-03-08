@@ -7,7 +7,7 @@
  */
 package io.zeebe.engine.state.immutable;
 
-import io.zeebe.engine.state.variable.DbVariableState.VariableListener;
+import io.zeebe.engine.state.variable.VariableInstance;
 import java.util.Collection;
 import org.agrona.DirectBuffer;
 
@@ -32,9 +32,7 @@ public interface VariableState {
 
   boolean isEmpty();
 
-  boolean hasVariableLocal(long scopeKey, DirectBuffer name);
-
-  void setListener(VariableListener listener);
+  VariableInstance getVariableInstanceLocal(long scopeKey, DirectBuffer name);
 
   /**
    * @return returns the parent scope key of the given {@code childScopeKey}, or {@link

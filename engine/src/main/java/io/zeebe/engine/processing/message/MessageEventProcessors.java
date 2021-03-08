@@ -54,18 +54,19 @@ public final class MessageEventProcessors {
             ValueType.MESSAGE, MessageIntent.EXPIRE, new MessageExpireProcessor(writers.state()))
         .onCommand(
             ValueType.MESSAGE_SUBSCRIPTION,
-            MessageSubscriptionIntent.OPEN,
-            new OpenMessageSubscriptionProcessor(
-                messageState, subscriptionState, subscriptionCommandSender))
+            MessageSubscriptionIntent.CREATE,
+            new MessageSubscriptionCreateProcessor(
+                messageState, subscriptionState, subscriptionCommandSender, writers))
         .onCommand(
             ValueType.MESSAGE_SUBSCRIPTION,
             MessageSubscriptionIntent.CORRELATE,
-            new CorrelateMessageSubscriptionProcessor(
-                messageState, subscriptionState, subscriptionCommandSender))
+            new MessageSubscriptionCorrelateProcessor(
+                messageState, subscriptionState, subscriptionCommandSender, writers))
         .onCommand(
             ValueType.MESSAGE_SUBSCRIPTION,
-            MessageSubscriptionIntent.CLOSE,
-            new CloseMessageSubscriptionProcessor(subscriptionState, subscriptionCommandSender))
+            MessageSubscriptionIntent.DELETE,
+            new MessageSubscriptionDeleteProcessor(
+                subscriptionState, subscriptionCommandSender, writers))
         .onCommand(
             ValueType.MESSAGE_SUBSCRIPTION,
             MessageSubscriptionIntent.REJECT,

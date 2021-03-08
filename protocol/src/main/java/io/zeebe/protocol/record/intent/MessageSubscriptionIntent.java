@@ -16,8 +16,8 @@
 package io.zeebe.protocol.record.intent;
 
 public enum MessageSubscriptionIntent implements WorkflowInstanceRelatedIntent {
-  OPEN((short) 0),
-  OPENED((short) 1),
+  CREATE((short) 0),
+  CREATED((short) 1),
 
   CORRELATING((short) 8),
   CORRELATE((short) 2),
@@ -26,8 +26,8 @@ public enum MessageSubscriptionIntent implements WorkflowInstanceRelatedIntent {
   REJECT((short) 4),
   REJECTED((short) 5),
 
-  CLOSE((short) 6),
-  CLOSED((short) 7);
+  DELETE((short) 6),
+  DELETED((short) 7);
 
   private final short value;
   private final boolean shouldBlacklist;
@@ -49,9 +49,9 @@ public enum MessageSubscriptionIntent implements WorkflowInstanceRelatedIntent {
   public static Intent from(final short value) {
     switch (value) {
       case 0:
-        return OPEN;
+        return CREATE;
       case 1:
-        return OPENED;
+        return CREATED;
       case 2:
         return CORRELATE;
       case 3:
@@ -61,9 +61,9 @@ public enum MessageSubscriptionIntent implements WorkflowInstanceRelatedIntent {
       case 5:
         return REJECTED;
       case 6:
-        return CLOSE;
+        return DELETE;
       case 7:
-        return CLOSED;
+        return DELETED;
       case 8:
         return CORRELATING;
       default:

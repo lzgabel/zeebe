@@ -14,12 +14,12 @@ import io.zeebe.engine.processing.streamprocessor.CommandProcessor;
 import io.zeebe.engine.processing.streamprocessor.TypedRecord;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedEventWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.Writers;
+import io.zeebe.engine.processing.variable.VariableBehavior;
 import io.zeebe.engine.state.KeyGenerator;
 import io.zeebe.engine.state.deployment.DeployedWorkflow;
 import io.zeebe.engine.state.immutable.WorkflowState;
 import io.zeebe.engine.state.instance.ElementInstance;
 import io.zeebe.engine.state.mutable.MutableElementInstanceState;
-import io.zeebe.engine.state.mutable.MutableVariableState;
 import io.zeebe.msgpack.spec.MsgpackReaderException;
 import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceCreationRecord;
 import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceRecord;
@@ -50,19 +50,19 @@ public final class CreateWorkflowInstanceProcessor
   private final WorkflowInstanceRecord newWorkflowInstance = new WorkflowInstanceRecord();
   private final WorkflowState workflowState;
   private final MutableElementInstanceState elementInstanceState;
-  private final MutableVariableState variablesState;
+  private final VariableBehavior variableBehavior;
   private final KeyGenerator keyGenerator;
   private final TypedEventWriter eventWriter;
 
   public CreateWorkflowInstanceProcessor(
       final WorkflowState workflowState,
       final MutableElementInstanceState elementInstanceState,
-      final MutableVariableState variablesState,
       final KeyGenerator keyGenerator,
-      final Writers writers) {
+      final Writers writers,
+      final VariableBehavior variableBehavior) {
     this.workflowState = workflowState;
     this.elementInstanceState = elementInstanceState;
-    this.variablesState = variablesState;
+    this.variableBehavior = variableBehavior;
     this.keyGenerator = keyGenerator;
     eventWriter = writers.events();
   }
@@ -114,8 +114,8 @@ public final class CreateWorkflowInstanceProcessor
       final long workflowKey,
       final long workflowInstanceKey) {
     try {
-      variablesState.setVariablesLocalFromDocument(
-          workflowInstanceKey, workflowKey, record.getVariablesBuffer());
+      variableBehavior.mergeLocalDocument(
+          workflowInstanceKey, workflowKey, workflowInstanceKey, record.getVariablesBuffer());
     } catch (final MsgpackReaderException e) {
       Loggers.WORKFLOW_PROCESSOR_LOGGER.error(ERROR_INVALID_VARIABLES_LOGGED_MESSAGE, e);
       controller.reject(
@@ -139,11 +139,8 @@ public final class CreateWorkflowInstanceProcessor
     newWorkflowInstance.setElementId(workflow.getWorkflow().getId());
     newWorkflowInstance.setFlowScopeKey(-1);
 
-    final ElementInstance instance =
-        elementInstanceState.newInstance(
-            workflowInstanceKey, newWorkflowInstance, WorkflowInstanceIntent.ELEMENT_ACTIVATING);
-
-    return instance;
+    return elementInstanceState.newInstance(
+        workflowInstanceKey, newWorkflowInstance, WorkflowInstanceIntent.ELEMENT_ACTIVATING);
   }
 
   private DeployedWorkflow getWorkflow(
