@@ -15,18 +15,19 @@ import io.zeebe.broker.exporter.stream.ExporterDirector;
 import io.zeebe.broker.logstreams.LogDeletionService;
 import io.zeebe.broker.system.configuration.BrokerCfg;
 import io.zeebe.broker.system.partitions.impl.AsyncSnapshotDirector;
+import io.zeebe.broker.system.partitions.impl.PartitionProcessingState;
 import io.zeebe.broker.system.partitions.impl.StateControllerImpl;
 import io.zeebe.broker.transport.commandapi.CommandApiService;
 import io.zeebe.db.ZeebeDb;
 import io.zeebe.engine.processing.streamprocessor.StreamProcessor;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.storage.atomix.AtomixLogStorage;
-import io.zeebe.logstreams.storage.atomix.ZeebeIndexMapping;
 import io.zeebe.snapshots.broker.SnapshotStoreSupplier;
 import io.zeebe.util.health.HealthMonitor;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.ActorScheduler;
 import io.zeebe.util.sched.ScheduledTimer;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
@@ -44,8 +45,8 @@ public class PartitionContext {
   private final CommandApiService commandApiService;
   private final Integer partitionId;
   private final int maxFragmentSize;
-  private final ZeebeIndexMapping zeebeIndexMapping;
   private final ExporterRepository exporterRepository;
+  private final PartitionProcessingState partitionProcessingState;
 
   private StreamProcessor streamProcessor;
   private LogStream logStream;
@@ -58,8 +59,6 @@ public class PartitionContext {
   private AsyncSnapshotDirector snapshotDirector;
   private HealthMonitor criticalComponentsHealthMonitor;
   private ZeebeDb zeebeDb;
-  private boolean diskSpaceAvailable;
-  private boolean isProcessingPaused;
   private ActorControl actor;
   private ScheduledTimer metricsTimer;
   private ExporterDirector exporterDirector;
@@ -72,10 +71,10 @@ public class PartitionContext {
       final ActorScheduler actorScheduler,
       final BrokerCfg brokerCfg,
       final CommandApiService commandApiService,
-      final ZeebeIndexMapping zeebeIndexMapping,
       final SnapshotStoreSupplier snapshotStoreSupplier,
       final TypedRecordProcessorsFactory typedRecordProcessorsFactory,
-      final ExporterRepository exporterRepository) {
+      final ExporterRepository exporterRepository,
+      final PartitionProcessingState partitionProcessingState) {
     this.nodeId = nodeId;
     this.raftPartition = raftPartition;
     this.messagingService = messagingService;
@@ -87,8 +86,8 @@ public class PartitionContext {
     partitionId = raftPartition.id().id();
     scheduler = actorScheduler;
     maxFragmentSize = (int) brokerCfg.getNetwork().getMaxMessageSizeInBytes();
-    this.zeebeIndexMapping = zeebeIndexMapping;
     this.exporterRepository = exporterRepository;
+    this.partitionProcessingState = partitionProcessingState;
   }
 
   public ExporterDirector getExporterDirector() {
@@ -152,7 +151,7 @@ public class PartitionContext {
   }
 
   public void setSnapshotController(final StateControllerImpl controller) {
-    this.stateController = controller;
+    stateController = controller;
   }
 
   public SnapshotReplication getSnapshotReplication() {
@@ -247,31 +246,35 @@ public class PartitionContext {
     return maxFragmentSize;
   }
 
-  public ZeebeIndexMapping getZeebeIndexMapping() {
-    return zeebeIndexMapping;
-  }
-
   public ExporterRepository getExporterRepository() {
     return exporterRepository;
   }
 
-  public boolean isDiskSpaceAvailable() {
-    return diskSpaceAvailable;
-  }
-
   public void setDiskSpaceAvailable(final boolean diskSpaceAvailable) {
-    this.diskSpaceAvailable = diskSpaceAvailable;
-  }
-
-  public boolean isProcessingPaused() {
-    return isProcessingPaused;
-  }
-
-  public void setProcessingPaused(final boolean processingPaused) {
-    isProcessingPaused = processingPaused;
+    partitionProcessingState.setDiskSpaceAvailable(diskSpaceAvailable);
   }
 
   public boolean shouldProcess() {
-    return isDiskSpaceAvailable() && !isProcessingPaused();
+    return partitionProcessingState.shouldProcess();
+  }
+
+  public boolean shouldExport() {
+    return !partitionProcessingState.isExportingPaused();
+  }
+
+  public void pauseProcessing() throws IOException {
+    partitionProcessingState.pauseProcessing();
+  }
+
+  public void resumeProcessing() throws IOException {
+    partitionProcessingState.resumeProcessing();
+  }
+
+  public boolean pauseExporting() throws IOException {
+    return partitionProcessingState.pauseExporting();
+  }
+
+  public boolean resumeExporting() throws IOException {
+    return partitionProcessingState.resumeExporting();
   }
 }

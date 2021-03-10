@@ -11,6 +11,7 @@ import io.zeebe.broker.system.partitions.PartitionContext;
 import io.zeebe.broker.system.partitions.PartitionStep;
 import io.zeebe.engine.processing.streamprocessor.StreamProcessor;
 import io.zeebe.engine.state.ZeebeState;
+import io.zeebe.engine.state.appliers.EventAppliers;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
@@ -20,7 +21,7 @@ public class StreamProcessorPartitionStep implements PartitionStep {
   @Override
   public ActorFuture<Void> open(final PartitionContext context) {
     final StreamProcessor streamProcessor = createStreamProcessor(context);
-    final ActorFuture<Void> openFuture = streamProcessor.openAsync();
+    final ActorFuture<Void> openFuture = streamProcessor.openAsync(!context.shouldProcess());
     final CompletableActorFuture<Void> future = new CompletableActorFuture<>();
 
     openFuture.onComplete(
@@ -28,8 +29,12 @@ public class StreamProcessorPartitionStep implements PartitionStep {
           if (err == null) {
             context.setStreamProcessor(streamProcessor);
 
+            // Have to pause/resume it here in case the state changed after streamProcessor was
+            // created
             if (!context.shouldProcess()) {
               streamProcessor.pauseProcessing();
+            } else {
+              streamProcessor.resumeProcessing();
             }
 
             context
@@ -58,12 +63,16 @@ public class StreamProcessorPartitionStep implements PartitionStep {
   }
 
   private StreamProcessor createStreamProcessor(final PartitionContext state) {
+
     return StreamProcessor.builder()
         .logStream(state.getLogStream())
         .actorScheduler(state.getScheduler())
         .zeebeDb(state.getZeebeDb())
+        .eventApplierFactory(EventAppliers::new)
         .nodeId(state.getNodeId())
         .commandResponseWriter(state.getCommandApiService().newCommandResponseWriter())
+        .detectReprocessingInconsistency(
+            state.getBrokerCfg().getExperimental().isDetectReprocessingInconsistency())
         .onProcessedListener(
             state.getCommandApiService().getOnProcessedListener(state.getPartitionId()))
         .streamProcessorFactory(

@@ -15,11 +15,9 @@ import java.util.Optional;
  * are defined via the specified {@link ColumnFamilyType} enum.
  *
  * <p>To access and store key-value pairs in a specific column family the user needs to create a
- * ColumnFamily instance via {@link #createColumnFamily(Enum, DbContext, DbKey, DbValue)}. If the
- * column family instances are created they are type save, which makes it possible that only the
- * defined key and value types are stored in the column family.
- *
- * @param <ColumnFamilyType>
+ * ColumnFamily instance via {@link #createColumnFamily(Enum, TransactionContext, DbKey, DbValue)}.
+ * If the column family instances are created they are type save, which makes it possible that only
+ * the defined key and value types are stored in the column family.
  */
 public interface ZeebeDb<ColumnFamilyType extends Enum<ColumnFamilyType>> extends AutoCloseable {
 
@@ -33,7 +31,6 @@ public interface ZeebeDb<ColumnFamilyType extends Enum<ColumnFamilyType>> extend
    * @param <KeyType> the key type of the column family
    * @param <ValueType> the value type of the column family
    * @param columnFamily the enum instance of the column family
-   * @param context
    * @param keyInstance this instance defines the type of the column family key type
    * @param valueInstance this instance defines the type of the column family value type
    * @return the created column family instance
@@ -41,7 +38,7 @@ public interface ZeebeDb<ColumnFamilyType extends Enum<ColumnFamilyType>> extend
   <KeyType extends DbKey, ValueType extends DbValue>
       ColumnFamily<KeyType, ValueType> createColumnFamily(
           ColumnFamilyType columnFamily,
-          DbContext context,
+          TransactionContext context,
           KeyType keyInstance,
           ValueType valueInstance);
 
@@ -52,9 +49,9 @@ public interface ZeebeDb<ColumnFamilyType extends Enum<ColumnFamilyType>> extend
    */
   void createSnapshot(File snapshotDir);
 
-  Optional<String> getProperty(ColumnFamilyType columnFamilyName, String propertyName);
+  Optional<String> getProperty(String propertyName);
 
-  DbContext createContext();
+  TransactionContext createContext();
 
   /**
    * Checks the database if the given column is empty.
@@ -63,5 +60,5 @@ public interface ZeebeDb<ColumnFamilyType extends Enum<ColumnFamilyType>> extend
    * @param context the context that is used to access the database
    * @return {@code true} if the column is empty, otherwise {@code false}
    */
-  boolean isEmpty(ColumnFamilyType column, DbContext context);
+  boolean isEmpty(ColumnFamilyType column, TransactionContext context);
 }

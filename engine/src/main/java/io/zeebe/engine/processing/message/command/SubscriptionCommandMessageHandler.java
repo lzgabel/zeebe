@@ -129,7 +129,7 @@ public final class SubscriptionCommandMessageHandler
     return writeCommand(
         openMessageSubscriptionCommand.getSubscriptionPartitionId(),
         ValueType.MESSAGE_SUBSCRIPTION,
-        MessageSubscriptionIntent.OPEN,
+        MessageSubscriptionIntent.CREATE,
         messageSubscriptionRecord);
   }
 
@@ -217,7 +217,7 @@ public final class SubscriptionCommandMessageHandler
     return writeCommand(
         closeMessageSubscriptionCommand.getSubscriptionPartitionId(),
         ValueType.MESSAGE_SUBSCRIPTION,
-        MessageSubscriptionIntent.CLOSE,
+        MessageSubscriptionIntent.DELETE,
         messageSubscriptionRecord);
   }
 

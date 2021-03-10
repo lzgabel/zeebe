@@ -15,17 +15,18 @@
  */
 package io.zeebe.client.impl.oauth;
 
+import static java.lang.Math.toIntExact;
+
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
-import com.google.common.io.CharStreams;
 import io.grpc.Metadata;
 import io.grpc.Metadata.Key;
 import io.grpc.Status;
 import io.grpc.Status.Code;
 import io.zeebe.client.CredentialsProvider;
 import io.zeebe.client.impl.ZeebeClientCredentials;
-import io.zeebe.client.util.VersionUtil;
+import io.zeebe.client.impl.util.VersionUtil;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -36,6 +37,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -56,6 +58,8 @@ public final class OAuthCredentialsProvider implements CredentialsProvider {
   private final String payload;
   private final String endpoint;
   private final OAuthCredentialsCache credentialsCache;
+  private final Duration connectionTimeout;
+  private final Duration readTimeout;
 
   private ZeebeClientCredentials credentials;
 
@@ -64,6 +68,8 @@ public final class OAuthCredentialsProvider implements CredentialsProvider {
     endpoint = builder.getAudience();
     payload = createParams(builder);
     credentialsCache = new OAuthCredentialsCache(builder.getCredentialsCache());
+    connectionTimeout = builder.getConnectTimeout();
+    readTimeout = builder.getReadTimeout();
   }
 
   /** Adds an access token to the Authorization header of a gRPC call. */
@@ -163,6 +169,8 @@ public final class OAuthCredentialsProvider implements CredentialsProvider {
     connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
     connection.setRequestProperty("Accept", "application/json");
     connection.setDoOutput(true);
+    connection.setReadTimeout(toIntExact(readTimeout.toMillis()));
+    connection.setConnectTimeout(toIntExact(connectionTimeout.toMillis()));
     connection.setRequestProperty("User-Agent", "zeebe-client-java/" + VersionUtil.getVersion());
 
     try (final OutputStream os = connection.getOutputStream()) {
@@ -179,9 +187,7 @@ public final class OAuthCredentialsProvider implements CredentialsProvider {
 
     try (final InputStream in = connection.getInputStream();
         final InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-
-      final ZeebeClientCredentials fetchedCredentials =
-          CREDENTIALS_READER.readValue(CharStreams.toString(reader));
+      final ZeebeClientCredentials fetchedCredentials = CREDENTIALS_READER.readValue(reader);
 
       if (fetchedCredentials == null) {
         throw new IOException("Expected valid credentials but got null instead.");

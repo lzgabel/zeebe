@@ -48,7 +48,6 @@ public class DefaultRaftServer implements RaftServer {
   private final Logger log;
   private final AtomicReference<CompletableFuture<RaftServer>> openFutureRef =
       new AtomicReference<>();
-  private final AtomicReference<CompletableFuture<Void>> closeFutureRef = new AtomicReference<>();
   private volatile boolean started;
   private volatile boolean stopped = false;
 
@@ -101,16 +100,6 @@ public class DefaultRaftServer implements RaftServer {
   }
 
   @Override
-  public CompletableFuture<RaftServer> join(final Collection<MemberId> cluster) {
-    return start(() -> cluster().join(cluster));
-  }
-
-  @Override
-  public CompletableFuture<RaftServer> listen(final Collection<MemberId> cluster) {
-    return start(() -> cluster().listen(cluster));
-  }
-
-  @Override
   public CompletableFuture<RaftServer> promote() {
     return context.anoint().thenApply(v -> this);
   }
@@ -149,36 +138,17 @@ public class DefaultRaftServer implements RaftServer {
     return future;
   }
 
-  /**
-   * Leaves the Raft cluster.
-   *
-   * @return A completable future to be completed once the server has left the cluster.
-   */
   @Override
-  public CompletableFuture<Void> leave() {
-    if (!started || stopped) {
-      return CompletableFuture.completedFuture(null);
-    }
-
-    if (closeFutureRef.compareAndSet(null, new AtomixFuture<>())) {
-      if (openFutureRef.get() == null) {
-        cluster()
-            .leave()
-            .whenComplete(
-                (leaveResult, leaveError) -> {
-                  shutdown()
-                      .whenComplete(
-                          (shutdownResult, shutdownError) -> {
-                            context.delete();
-                            closeFutureRef.get().complete(null);
-                          });
-                });
-      } else {
-        leaveAfterOpenFinished();
-      }
-    }
-
-    return closeFutureRef.get();
+  public CompletableFuture<Void> goInactive() {
+    final CompletableFuture<Void> future = new AtomixFuture<>();
+    context
+        .getThreadContext()
+        .execute(
+            () -> {
+              context.transition(Role.INACTIVE);
+              future.complete(null);
+            });
+    return future;
   }
 
   @Override
@@ -217,29 +187,6 @@ public class DefaultRaftServer implements RaftServer {
               future.complete(null);
             });
     return future;
-  }
-
-  private void leaveAfterOpenFinished() {
-    openFutureRef
-        .get()
-        .whenComplete(
-            (openResult, openError) -> {
-              if (openError == null) {
-                cluster()
-                    .leave()
-                    .whenComplete(
-                        (leaveResult, leaveError) -> {
-                          shutdown()
-                              .whenComplete(
-                                  (shutdownResult, shutdownError) -> {
-                                    context.delete();
-                                    closeFutureRef.get().complete(null);
-                                  });
-                        });
-              } else {
-                closeFutureRef.get().complete(null);
-              }
-            });
   }
 
   /** Starts the server. */

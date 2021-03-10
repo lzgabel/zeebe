@@ -19,9 +19,9 @@ import io.zeebe.engine.processing.streamprocessor.writers.TypedResponseWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.engine.util.StreamProcessorRule;
-import io.zeebe.msgpack.UnpackedObject;
 import io.zeebe.protocol.impl.record.RecordMetadata;
 import io.zeebe.protocol.impl.record.UnifiedRecordValue;
+import io.zeebe.protocol.record.RecordValue;
 import io.zeebe.protocol.record.RejectionType;
 import io.zeebe.protocol.record.ValueType;
 import io.zeebe.protocol.record.intent.Intent;
@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -185,9 +186,8 @@ public class StreamProcessorHealthTest {
               final ZeebeState zeebeState = processingContext.getZeebeState();
               mockedLogStreamWriter =
                   new WrappedStreamWriter(processingContext.getLogStreamWriter());
-              processingContext.zeebeState(zeebeState);
               processingContext.logStreamWriter(mockedLogStreamWriter);
-              return processors(zeebeState.getKeyGenerator())
+              return processors(zeebeState.getKeyGenerator(), processingContext.getWriters())
                   .onEvent(
                       ValueType.WORKFLOW_INSTANCE,
                       ELEMENT_ACTIVATING,
@@ -239,7 +239,7 @@ public class StreamProcessorHealthTest {
 
     @Override
     public void appendRejection(
-        final TypedRecord<? extends UnpackedObject> command,
+        final TypedRecord<? extends RecordValue> command,
         final RejectionType type,
         final String reason) {
       wrappedWriter.appendRejection(command, type, reason);
@@ -247,21 +247,20 @@ public class StreamProcessorHealthTest {
 
     @Override
     public void appendRejection(
-        final TypedRecord<? extends UnpackedObject> command,
+        final TypedRecord<? extends RecordValue> command,
         final RejectionType type,
         final String reason,
-        final Consumer<RecordMetadata> metadata) {
-      wrappedWriter.appendRejection(command, type, reason, metadata);
+        final UnaryOperator<RecordMetadata> modifier) {
+      wrappedWriter.appendRejection(command, type, reason, modifier);
     }
 
     @Override
-    public void appendNewEvent(final long key, final Intent intent, final UnpackedObject value) {
-      wrappedWriter.appendNewEvent(key, intent, value);
+    public void configureSourceContext(final long sourceRecordPosition) {
+      wrappedWriter.configureSourceContext(sourceRecordPosition);
     }
 
     @Override
-    public void appendFollowUpEvent(
-        final long key, final Intent intent, final UnpackedObject value) {
+    public void appendFollowUpEvent(final long key, final Intent intent, final RecordValue value) {
       if (shouldFailErrorHandlingInTransaction.get()) {
         throw new RuntimeException("Expected failure on append followup event");
       }
@@ -272,27 +271,22 @@ public class StreamProcessorHealthTest {
     public void appendFollowUpEvent(
         final long key,
         final Intent intent,
-        final UnpackedObject value,
-        final Consumer<RecordMetadata> metadata) {
+        final RecordValue value,
+        final UnaryOperator<RecordMetadata> modifier) {
       if (shouldFailErrorHandlingInTransaction.get()) {
         throw new RuntimeException("Expected failure on append followup event");
       }
-      wrappedWriter.appendFollowUpEvent(key, intent, value, metadata);
+      wrappedWriter.appendFollowUpEvent(key, intent, value, modifier);
     }
 
     @Override
-    public void configureSourceContext(final long sourceRecordPosition) {
-      wrappedWriter.configureSourceContext(sourceRecordPosition);
-    }
-
-    @Override
-    public void appendNewCommand(final Intent intent, final UnpackedObject value) {
+    public void appendNewCommand(final Intent intent, final RecordValue value) {
       wrappedWriter.appendNewCommand(intent, value);
     }
 
     @Override
     public void appendFollowUpCommand(
-        final long key, final Intent intent, final UnpackedObject value) {
+        final long key, final Intent intent, final RecordValue value) {
       wrappedWriter.appendFollowUpCommand(key, intent, value);
     }
 
@@ -300,9 +294,9 @@ public class StreamProcessorHealthTest {
     public void appendFollowUpCommand(
         final long key,
         final Intent intent,
-        final UnpackedObject value,
-        final Consumer<RecordMetadata> metadata) {
-      wrappedWriter.appendFollowUpCommand(key, intent, value, metadata);
+        final RecordValue value,
+        final UnaryOperator<RecordMetadata> modifier) {
+      wrappedWriter.appendFollowUpCommand(key, intent, value, modifier);
     }
 
     @Override

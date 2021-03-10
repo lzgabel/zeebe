@@ -9,14 +9,16 @@ package io.zeebe.engine.processing.bpmn.behavior;
 
 import io.zeebe.engine.processing.bpmn.BpmnElementContext;
 import io.zeebe.engine.processing.bpmn.BpmnProcessingException;
+import io.zeebe.engine.processing.streamprocessor.MigratedStreamProcessors;
+import io.zeebe.engine.processing.variable.VariableBehavior;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.engine.state.deployment.DeployedWorkflow;
-import io.zeebe.engine.state.deployment.WorkflowState;
+import io.zeebe.engine.state.immutable.JobState;
+import io.zeebe.engine.state.immutable.WorkflowState;
 import io.zeebe.engine.state.instance.ElementInstance;
-import io.zeebe.engine.state.instance.ElementInstanceState;
-import io.zeebe.engine.state.instance.EventScopeInstanceState;
-import io.zeebe.engine.state.instance.JobState;
-import io.zeebe.engine.state.instance.VariablesState;
+import io.zeebe.engine.state.mutable.MutableElementInstanceState;
+import io.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
+import io.zeebe.engine.state.mutable.MutableVariableState;
 import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceRecord;
 import io.zeebe.protocol.record.intent.WorkflowInstanceIntent;
 import java.util.List;
@@ -27,17 +29,20 @@ import org.agrona.DirectBuffer;
 
 public final class BpmnStateBehavior {
 
-  private final ElementInstanceState elementInstanceState;
-  private final EventScopeInstanceState eventScopeInstanceState;
-  private final VariablesState variablesState;
+  private final MutableElementInstanceState elementInstanceState;
+  private final MutableEventScopeInstanceState eventScopeInstanceState;
+  private final MutableVariableState variablesState;
   private final JobState jobState;
   private final WorkflowState workflowState;
+  private final VariableBehavior variableBehavior;
 
-  public BpmnStateBehavior(final ZeebeState zeebeState) {
+  public BpmnStateBehavior(final ZeebeState zeebeState, final VariableBehavior variableBehavior) {
+    this.variableBehavior = variableBehavior;
+
     workflowState = zeebeState.getWorkflowState();
-    elementInstanceState = workflowState.getElementInstanceState();
-    eventScopeInstanceState = workflowState.getEventScopeInstanceState();
-    variablesState = elementInstanceState.getVariablesState();
+    elementInstanceState = zeebeState.getElementInstanceState();
+    eventScopeInstanceState = zeebeState.getEventScopeInstanceState();
+    variablesState = zeebeState.getVariableState();
     jobState = zeebeState.getJobState();
   }
 
@@ -51,16 +56,12 @@ public final class BpmnStateBehavior {
 
   public void updateElementInstance(
       final BpmnElementContext context, final Consumer<ElementInstance> modifier) {
-    final var elementInstance = getElementInstance(context);
-    modifier.accept(elementInstance);
-    updateElementInstance(elementInstance);
+    elementInstanceState.updateInstance(context.getElementInstanceKey(), modifier);
   }
 
   public void updateFlowScopeInstance(
       final BpmnElementContext context, final Consumer<ElementInstance> modifier) {
-    final var elementInstance = getFlowScopeInstance(context);
-    modifier.accept(elementInstance);
-    updateElementInstance(elementInstance);
+    elementInstanceState.updateInstance(context.getFlowScopeKey(), modifier);
   }
 
   public JobState getJobState() {
@@ -83,7 +84,19 @@ public final class BpmnStateBehavior {
               activePaths, flowScopeInstance));
     }
 
-    return activePaths == 1;
+    if (!MigratedStreamProcessors.isMigrated(context.getBpmnElementType())) {
+      return activePaths == 1;
+    } else {
+      // todo (#6202): change the name of this method to `wasLastActiveExecutionPathInScope`
+      // previously, the last active token was decreased after this method was called,
+      // this made sure the token does not drop to 0 before the flowscope is set to completing.
+      // However, the token must now be consumed when the ELEMENT_COMPLETED is written (by the event
+      // applier). So either the number of active paths in the flowscope have to be already
+      // decreased or the container scope must be completed before the child element is completed.
+      // The only reasonable choice is to decrease the active paths before the flowscope is
+      // completed. As a result, this method has changed it's semantics.
+      return activePaths == 0;
+    }
   }
 
   public void consumeToken(final BpmnElementContext context) {
@@ -192,9 +205,10 @@ public final class BpmnStateBehavior {
       final DirectBuffer variableValue,
       final int valueOffset,
       final int valueLength) {
-    variablesState.setVariableLocal(
+    variableBehavior.setLocalVariable(
         context.getElementInstanceKey(),
         context.getWorkflowKey(),
+        context.getWorkflowInstanceKey(),
         variableName,
         variableValue,
         valueOffset,
@@ -209,14 +223,20 @@ public final class BpmnStateBehavior {
     final var variablesAsDocument =
         variablesState.getVariablesAsDocument(sourceScope, List.of(variableName));
 
-    variablesState.setVariablesFromDocument(
-        targetScope, context.getWorkflowKey(), variablesAsDocument);
+    variableBehavior.mergeDocument(
+        targetScope,
+        context.getWorkflowKey(),
+        context.getWorkflowInstanceKey(),
+        variablesAsDocument);
   }
 
-  public void copyVariables(
-      final long source, final long target, final DeployedWorkflow targetWorkflow) {
-    final var variables = variablesState.getVariablesAsDocument(source);
-    variablesState.setVariablesFromDocument(target, targetWorkflow.getKey(), variables);
+  public void copyVariablesToWorkflowInstance(
+      final long sourceScopeKey,
+      final long targetWorkflowInstanceKey,
+      final DeployedWorkflow targetWorkflow) {
+    final var variables = variablesState.getVariablesAsDocument(sourceScopeKey);
+    variableBehavior.mergeDocument(
+        targetWorkflowInstanceKey, targetWorkflow.getKey(), targetWorkflowInstanceKey, variables);
   }
 
   public void propagateTemporaryVariables(

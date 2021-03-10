@@ -12,9 +12,10 @@ import io.zeebe.engine.processing.bpmn.BpmnElementContext;
 import io.zeebe.engine.processing.common.ExpressionProcessor;
 import io.zeebe.engine.processing.common.Failure;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableFlowNode;
+import io.zeebe.engine.processing.variable.VariableBehavior;
 import io.zeebe.engine.state.ZeebeState;
-import io.zeebe.engine.state.instance.ElementInstanceState;
-import io.zeebe.engine.state.instance.VariablesState;
+import io.zeebe.engine.state.immutable.ElementInstanceState;
+import io.zeebe.engine.state.mutable.MutableVariableState;
 import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceRecord;
 import io.zeebe.util.Either;
 import java.util.Optional;
@@ -22,14 +23,18 @@ import org.agrona.DirectBuffer;
 
 public final class BpmnVariableMappingBehavior {
   private final ExpressionProcessor expressionProcessor;
-  private final VariablesState variablesState;
+  private final MutableVariableState variablesState;
   private final ElementInstanceState elementInstanceState;
+  private final VariableBehavior variableBehavior;
 
   public BpmnVariableMappingBehavior(
-      final ExpressionProcessor expressionProcessor, final ZeebeState zeebeState) {
+      final ExpressionProcessor expressionProcessor,
+      final ZeebeState zeebeState,
+      final VariableBehavior variableBehavior) {
     this.expressionProcessor = expressionProcessor;
-    elementInstanceState = zeebeState.getWorkflowState().getElementInstanceState();
-    variablesState = elementInstanceState.getVariablesState();
+    elementInstanceState = zeebeState.getElementInstanceState();
+    variablesState = zeebeState.getVariableState();
+    this.variableBehavior = variableBehavior;
   }
 
   /**
@@ -42,14 +47,16 @@ public final class BpmnVariableMappingBehavior {
   public Either<Failure, Void> applyInputMappings(
       final BpmnElementContext context, final ExecutableFlowNode element) {
     final long scopeKey = context.getElementInstanceKey();
+    final long workflowKey = context.getWorkflowKey();
+    final long workflowInstanceKey = context.getWorkflowInstanceKey();
     final Optional<Expression> inputMappingExpression = element.getInputMappings();
     if (inputMappingExpression.isPresent()) {
       return expressionProcessor
           .evaluateVariableMappingExpression(inputMappingExpression.get(), scopeKey)
           .map(
               result -> {
-                final var workflowKey = context.getWorkflowKey();
-                variablesState.setVariablesLocalFromDocument(scopeKey, workflowKey, result);
+                variableBehavior.mergeLocalDocument(
+                    scopeKey, workflowKey, workflowInstanceKey, result);
                 return null;
               });
     }
@@ -68,6 +75,7 @@ public final class BpmnVariableMappingBehavior {
     final WorkflowInstanceRecord record = context.getRecordValue();
     final long elementInstanceKey = context.getElementInstanceKey();
     final long workflowKey = record.getWorkflowKey();
+    final long workflowInstanceKey = record.getWorkflowInstanceKey();
     final Optional<Expression> outputMappingExpression = element.getOutputMappings();
 
     // set variables
@@ -76,21 +84,21 @@ public final class BpmnVariableMappingBehavior {
     if (temporaryVariables != null) {
       outputMappingExpression.ifPresentOrElse(
           expression ->
-              variablesState.setVariablesLocalFromDocument(
-                  elementInstanceKey, workflowKey, temporaryVariables),
+              variableBehavior.mergeLocalDocument(
+                  elementInstanceKey, workflowKey, workflowInstanceKey, temporaryVariables),
           () ->
-              variablesState.setVariablesFromDocument(
-                  elementInstanceKey, workflowKey, temporaryVariables));
+              variableBehavior.mergeDocument(
+                  elementInstanceKey, workflowKey, workflowInstanceKey, temporaryVariables));
       variablesState.removeTemporaryVariables(elementInstanceKey);
     }
 
     if (outputMappingExpression.isPresent()) {
+      final long scopeKey = getVariableScopeKey(context);
       return expressionProcessor
           .evaluateVariableMappingExpression(outputMappingExpression.get(), elementInstanceKey)
           .map(
               result -> {
-                variablesState.setVariablesFromDocument(
-                    getVariableScopeKey(context), workflowKey, result);
+                variableBehavior.mergeDocument(scopeKey, workflowKey, workflowInstanceKey, result);
                 return null;
               });
     }

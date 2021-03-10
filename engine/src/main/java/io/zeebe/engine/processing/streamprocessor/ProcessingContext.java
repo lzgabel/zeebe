@@ -7,13 +7,20 @@
  */
 package io.zeebe.engine.processing.streamprocessor;
 
-import io.zeebe.db.DbContext;
+import io.zeebe.db.TransactionContext;
 import io.zeebe.engine.processing.streamprocessor.writers.CommandResponseWriter;
+import io.zeebe.engine.processing.streamprocessor.writers.EventApplyingStateWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.NoopTypedStreamWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
+import io.zeebe.engine.processing.streamprocessor.writers.Writers;
+import io.zeebe.engine.state.EventApplier;
+import io.zeebe.engine.state.KeyGeneratorControls;
+import io.zeebe.engine.state.ZeebeDbState;
 import io.zeebe.engine.state.ZeebeState;
+import io.zeebe.engine.state.mutable.MutableLastProcessedPositionState;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.log.LogStreamReader;
+import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.util.sched.ActorControl;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -21,7 +28,6 @@ import java.util.function.Consumer;
 public final class ProcessingContext implements ReadonlyProcessingContext {
 
   private ActorControl actor;
-  private EventFilter eventFilter;
   private LogStream logStream;
   private LogStreamReader logStreamReader;
   private TypedStreamWriter logStreamWriter = new NoopTypedStreamWriter();
@@ -29,20 +35,18 @@ public final class ProcessingContext implements ReadonlyProcessingContext {
 
   private RecordValues recordValues;
   private RecordProcessorMap recordProcessorMap;
-  private ZeebeState zeebeState;
-  private DbContext dbContext;
+  private ZeebeDbState zeebeState;
+  private TransactionContext transactionContext;
+  private EventApplier eventApplier;
 
   private BooleanSupplier abortCondition;
   private Consumer<TypedRecord> onProcessedListener = record -> {};
+  private Consumer<LoggedEvent> onSkippedListener = record -> {};
   private int maxFragmentSize;
+  private boolean detectReprocessingInconsistency;
 
   public ProcessingContext actor(final ActorControl actor) {
     this.actor = actor;
-    return this;
-  }
-
-  public ProcessingContext eventFilter(final EventFilter eventFilter) {
-    this.eventFilter = eventFilter;
     return this;
   }
 
@@ -66,13 +70,13 @@ public final class ProcessingContext implements ReadonlyProcessingContext {
     return this;
   }
 
-  public ProcessingContext zeebeState(final ZeebeState zeebeState) {
+  public ProcessingContext zeebeState(final ZeebeDbState zeebeState) {
     this.zeebeState = zeebeState;
     return this;
   }
 
-  public ProcessingContext dbContext(final DbContext dbContext) {
-    this.dbContext = dbContext;
+  public ProcessingContext transactionContext(final TransactionContext transactionContext) {
+    this.transactionContext = transactionContext;
     return this;
   }
 
@@ -97,19 +101,32 @@ public final class ProcessingContext implements ReadonlyProcessingContext {
     return this;
   }
 
+  public ProcessingContext onSkippedListener(final Consumer<LoggedEvent> onSkippedListener) {
+    this.onSkippedListener = onSkippedListener;
+    return this;
+  }
+
   public ProcessingContext maxFragmentSize(final int maxFragmentSize) {
     this.maxFragmentSize = maxFragmentSize;
     return this;
   }
 
-  @Override
-  public ActorControl getActor() {
-    return actor;
+  public ProcessingContext eventApplier(final EventApplier eventApplier) {
+    this.eventApplier = eventApplier;
+    return this;
+  }
+
+  public KeyGeneratorControls getKeyGeneratorControls() {
+    return zeebeState.getKeyGeneratorControls();
+  }
+
+  public MutableLastProcessedPositionState getLastProcessedPositionState() {
+    return zeebeState.getLastProcessedPositionState();
   }
 
   @Override
-  public EventFilter getEventFilter() {
-    return eventFilter;
+  public ActorControl getActor() {
+    return actor;
   }
 
   @Override
@@ -133,6 +150,14 @@ public final class ProcessingContext implements ReadonlyProcessingContext {
   }
 
   @Override
+  public Writers getWriters() {
+    // todo (#6202): cleanup - revisit after migration is finished
+    // create newly every time, because the specific writers may differ over time
+    final var stateWriter = new EventApplyingStateWriter(logStreamWriter, eventApplier);
+    return new Writers(logStreamWriter, stateWriter, commandResponseWriter);
+  }
+
+  @Override
   public RecordValues getRecordValues() {
     return recordValues;
   }
@@ -148,13 +173,8 @@ public final class ProcessingContext implements ReadonlyProcessingContext {
   }
 
   @Override
-  public DbContext getDbContext() {
-    return dbContext;
-  }
-
-  @Override
-  public CommandResponseWriter getCommandResponseWriter() {
-    return commandResponseWriter;
+  public TransactionContext getTransactionContext() {
+    return transactionContext;
   }
 
   @Override
@@ -162,7 +182,26 @@ public final class ProcessingContext implements ReadonlyProcessingContext {
     return abortCondition;
   }
 
+  @Override
+  public EventApplier getEventApplier() {
+    return eventApplier;
+  }
+
   public Consumer<TypedRecord> getOnProcessedListener() {
     return onProcessedListener;
+  }
+
+  public Consumer<LoggedEvent> getOnSkippedListener() {
+    return onSkippedListener;
+  }
+
+  public boolean isDetectReprocessingInconsistency() {
+    return detectReprocessingInconsistency;
+  }
+
+  public ProcessingContext setDetectReprocessingInconsistency(
+      final boolean detectReprocessingInconsistency) {
+    this.detectReprocessingInconsistency = detectReprocessingInconsistency;
+    return this;
   }
 }

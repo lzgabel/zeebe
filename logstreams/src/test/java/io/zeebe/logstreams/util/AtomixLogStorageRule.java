@@ -11,22 +11,21 @@ import static org.mockito.Mockito.spy;
 
 import io.atomix.raft.partition.impl.RaftNamespaces;
 import io.atomix.raft.storage.RaftStorage;
+import io.atomix.raft.storage.log.Indexed;
 import io.atomix.raft.storage.log.RaftLog;
 import io.atomix.raft.storage.log.RaftLogReader;
+import io.atomix.raft.storage.log.RaftLogReader.Mode;
 import io.atomix.raft.storage.log.entry.RaftLogEntry;
 import io.atomix.raft.storage.system.MetaStore;
 import io.atomix.raft.zeebe.EntryValidator;
 import io.atomix.raft.zeebe.ValidationResult;
 import io.atomix.raft.zeebe.ZeebeEntry;
 import io.atomix.raft.zeebe.ZeebeLogAppender;
-import io.atomix.storage.StorageLevel;
-import io.atomix.storage.journal.Indexed;
-import io.atomix.storage.journal.JournalReader.Mode;
-import io.zeebe.logstreams.spi.LogStorage;
+import io.zeebe.logstreams.storage.LogStorage;
 import io.zeebe.logstreams.storage.atomix.AtomixAppenderSupplier;
 import io.zeebe.logstreams.storage.atomix.AtomixLogStorage;
 import io.zeebe.logstreams.storage.atomix.AtomixReaderFactory;
-import io.zeebe.logstreams.storage.atomix.ZeebeIndexAdapter;
+import io.zeebe.util.FileUtil;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -47,7 +46,6 @@ public final class AtomixLogStorageRule extends ExternalResource
   private final int partitionId;
   private final UnaryOperator<RaftStorage.Builder> builder;
 
-  private ZeebeIndexAdapter indexMapping;
   private RaftStorage raftStorage;
   private RaftLog raftLog;
   private MetaStore metaStore;
@@ -112,7 +110,7 @@ public final class AtomixLogStorageRule extends ExternalResource
       final AppendListener listener) {
     final ZeebeEntry zbEntry =
         new ZeebeEntry(0, System.currentTimeMillis(), lowestPosition, highestPosition, data);
-    final Indexed<RaftLogEntry> lastEntry = raftLog.writer().getLastEntry();
+    final Indexed<RaftLogEntry> lastEntry = raftLog.getLastEntry();
 
     ZeebeEntry lastZbEntry = null;
     if (lastEntry != null && lastEntry.type() == ZeebeEntry.class) {
@@ -130,10 +128,10 @@ public final class AtomixLogStorageRule extends ExternalResource
       return;
     }
 
-    final Indexed<ZeebeEntry> entry = raftLog.writer().append(zbEntry);
+    final Indexed<ZeebeEntry> entry = raftLog.append(zbEntry);
 
     listener.onWrite(entry);
-    raftLog.writer().commit(entry.index());
+    raftLog.setCommitIndex(entry.index());
 
     listener.onCommit(entry);
     if (positionListener != null) {
@@ -191,17 +189,11 @@ public final class AtomixLogStorageRule extends ExternalResource
       throw new UncheckedIOException(e);
     }
 
-    indexMapping = ZeebeIndexAdapter.ofDensity(1);
-    raftStorage =
-        builder
-            .apply(buildDefaultStorage())
-            .withDirectory(directory)
-            .withJournalIndexFactory(() -> indexMapping)
-            .build();
+    raftStorage = builder.apply(buildDefaultStorage()).withDirectory(directory).build();
     raftLog = raftStorage.openLog();
     metaStore = raftStorage.openMetaStore();
 
-    storage = spy(new AtomixLogStorage(indexMapping, this, this));
+    storage = spy(new AtomixLogStorage(this, this));
   }
 
   public void close() {
@@ -209,10 +201,18 @@ public final class AtomixLogStorageRule extends ExternalResource
     raftLog = null;
     Optional.ofNullable(metaStore).ifPresent(MetaStore::close);
     metaStore = null;
-    Optional.ofNullable(storage).ifPresent(AtomixLogStorage::close);
     storage = null;
-    Optional.ofNullable(raftStorage).ifPresent(RaftStorage::deleteLog);
-    raftStorage = null;
+
+    if (raftStorage != null) {
+      try {
+        FileUtil.deleteFolder(raftStorage.directory().toPath());
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
+
+      raftStorage = null;
+    }
+
     positionListener = null;
     writeErrorListener = null;
   }
@@ -237,19 +237,15 @@ public final class AtomixLogStorageRule extends ExternalResource
     return metaStore;
   }
 
-  public ZeebeIndexAdapter getIndexMapping() {
-    return indexMapping;
-  }
-
   private RaftStorage.Builder buildDefaultStorage() {
     return RaftStorage.builder()
         .withFlushExplicitly(true)
-        .withStorageLevel(StorageLevel.DISK)
         .withNamespace(RaftNamespaces.RAFT_STORAGE)
-        .withRetainStaleSnapshots();
+        .withJournalIndexDensity(1);
   }
 
-  private final class NoopListener implements AppendListener {
+  private static final class NoopListener implements AppendListener {
+
     private Indexed<ZeebeEntry> lastWrittenEntry;
 
     @Override

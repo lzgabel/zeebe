@@ -8,12 +8,11 @@
 package io.zeebe.engine.util;
 
 import static io.zeebe.test.util.record.RecordingExporter.jobRecords;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
+import io.zeebe.db.DbKey;
+import io.zeebe.db.DbValue;
 import io.zeebe.engine.processing.EngineProcessors;
 import io.zeebe.engine.processing.deployment.distribute.DeploymentDistributor;
-import io.zeebe.engine.processing.deployment.distribute.PendingDeploymentDistribution;
 import io.zeebe.engine.processing.message.command.PartitionCommandSender;
 import io.zeebe.engine.processing.message.command.SubscriptionCommandMessageHandler;
 import io.zeebe.engine.processing.message.command.SubscriptionCommandSender;
@@ -22,8 +21,10 @@ import io.zeebe.engine.processing.streamprocessor.RecordValues;
 import io.zeebe.engine.processing.streamprocessor.StreamProcessor;
 import io.zeebe.engine.processing.streamprocessor.StreamProcessorLifecycleAware;
 import io.zeebe.engine.processing.streamprocessor.TypedEventImpl;
+import io.zeebe.engine.processing.streamprocessor.TypedRecord;
 import io.zeebe.engine.processing.streamprocessor.writers.CommandResponseWriter;
 import io.zeebe.engine.state.DefaultZeebeDbFactory;
+import io.zeebe.engine.state.ZbColumnFamilies;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.engine.util.client.DeploymentClient;
 import io.zeebe.engine.util.client.IncidentClient;
@@ -37,6 +38,7 @@ import io.zeebe.logstreams.log.LogStreamReader;
 import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.model.bpmn.Bpmn;
 import io.zeebe.protocol.Protocol;
+import io.zeebe.protocol.impl.encoding.MsgPackConverter;
 import io.zeebe.protocol.impl.record.RecordMetadata;
 import io.zeebe.protocol.impl.record.UnifiedRecordValue;
 import io.zeebe.protocol.impl.record.value.deployment.DeploymentRecord;
@@ -47,6 +49,7 @@ import io.zeebe.protocol.record.value.JobRecordValue;
 import io.zeebe.test.util.TestUtil;
 import io.zeebe.test.util.record.RecordingExporter;
 import io.zeebe.test.util.record.RecordingExporterTestWatcher;
+import io.zeebe.util.buffer.BufferUtil;
 import io.zeebe.util.buffer.BufferWriter;
 import io.zeebe.util.sched.ActorCondition;
 import io.zeebe.util.sched.ActorControl;
@@ -54,15 +57,19 @@ import io.zeebe.util.sched.clock.ControlledActorClock;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.agrona.DirectBuffer;
+import org.agrona.MutableDirectBuffer;
 import org.agrona.collections.Int2ObjectHashMap;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.rules.ExternalResource;
@@ -72,6 +79,7 @@ import org.junit.runners.model.Statement;
 public final class EngineRule extends ExternalResource {
 
   private static final int PARTITION_ID = Protocol.DEPLOYMENT_PARTITION;
+  private static final int REPROCESSING_TIMEOUT_SEC = 30;
   private static final RecordingExporter RECORDING_EXPORTER = new RecordingExporter();
   private final StreamProcessorRule environmentRule;
   private final RecordingExporterTestWatcher recordingExporterTestWatcher =
@@ -79,11 +87,15 @@ public final class EngineRule extends ExternalResource {
   private final int partitionCount;
   private final boolean explicitStart;
   private Consumer<String> jobsAvailableCallback = type -> {};
+  private Consumer<TypedRecord> onProcessedCallback = record -> {};
+  private Consumer<LoggedEvent> onSkippedCallback = record -> {};
   private DeploymentDistributor deploymentDistributor = new DeploymentDistributionImpl();
 
   private final Int2ObjectHashMap<SubscriptionCommandMessageHandler> subscriptionHandlers =
       new Int2ObjectHashMap<>();
   private ExecutorService subscriptionHandlerExecutor;
+  private final Map<Integer, ReprocessingCompletedListener> partitionReprocessingCompleteListeners =
+      new Int2ObjectHashMap<>();
 
   private EngineRule(final int partitionCount) {
     this(partitionCount, false);
@@ -129,10 +141,15 @@ public final class EngineRule extends ExternalResource {
   protected void after() {
     subscriptionHandlerExecutor.shutdown();
     subscriptionHandlers.clear();
+    partitionReprocessingCompleteListeners.clear();
   }
 
   public void start() {
     startProcessors();
+  }
+
+  public void startWithReprocessingDetection() {
+    startProcessors(true);
   }
 
   public void stop() {
@@ -149,29 +166,45 @@ public final class EngineRule extends ExternalResource {
     return this;
   }
 
+  public EngineRule withOnProcessedCallback(final Consumer<TypedRecord> onProcessedCallback) {
+    this.onProcessedCallback = onProcessedCallback;
+    return this;
+  }
+
+  public EngineRule withOnSkippedCallback(final Consumer<LoggedEvent> onSkippedCallback) {
+    this.onSkippedCallback = onSkippedCallback;
+    return this;
+  }
+
   private void startProcessors() {
+    startProcessors(false);
+  }
+
+  private void startProcessors(final boolean detectReprocessingInconsistency) {
     final DeploymentRecord deploymentRecord = new DeploymentRecord();
     final UnsafeBuffer deploymentBuffer = new UnsafeBuffer(new byte[deploymentRecord.getLength()]);
     deploymentRecord.write(deploymentBuffer, 0);
 
-    final PendingDeploymentDistribution deploymentDistribution =
-        mock(PendingDeploymentDistribution.class);
-    when(deploymentDistribution.getDeployment()).thenReturn(deploymentBuffer);
-
     forEachPartition(
         partitionId -> {
+          final var reprocessingCompletedListener = new ReprocessingCompletedListener();
+          partitionReprocessingCompleteListeners.put(partitionId, reprocessingCompletedListener);
           environmentRule.startTypedStreamProcessor(
               partitionId,
               (processingContext) ->
                   EngineProcessors.createEngineProcessors(
-                          processingContext,
+                          processingContext
+                              .onProcessedListener(onProcessedCallback)
+                              .onSkippedListener(onSkippedCallback),
                           partitionCount,
                           new SubscriptionCommandSender(
                               partitionId, new PartitionCommandSenderImpl()),
                           deploymentDistributor,
                           (key, partition) -> {},
                           jobsAvailableCallback)
-                      .withListener(new ProcessingExporterTransistor()));
+                      .withListener(new ProcessingExporterTransistor())
+                      .withListener(reprocessingCompletedListener),
+              detectReprocessingInconsistency);
 
           // sequenialize the commands to avoid concurrency
           subscriptionHandlers.put(
@@ -179,6 +212,12 @@ public final class EngineRule extends ExternalResource {
               new SubscriptionCommandMessageHandler(
                   subscriptionHandlerExecutor::submit, environmentRule::getLogStreamRecordWriter));
         });
+  }
+
+  public void awaitReprocessingCompleted() {
+    partitionReprocessingCompleteListeners
+        .values()
+        .forEach(ReprocessingCompletedListener::awaitReprocessingComplete);
   }
 
   public void forEachPartition(final Consumer<Integer> partitionIdConsumer) {
@@ -230,6 +269,10 @@ public final class EngineRule extends ExternalResource {
 
   public StreamProcessor getStreamProcessor(final int partitionId) {
     return environmentRule.getStreamProcessor(partitionId);
+  }
+
+  public long getLastWrittenPosition(final int partitionId) {
+    return environmentRule.getLastWrittenPosition(partitionId);
   }
 
   public DeploymentClient deployment() {
@@ -294,6 +337,57 @@ public final class EngineRule extends ExternalResource {
   public void resumeProcessing(final int partitionId) {
     environmentRule.resumeProcessing(partitionId);
   }
+
+  public Map<ZbColumnFamilies, Map<Object, Object>> collectState() {
+
+    final var keyInstance = new VersatileBlob();
+    final var valueInstance = new VersatileBlob();
+
+    return Arrays.stream(ZbColumnFamilies.values())
+        .collect(
+            Collectors.toMap(
+                Function.identity(),
+                columnFamily -> {
+                  final var entries = new HashMap<>();
+                  getZeebeState()
+                      .forEach(
+                          columnFamily,
+                          keyInstance,
+                          valueInstance,
+                          (key, value) ->
+                              entries.put(
+                                  Arrays.toString(
+                                      BufferUtil.cloneBuffer(key.getDirectBuffer())
+                                          .byteArray()), // the key is written as plain bytes
+                                  MsgPackConverter.convertToJson(value.getDirectBuffer())));
+                  return entries;
+                }));
+  }
+
+  private static final class VersatileBlob implements DbKey, DbValue {
+
+    private final DirectBuffer genericBuffer = new UnsafeBuffer(0, 0);
+
+    @Override
+    public void wrap(final DirectBuffer buffer, final int offset, final int length) {
+      genericBuffer.wrap(buffer, offset, length);
+    }
+
+    @Override
+    public int getLength() {
+      return genericBuffer.capacity();
+    }
+
+    @Override
+    public void write(final MutableDirectBuffer buffer, final int offset) {
+      buffer.putBytes(offset, genericBuffer, 0, genericBuffer.capacity());
+    }
+
+    public DirectBuffer getDirectBuffer() {
+      return genericBuffer;
+    }
+  }
+
   /////////////////////////////////////////////////////////////////////////////////////////////////
   //////////////////////////////// PROCESSOR EXPORTER CROSSOVER ///////////////////////////////////
   /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -346,41 +440,37 @@ public final class EngineRule extends ExternalResource {
     }
   }
 
-  private final class DeploymentDistributionImpl implements DeploymentDistributor {
-
-    private final Map<Long, PendingDeploymentDistribution> pendingDeployments = new HashMap<>();
+  private final class ReprocessingCompletedListener implements StreamProcessorLifecycleAware {
+    private final ActorFuture<Void> reprocessingComplete = new CompletableActorFuture<>();
 
     @Override
-    public ActorFuture<Void> pushDeployment(
-        final long key, final long position, final DirectBuffer buffer) {
-      final PendingDeploymentDistribution pendingDeployment =
-          new PendingDeploymentDistribution(buffer, position, partitionCount);
-      pendingDeployments.put(key, pendingDeployment);
-
-      forEachPartition(
-          partitionId -> {
-            if (partitionId == PARTITION_ID) {
-              return;
-            }
-
-            final DeploymentRecord deploymentRecord = new DeploymentRecord();
-            deploymentRecord.wrap(buffer);
-
-            // we run in processor actor, we are not allowed to wait on futures
-            // which means we cant get new writer in sync way
-            new Thread(
-                    () ->
-                        environmentRule.writeCommandOnPartition(
-                            partitionId, key, DeploymentIntent.CREATE, deploymentRecord))
-                .start();
-          });
-
-      return CompletableActorFuture.completed(null);
+    public void onRecovered(final ReadonlyProcessingContext context) {
+      reprocessingComplete.complete(null);
     }
 
+    public void awaitReprocessingComplete() {
+      reprocessingComplete.join(REPROCESSING_TIMEOUT_SEC, TimeUnit.SECONDS);
+    }
+  }
+
+  private final class DeploymentDistributionImpl implements DeploymentDistributor {
+
     @Override
-    public PendingDeploymentDistribution removePendingDeployment(final long key) {
-      return pendingDeployments.remove(key);
+    public ActorFuture<Void> pushDeploymentToPartition(
+        final long key, final int partitionId, final DirectBuffer deploymentBuffer) {
+
+      final DeploymentRecord deploymentRecord = new DeploymentRecord();
+      deploymentRecord.wrap(deploymentBuffer);
+
+      // we run in processor actor, we are not allowed to wait on futures
+      // which means we cant get new writer in sync way
+      new Thread(
+              () ->
+                  environmentRule.writeCommandOnPartition(
+                      partitionId, key, DeploymentIntent.DISTRIBUTE, deploymentRecord))
+          .start();
+
+      return CompletableActorFuture.completed(null);
     }
   }
 

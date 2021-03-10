@@ -14,6 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.zeebe.engine.state.ZbColumnFamilies;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.engine.state.instance.StoredRecord.Purpose;
+import io.zeebe.engine.state.mutable.MutableElementInstanceState;
 import io.zeebe.engine.util.ZeebeStateRule;
 import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceRecord;
 import io.zeebe.protocol.record.intent.WorkflowInstanceIntent;
@@ -35,13 +36,13 @@ public final class ElementInstanceStateTest {
 
   @Rule public final ZeebeStateRule stateRule = new ZeebeStateRule();
 
-  private ElementInstanceState elementInstanceState;
+  private MutableElementInstanceState elementInstanceState;
   private ZeebeState zeebeState;
 
   @Before
   public void setUp() {
     zeebeState = stateRule.getZeebeState();
-    elementInstanceState = zeebeState.getWorkflowState().getElementInstanceState();
+    elementInstanceState = zeebeState.getElementInstanceState();
   }
 
   @Test
@@ -415,12 +416,18 @@ public final class ElementInstanceStateTest {
     final ElementInstance parentInstance =
         elementInstanceState.newInstance(
             parent, workflowInstanceRecord, WorkflowInstanceIntent.ELEMENT_ACTIVATED);
-    setVariableLocal(parent, BufferUtil.wrapString("a"), MsgPackUtil.asMsgPack("1"));
+    zeebeState
+        .getVariableState()
+        .setVariableLocal(
+            1, parent, WORKFLOW_KEY, BufferUtil.wrapString("a"), MsgPackUtil.asMsgPack("1"));
 
     workflowInstanceRecord.setElementId("subProcess");
     elementInstanceState.newInstance(
         parentInstance, child, workflowInstanceRecord, WorkflowInstanceIntent.ELEMENT_ACTIVATING);
-    setVariableLocal(child, BufferUtil.wrapString("b"), MsgPackUtil.asMsgPack("2"));
+    zeebeState
+        .getVariableState()
+        .setVariableLocal(
+            2, child, WORKFLOW_KEY, BufferUtil.wrapString("b"), MsgPackUtil.asMsgPack("2"));
 
     // when
     elementInstanceState.removeInstance(101);
@@ -514,13 +521,5 @@ public final class ElementInstanceStateTest {
     assertThat(record.getVersion()).isEqualTo(1);
     assertThat(record.getWorkflowKey()).isEqualTo(2);
     assertThat(record.getBpmnElementType()).isEqualTo(BpmnElementType.START_EVENT);
-  }
-
-  public void setVariableLocal(
-      final long scopeKey, final DirectBuffer name, final DirectBuffer value) {
-    elementInstanceState
-        .getVariablesState()
-        .setVariableLocal(
-            scopeKey, WORKFLOW_KEY, name, 0, name.capacity(), value, 0, value.capacity());
   }
 }

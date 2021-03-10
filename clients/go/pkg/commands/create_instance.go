@@ -17,8 +17,8 @@ package commands
 import (
 	"context"
 	"fmt"
-	"github.com/zeebe-io/zeebe/clients/go/internal/utils"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/pb"
+	"github.com/camunda-cloud/zeebe/clients/go/internal/utils"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/pb"
 )
 
 const LatestVersion = -1
@@ -127,6 +127,7 @@ func (cmd *CreateInstanceCommand) WorkflowKey(key int64) CreateInstanceCommandSt
 	return cmd
 }
 
+//nolint:golint
 func (cmd *CreateInstanceCommand) BPMNProcessId(id string) CreateInstanceCommandStep2 {
 	cmd.request.BpmnProcessId = id
 	return cmd

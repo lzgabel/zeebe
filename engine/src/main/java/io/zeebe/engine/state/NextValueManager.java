@@ -8,13 +8,12 @@
 package io.zeebe.engine.state;
 
 import io.zeebe.db.ColumnFamily;
-import io.zeebe.db.DbContext;
+import io.zeebe.db.TransactionContext;
 import io.zeebe.db.ZeebeDb;
 import io.zeebe.db.impl.DbString;
+import org.agrona.DirectBuffer;
 
 public final class NextValueManager {
-
-  private static final int INITIAL_VALUE = 0;
 
   private final long initialValue;
 
@@ -23,38 +22,49 @@ public final class NextValueManager {
   private final NextValue nextValue = new NextValue();
 
   public NextValueManager(
-      final ZeebeDb<ZbColumnFamilies> zeebeDb,
-      final DbContext dbContext,
-      final ZbColumnFamilies columnFamily) {
-    this(INITIAL_VALUE, zeebeDb, dbContext, columnFamily);
-  }
-
-  public NextValueManager(
       final long initialValue,
       final ZeebeDb<ZbColumnFamilies> zeebeDb,
-      final DbContext dbContext,
+      final TransactionContext transactionContext,
       final ZbColumnFamilies columnFamily) {
     this.initialValue = initialValue;
 
     nextValueKey = new DbString();
     nextValueColumnFamily =
-        zeebeDb.createColumnFamily(columnFamily, dbContext, nextValueKey, nextValue);
+        zeebeDb.createColumnFamily(columnFamily, transactionContext, nextValueKey, nextValue);
   }
 
   public long getNextValue(final String key) {
-    nextValueKey.wrapString(key);
-
-    final NextValue readValue = nextValueColumnFamily.get(nextValueKey);
-
-    long previousKey = initialValue;
-    if (readValue != null) {
-      previousKey = readValue.get();
-    }
-
+    final long previousKey = getCurrentValue(key);
     final long nextKey = previousKey + 1;
     nextValue.set(nextKey);
     nextValueColumnFamily.put(nextValueKey, nextValue);
 
     return nextKey;
+  }
+
+  public void setValue(final String key, final long value) {
+    nextValueKey.wrapString(key);
+    nextValue.set(value);
+    nextValueColumnFamily.put(nextValueKey, nextValue);
+  }
+
+  public long getCurrentValue(final String key) {
+    nextValueKey.wrapString(key);
+    return getCurrentValue();
+  }
+
+  public long getCurrentValue(final DirectBuffer key) {
+    nextValueKey.wrapBuffer(key);
+    return getCurrentValue();
+  }
+
+  private long getCurrentValue() {
+    final NextValue readValue = nextValueColumnFamily.get(nextValueKey);
+
+    long currentValue = initialValue;
+    if (readValue != null) {
+      currentValue = readValue.get();
+    }
+    return currentValue;
   }
 }

@@ -17,12 +17,11 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.atomix.raft.storage.log.Indexed;
 import io.atomix.raft.zeebe.ZeebeEntry;
-import io.atomix.storage.journal.Indexed;
 import io.zeebe.broker.system.partitions.impl.AsyncSnapshotDirector;
 import io.zeebe.broker.system.partitions.impl.NoneSnapshotReplication;
 import io.zeebe.broker.system.partitions.impl.StateControllerImpl;
-import io.zeebe.db.impl.DefaultColumnFamily;
 import io.zeebe.db.impl.rocksdb.ZeebeRocksDbFactory;
 import io.zeebe.engine.processing.streamprocessor.StreamProcessor;
 import io.zeebe.logstreams.log.LogStream;
@@ -68,23 +67,26 @@ public final class AsyncSnapshotingTest {
   @Before
   public void setup() throws IOException {
     final var rootDirectory = tempFolderRule.getRoot().toPath();
-    final var factory = new FileBasedSnapshotStoreFactory();
-    final String partitionName = "1";
-    factory.createReceivableSnapshotStore(rootDirectory, partitionName);
-    persistedSnapshotStore = factory.getConstructableSnapshotStore(partitionName);
+    final var factory = new FileBasedSnapshotStoreFactory(actorSchedulerRule.get(), 1);
+    final int partitionId = 1;
+    factory.createReceivableSnapshotStore(rootDirectory, partitionId);
+    persistedSnapshotStore = factory.getConstructableSnapshotStore(partitionId);
 
     snapshotController =
         new StateControllerImpl(
             1,
-            ZeebeRocksDbFactory.newFactory(DefaultColumnFamily.class),
+            ZeebeRocksDbFactory.newFactory(),
             persistedSnapshotStore,
-            factory.getReceivableSnapshotStore(partitionName),
+            factory.getReceivableSnapshotStore(partitionId),
             rootDirectory.resolve("runtime"),
             new NoneSnapshotReplication(),
             l ->
                 Optional.of(
                     new Indexed(
-                        l + 100, new ZeebeEntry(1, System.currentTimeMillis(), 1, 10, null), 0)),
+                        l + 100,
+                        new ZeebeEntry(1, System.currentTimeMillis(), 1, 10, null),
+                        0,
+                        -1)),
             db -> Long.MAX_VALUE);
 
     snapshotController.openDb();

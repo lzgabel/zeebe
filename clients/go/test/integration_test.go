@@ -15,9 +15,9 @@ package test
 
 import (
 	"context"
+	"github.com/camunda-cloud/zeebe/clients/go/internal/containersuite"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/zbc"
 	"github.com/stretchr/testify/suite"
-	"github.com/zeebe-io/zeebe/clients/go/internal/containersuite"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/zbc"
 	"testing"
 	"time"
 )

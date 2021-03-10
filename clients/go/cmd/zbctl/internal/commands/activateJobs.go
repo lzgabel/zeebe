@@ -16,9 +16,9 @@ package commands
 
 import (
 	"context"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/commands"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/pb"
 	"github.com/spf13/cobra"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/commands"
-	"log"
 	"time"
 )
 
@@ -61,20 +61,14 @@ var activateJobsCmd = &cobra.Command{
 			return err
 		}
 
-		jobsCount := len(jobs)
-		if jobsCount > 0 {
-			log.Println("Activated", jobsCount, "for type", jobType)
-			for index, job := range jobs {
-				log.Println("Job", index+1, "/", jobsCount)
-				if err := printJSON(job); err != nil {
-					return err
-				}
-			}
-		} else {
-			log.Println("No jobs found to activate for type", jobType)
+		var activatedJobs []*pb.ActivatedJob
+		for _, job := range jobs {
+			activatedJobs = append(activatedJobs, job.ActivatedJob)
 		}
 
-		return nil
+		return printJSON(&pb.ActivateJobsResponse{
+			Jobs: activatedJobs,
+		})
 	},
 }
 

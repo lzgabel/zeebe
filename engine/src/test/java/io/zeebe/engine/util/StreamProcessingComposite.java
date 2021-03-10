@@ -16,6 +16,7 @@ import io.zeebe.engine.processing.streamprocessor.TypedRecord;
 import io.zeebe.engine.processing.streamprocessor.TypedRecordProcessorFactory;
 import io.zeebe.engine.processing.streamprocessor.TypedRecordProcessors;
 import io.zeebe.engine.state.ZeebeState;
+import io.zeebe.engine.state.immutable.LastProcessedPositionState;
 import io.zeebe.logstreams.log.LogStreamRecordWriter;
 import io.zeebe.msgpack.UnpackedObject;
 import io.zeebe.protocol.record.RecordType;
@@ -31,6 +32,7 @@ public class StreamProcessingComposite {
   private final int partitionId;
   private final ZeebeDbFactory zeebeDbFactory;
   private ZeebeState zeebeState;
+  private LastProcessedPositionState lastProcessedPositionState;
 
   public StreamProcessingComposite(
       final TestStreams streams, final int partitionId, final ZeebeDbFactory zeebeDbFactory) {
@@ -53,25 +55,32 @@ public class StreamProcessingComposite {
     return startTypedStreamProcessor(
         (processingContext) -> {
           zeebeState = processingContext.getZeebeState();
+          lastProcessedPositionState = processingContext.getLastProcessedPositionState();
           processingContext.onProcessedListener(onProcessedListener);
           return factory.build(
-              TypedRecordProcessors.processors(zeebeState.getKeyGenerator()), processingContext);
+              TypedRecordProcessors.processors(
+                  zeebeState.getKeyGenerator(), processingContext.getWriters()),
+              processingContext);
         });
   }
 
   public StreamProcessor startTypedStreamProcessor(final TypedRecordProcessorFactory factory) {
-    return startTypedStreamProcessor(partitionId, factory);
+    return startTypedStreamProcessor(partitionId, factory, false);
   }
 
   public StreamProcessor startTypedStreamProcessor(
-      final int partitionId, final TypedRecordProcessorFactory factory) {
+      final int partitionId,
+      final TypedRecordProcessorFactory factory,
+      final boolean detectReprocessingInconsistency) {
     return streams.startStreamProcessor(
         getLogName(partitionId),
         zeebeDbFactory,
         (processingContext -> {
           zeebeState = processingContext.getZeebeState();
+          lastProcessedPositionState = processingContext.getLastProcessedPositionState();
           return factory.createProcessors(processingContext);
-        }));
+        }),
+        detectReprocessingInconsistency);
   }
 
   public void pauseProcessing(final int partitionId) {
@@ -100,6 +109,10 @@ public class StreamProcessingComposite {
 
   public ZeebeState getZeebeState() {
     return zeebeState;
+  }
+
+  public long getLastSuccessfulProcessedRecordPosition() {
+    return lastProcessedPositionState.getLastSuccessfulProcessedRecordPosition();
   }
 
   public RecordStream events() {
@@ -204,6 +217,15 @@ public class StreamProcessingComposite {
         .recordType(RecordType.COMMAND)
         .requestId(requestId)
         .requestStreamId(requestStreamId)
+        .intent(intent)
+        .event(value)
+        .write();
+  }
+
+  public long writeCommandRejection(final Intent intent, final UnpackedObject value) {
+    return streams
+        .newRecord(getLogName(partitionId))
+        .recordType(RecordType.COMMAND_REJECTION)
         .intent(intent)
         .event(value)
         .write();

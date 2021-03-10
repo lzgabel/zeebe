@@ -9,7 +9,7 @@
   <parent>
     <groupId>io.zeebe</groupId>
     <artifactId>zeebe-parent</artifactId>
-    <version>0.26.0-SNAPSHOT</version>
+    <version>1.0.0-SNAPSHOT</version>
     <relativePath>parent/</relativePath>
   </parent>
 
@@ -43,16 +43,17 @@
     <module>exporters/elasticsearch-exporter</module>
     <module>protocol-impl</module>
     <module>zb-db</module>
-    <module>upgrade-tests</module>
+    <module>update-tests</module>
     <module>expression-language</module>
     <module>snapshot</module>
     <module>benchmarks/project</module>
+    <module>journal</module>
   </modules>
 
   <scm>
-    <url>https://github.com/zeebe-io/zeebe</url>
-    <connection>scm:git:git@github.com:zeebe-io/zeebe.git</connection>
-    <developerConnection>scm:git:git@github.com:zeebe-io/zeebe.git</developerConnection>
+    <url>https://github.com/camunda-cloud/zeebe</url>
+    <connection>scm:git:https://${env.GITHUB_TOKEN_USR}:${env.GITHUB_TOKEN_PSW}@github.com/camunda-cloud/zeebe.git</connection>
+    <developerConnection>scm:git:https://${env.GITHUB_TOKEN_USR}:${env.GITHUB_TOKEN_PSW}@github.com/camunda-cloud/zeebe.git</developerConnection>
     <tag>HEAD</tag>
   </scm>
 

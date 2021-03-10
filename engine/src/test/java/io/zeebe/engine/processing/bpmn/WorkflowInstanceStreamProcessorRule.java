@@ -25,7 +25,7 @@ import io.zeebe.engine.processing.message.command.SubscriptionCommandSender;
 import io.zeebe.engine.processing.streamprocessor.CopiedRecords;
 import io.zeebe.engine.processing.streamprocessor.StreamProcessorLifecycleAware;
 import io.zeebe.engine.processing.timer.DueDateTimerChecker;
-import io.zeebe.engine.state.deployment.WorkflowState;
+import io.zeebe.engine.state.mutable.MutableWorkflowState;
 import io.zeebe.engine.util.Records;
 import io.zeebe.engine.util.StreamProcessorRule;
 import io.zeebe.engine.util.TypedRecordStream;
@@ -47,7 +47,6 @@ import io.zeebe.protocol.record.intent.JobIntent;
 import io.zeebe.protocol.record.intent.TimerIntent;
 import io.zeebe.protocol.record.intent.WorkflowInstanceCreationIntent;
 import io.zeebe.protocol.record.intent.WorkflowInstanceIntent;
-import io.zeebe.protocol.record.value.deployment.ResourceType;
 import io.zeebe.test.util.TestUtil;
 import io.zeebe.util.buffer.BufferUtil;
 import io.zeebe.util.sched.ActorControl;
@@ -72,7 +71,7 @@ public final class WorkflowInstanceStreamProcessorRule extends ExternalResource
   private final StreamProcessorRule environmentRule;
   private SubscriptionCommandSender mockSubscriptionCommandSender;
 
-  private WorkflowState workflowState;
+  private MutableWorkflowState workflowState;
   private ActorControl actor;
 
   public WorkflowInstanceStreamProcessorRule(final StreamProcessorRule streamProcessorRule) {
@@ -106,13 +105,13 @@ public final class WorkflowInstanceStreamProcessorRule extends ExternalResource
           actor = processingContext.getActor();
           workflowState = zeebeState.getWorkflowState();
 
-          final var variablesState =
-              zeebeState.getWorkflowState().getElementInstanceState().getVariablesState();
+          final var variablesState = zeebeState.getVariableState();
           final ExpressionProcessor expressionProcessor =
               new ExpressionProcessor(
                   ExpressionLanguageFactory.createExpressionLanguage(),
                   variablesState::getVariable);
 
+          final var writers = processingContext.getWriters();
           WorkflowEventProcessors.addWorkflowProcessors(
               zeebeState,
               expressionProcessor,
@@ -120,17 +119,17 @@ public final class WorkflowInstanceStreamProcessorRule extends ExternalResource
               mockSubscriptionCommandSender,
               new CatchEventBehavior(
                   zeebeState, expressionProcessor, mockSubscriptionCommandSender, 1),
-              new DueDateTimerChecker(workflowState));
+              new DueDateTimerChecker(zeebeState.getTimerState()),
+              writers);
 
           JobEventProcessors.addJobProcessors(
-              typedRecordProcessors, zeebeState, type -> {}, Integer.MAX_VALUE);
+              typedRecordProcessors, zeebeState, type -> {}, Integer.MAX_VALUE, writers);
           typedRecordProcessors.withListener(this);
           return typedRecordProcessors;
         });
   }
 
-  public void deploy(
-      final BpmnModelInstance modelInstance, final int deploymentKey, final int version) {
+  public void deploy(final BpmnModelInstance modelInstance, final int version) {
     final ByteArrayOutputStream outStream = new ByteArrayOutputStream();
     Bpmn.writeModelToStream(outStream, modelInstance);
     final DirectBuffer xmlBuffer = new UnsafeBuffer(outStream.toByteArray());
@@ -140,12 +139,7 @@ public final class WorkflowInstanceStreamProcessorRule extends ExternalResource
 
     final Process process = modelInstance.getModelElementsByType(Process.class).iterator().next();
 
-    record
-        .resources()
-        .add()
-        .setResource(xmlBuffer)
-        .setResourceName(resourceName)
-        .setResourceType(ResourceType.BPMN_XML);
+    record.resources().add().setResource(xmlBuffer).setResourceName(resourceName);
 
     record
         .workflows()
@@ -153,13 +147,15 @@ public final class WorkflowInstanceStreamProcessorRule extends ExternalResource
         .setKey(WORKFLOW_KEY)
         .setResourceName(resourceName)
         .setBpmnProcessId(BufferUtil.wrapString(process.getId()))
-        .setVersion(version);
+        .setVersion(version)
+        .setChecksum(wrapString("checksum"))
+        .setResource(xmlBuffer);
 
-    actor.call(() -> workflowState.putDeployment(deploymentKey, record)).join();
+    actor.call(() -> workflowState.putDeployment(record)).join();
   }
 
   public void deploy(final BpmnModelInstance modelInstance) {
-    deploy(modelInstance, DEPLOYMENT_KEY, VERSION);
+    deploy(modelInstance, VERSION);
   }
 
   public Record<WorkflowInstanceRecord> createAndReceiveWorkflowInstance(

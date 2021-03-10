@@ -9,9 +9,10 @@ package io.zeebe.engine.processing.workflowinstance;
 
 import io.zeebe.engine.processing.streamprocessor.CommandProcessor;
 import io.zeebe.engine.processing.streamprocessor.TypedRecord;
-import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
+import io.zeebe.engine.processing.streamprocessor.writers.StateWriter;
+import io.zeebe.engine.processing.streamprocessor.writers.TypedCommandWriter;
 import io.zeebe.engine.state.instance.AwaitWorkflowInstanceResultMetadata;
-import io.zeebe.engine.state.instance.ElementInstanceState;
+import io.zeebe.engine.state.mutable.MutableElementInstanceState;
 import io.zeebe.msgpack.property.ArrayProperty;
 import io.zeebe.msgpack.value.StringValue;
 import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceCreationRecord;
@@ -22,7 +23,7 @@ public final class CreateWorkflowInstanceWithResultProcessor
     implements CommandProcessor<WorkflowInstanceCreationRecord> {
 
   private final CreateWorkflowInstanceProcessor createProcessor;
-  private final ElementInstanceState elementInstanceState;
+  private final MutableElementInstanceState elementInstanceState;
   private final AwaitWorkflowInstanceResultMetadata awaitResultMetadata =
       new AwaitWorkflowInstanceResultMetadata();
 
@@ -33,7 +34,7 @@ public final class CreateWorkflowInstanceWithResultProcessor
 
   public CreateWorkflowInstanceWithResultProcessor(
       final CreateWorkflowInstanceProcessor createProcessor,
-      final ElementInstanceState elementInstanceState) {
+      final MutableElementInstanceState elementInstanceState) {
     this.createProcessor = createProcessor;
     this.elementInstanceState = elementInstanceState;
   }
@@ -41,11 +42,20 @@ public final class CreateWorkflowInstanceWithResultProcessor
   @Override
   public boolean onCommand(
       final TypedRecord<WorkflowInstanceCreationRecord> command,
-      final CommandControl<WorkflowInstanceCreationRecord> controller,
-      final TypedStreamWriter streamWriter) {
+      final CommandControl<WorkflowInstanceCreationRecord> controller) {
     wrappedController.setCommand(command).setController(controller);
-    createProcessor.onCommand(command, wrappedController, streamWriter);
+    createProcessor.onCommand(command, wrappedController);
     return shouldRespond;
+  }
+
+  @Override
+  public void afterAccept(
+      final TypedCommandWriter commandWriter,
+      final StateWriter stateWriter,
+      final long key,
+      final Intent intent,
+      final WorkflowInstanceCreationRecord value) {
+    createProcessor.afterAccept(commandWriter, stateWriter, key, intent, value);
   }
 
   private class CommandControlWithAwaitResult

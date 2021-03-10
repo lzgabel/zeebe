@@ -70,6 +70,11 @@ public final class TopologyManagerImpl extends Actor
   }
 
   @Override
+  public ActorFuture<Void> onBecomingInactive(final int partitionId, final long term) {
+    return setInactive(partitionId);
+  }
+
+  @Override
   public String getName() {
     return actorName;
   }
@@ -100,6 +105,15 @@ public final class TopologyManagerImpl extends Actor
         () -> {
           removeIfLeader(localBroker, partitionId);
           localBroker.setFollowerForPartition(partitionId);
+          publishTopologyChanges();
+        });
+  }
+
+  public ActorFuture<Void> setInactive(final int partitionId) {
+    return actor.call(
+        () -> {
+          removeIfLeader(localBroker, partitionId);
+          localBroker.setInactiveForPartition(partitionId);
           publishTopologyChanges();
         });
   }
@@ -141,7 +155,8 @@ public final class TopologyManagerImpl extends Actor
     brokerInfo.consumePartitions(
         partition -> removeIfLeader(brokerInfo, partition),
         (leaderPartitionId, term) -> {},
-        followerPartitionId -> {});
+        followerPartitionId -> {},
+        inactivePartitionId -> {});
   }
 
   private void removeIfLeader(final BrokerInfo brokerInfo, final Integer partition) {
@@ -164,7 +179,8 @@ public final class TopologyManagerImpl extends Actor
             notifyPartitionLeaderUpdated(leaderPartitionId, brokerInfo);
           }
         },
-        followerPartitionId -> removeIfLeader(brokerInfo, followerPartitionId));
+        followerPartitionId -> removeIfLeader(brokerInfo, followerPartitionId),
+        inactivePartitionId -> removeIfLeader(brokerInfo, inactivePartitionId));
   }
 
   private boolean updatePartitionLeader(
@@ -257,9 +273,9 @@ public final class TopologyManagerImpl extends Actor
     actor.run(
         () -> {
           if (status == HealthStatus.HEALTHY) {
-            localBroker.setPartitionUnhealthy(partitionId);
-          } else if (status == HealthStatus.UNHEALTHY) {
             localBroker.setPartitionHealthy(partitionId);
+          } else if (status == HealthStatus.UNHEALTHY) {
+            localBroker.setPartitionUnhealthy(partitionId);
           }
           publishTopologyChanges();
         });

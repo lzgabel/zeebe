@@ -22,6 +22,7 @@ public class PartitionTransitionImpl implements PartitionTransition {
 
   private static final Logger LOG = Loggers.SYSTEM_LOGGER;
   private static final List<PartitionStep> EMPTY_LIST = Collections.emptyList();
+  private static final int INACTIVE_TERM = -1;
 
   private final PartitionContext context;
   private final List<PartitionStep> leaderSteps;
@@ -39,18 +40,18 @@ public class PartitionTransitionImpl implements PartitionTransition {
   }
 
   @Override
-  public ActorFuture<Void> toFollower() {
-    return enqueueTransition(followerSteps);
+  public ActorFuture<Void> toFollower(final long currentTerm) {
+    return enqueueTransition(currentTerm, followerSteps);
   }
 
   @Override
-  public ActorFuture<Void> toLeader() {
-    return enqueueTransition(leaderSteps);
+  public ActorFuture<Void> toLeader(final long currentTerm) {
+    return enqueueTransition(currentTerm, leaderSteps);
   }
 
   @Override
   public ActorFuture<Void> toInactive() {
-    return enqueueTransition(EMPTY_LIST);
+    return enqueueTransition(INACTIVE_TERM, EMPTY_LIST);
   }
 
   /**
@@ -58,32 +59,32 @@ public class PartitionTransitionImpl implements PartitionTransition {
    * order. Previous we had the issue that all transitions have subscribe to the current transition,
    * which lead to undefined behavior.
    *
+   * @param currentTerm
    * @param partitionStepList the steps which should be installed on the transition
    */
-  private ActorFuture<Void> enqueueTransition(final List<PartitionStep> partitionStepList) {
+  private ActorFuture<Void> enqueueTransition(
+      final long currentTerm, final List<PartitionStep> partitionStepList) {
     final var nextTransitionFuture = new CompletableActorFuture<Void>();
     final var nextCurrentTransition = currentTransition;
     currentTransition = nextTransitionFuture;
     nextCurrentTransition.onComplete(
-        (nothing, err) -> transition(nextTransitionFuture, partitionStepList));
+        (nothing, err) -> transition(currentTerm, nextTransitionFuture, partitionStepList));
     return nextTransitionFuture;
   }
 
   private void transition(
-      final CompletableActorFuture<Void> future, final List<PartitionStep> steps) {
+      final long currentTerm,
+      final CompletableActorFuture<Void> future,
+      final List<PartitionStep> steps) {
     closePartition()
         .onComplete(
-            (nothing, err) -> {
-              if (err == null) {
-                installPartition(future, new ArrayList<>(steps));
-              } else {
-                future.completeExceptionally(err);
-              }
-            });
+            (nothing, err) -> installPartition(currentTerm, future, new ArrayList<>(steps)));
   }
 
   private void installPartition(
-      final CompletableActorFuture<Void> future, final List<PartitionStep> steps) {
+      final long currentTerm,
+      final CompletableActorFuture<Void> future,
+      final List<PartitionStep> steps) {
     if (steps.isEmpty()) {
       LOG.debug(
           "Partition {} transition complete, installed {} resources!",
@@ -94,36 +95,55 @@ public class PartitionTransitionImpl implements PartitionTransition {
     }
 
     final PartitionStep step = steps.remove(0);
-    step.open(context)
+    step.open(currentTerm, context)
         .onComplete(
             (value, err) -> {
               if (err != null) {
                 LOG.error("Expected to open step '{}' but failed with", step.getName(), err);
+                tryCloseStep(step);
                 future.completeExceptionally(err);
               } else {
                 openedSteps.add(step);
-                installPartition(future, steps);
+                installPartition(currentTerm, future, steps);
               }
             });
+  }
+
+  private void tryCloseStep(final PartitionStep step) {
+    // close if there's anything to close. Don't add to 'opened' list, since the open did not
+    // complete, the close might also fail but that shouldn't prevent the next transition
+    try {
+      step.close(context);
+    } catch (final Exception e) {
+      LOG.debug("Couldn't close partition step '{}' that failed to open", step.getName(), e);
+    }
   }
 
   private CompletableActorFuture<Void> closePartition() {
     final var closingSteps = new ArrayList<>(openedSteps);
     Collections.reverse(closingSteps);
+    return closeSteps(closingSteps);
+  }
 
+  private CompletableActorFuture<Void> closeSteps(final List<PartitionStep> steps) {
     final var closingPartitionFuture = new CompletableActorFuture<Void>();
-    stepByStepClosing(closingPartitionFuture, closingSteps);
-
+    stepByStepClosing(closingPartitionFuture, steps, null);
     return closingPartitionFuture;
   }
 
   private void stepByStepClosing(
-      final CompletableActorFuture<Void> future, final List<PartitionStep> steps) {
+      final CompletableActorFuture<Void> future,
+      final List<PartitionStep> steps,
+      final Throwable throwable) {
     if (steps.isEmpty()) {
       LOG.debug(
           "Partition {} closed all previous open resources, before transitioning.",
           context.getPartitionId());
-      future.complete(null);
+      if (throwable == null) {
+        future.complete(null);
+      } else {
+        future.completeExceptionally(throwable);
+      }
       return;
     }
 
@@ -132,26 +152,22 @@ public class PartitionTransitionImpl implements PartitionTransition {
 
     final ActorFuture<Void> closeFuture = step.close(context);
     closeFuture.onComplete(
-        (v, t) -> {
-          if (t == null) {
+        (v, closingError) -> {
+          if (closingError == null) {
             LOG.debug(
                 "Closing Zeebe-Partition-{}: {} closed successfully",
                 context.getPartitionId(),
                 step.getName());
-
-            // remove the completed step from the list in case that the closing is interrupted
-            openedSteps.remove(step);
-
-            // closing the remaining steps
-            stepByStepClosing(future, steps);
           } else {
             LOG.error(
-                "Closing Zeebe-Partition-{}: {} failed to close",
+                "Closing Zeebe-Partition-{}: {} failed to close. Closing remaining steps",
                 context.getPartitionId(),
                 step.getName(),
-                t);
-            future.completeExceptionally(t);
+                closingError);
           }
+
+          openedSteps.remove(step);
+          stepByStepClosing(future, steps, throwable != null ? throwable : closingError);
         });
   }
 }

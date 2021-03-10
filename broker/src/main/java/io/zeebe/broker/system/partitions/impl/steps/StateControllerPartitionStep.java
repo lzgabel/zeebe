@@ -23,22 +23,19 @@ public class StateControllerPartitionStep implements PartitionStep {
   public ActorFuture<Void> open(final PartitionContext context) {
     final var runtimeDirectory =
         context.getRaftPartition().dataDirectory().toPath().resolve("runtime");
-    final var databaseCfg = context.getBrokerCfg().getData().getRocksdb();
+    final var databaseCfg = context.getBrokerCfg().getExperimental().getRocksdb();
 
     final var stateController =
         new StateControllerImpl(
             context.getPartitionId(),
-            DefaultZeebeDbFactory.defaultFactory(databaseCfg.getColumnFamilyOptions()),
+            DefaultZeebeDbFactory.defaultFactory(databaseCfg.createRocksDbConfiguration()),
             context
                 .getSnapshotStoreSupplier()
-                .getConstructableSnapshotStore(context.getRaftPartition().name()),
-            context
-                .getSnapshotStoreSupplier()
-                .getReceivableSnapshotStore(context.getRaftPartition().name()),
+                .getConstructableSnapshotStore(context.getPartitionId()),
+            context.getSnapshotStoreSupplier().getReceivableSnapshotStore(context.getPartitionId()),
             runtimeDirectory,
             context.getSnapshotReplication(),
-            new AtomixRecordEntrySupplierImpl(
-                context.getZeebeIndexMapping(), context.getRaftLogReader()),
+            new AtomixRecordEntrySupplierImpl(context.getRaftLogReader()),
             StatePositionSupplier::getHighestExportedPosition);
 
     context.setSnapshotController(stateController);

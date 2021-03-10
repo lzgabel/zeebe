@@ -19,7 +19,7 @@ import io.zeebe.engine.processing.common.ExpressionProcessor;
 import io.zeebe.engine.processing.common.Failure;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableServiceTask;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedCommandWriter;
-import io.zeebe.engine.state.instance.JobState.State;
+import io.zeebe.engine.state.immutable.JobState.State;
 import io.zeebe.msgpack.value.DocumentValue;
 import io.zeebe.protocol.impl.record.value.job.JobRecord;
 import io.zeebe.protocol.record.intent.JobIntent;
@@ -80,6 +80,8 @@ public final class ServiceTaskProcessor implements BpmnElementProcessor<Executab
   @Override
   public void onCompleting(final ExecutableServiceTask element, final BpmnElementContext context) {
 
+    // TODO have a look at JobCompletedEventApplier. It contains some logic that probably needs to
+    // be moved to this methods event applier
     variableMappingBehavior
         .applyOutputMappings(context, element)
         .ifRightOrLeft(

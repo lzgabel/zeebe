@@ -49,7 +49,7 @@ public final class ExporterRule implements TestRule {
   private ExporterDirector director;
 
   public ExporterRule(final int partitionId) {
-    this(partitionId, DefaultZeebeDbFactory.defaultFactory(ZbColumnFamilies.class));
+    this(partitionId, DefaultZeebeDbFactory.defaultFactory());
   }
 
   public ExporterRule(final int partitionId, final ZeebeDbFactory dbFactory) {
@@ -79,7 +79,7 @@ public final class ExporterRule implements TestRule {
             .zeebeDb(capturedZeebeDb)
             .descriptors(exporterDescriptors);
 
-    director = new ExporterDirector(context);
+    director = new ExporterDirector(context, false);
     director.startAsync(actorSchedulerRule.get()).join();
   }
 

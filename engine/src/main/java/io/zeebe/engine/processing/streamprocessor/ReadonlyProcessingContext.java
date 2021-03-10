@@ -7,9 +7,10 @@
  */
 package io.zeebe.engine.processing.streamprocessor;
 
-import io.zeebe.db.DbContext;
-import io.zeebe.engine.processing.streamprocessor.writers.CommandResponseWriter;
+import io.zeebe.db.TransactionContext;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
+import io.zeebe.engine.processing.streamprocessor.writers.Writers;
+import io.zeebe.engine.state.EventApplier;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.log.LogStreamReader;
@@ -20,9 +21,6 @@ public interface ReadonlyProcessingContext {
 
   /** @return the actor on which the processing runs */
   ActorControl getActor();
-
-  /** @return the filter, which is used to filter for events */
-  EventFilter getEventFilter();
 
   /** @return the logstream, on which the processor runs */
   LogStream getLogStream();
@@ -36,8 +34,11 @@ public interface ReadonlyProcessingContext {
    */
   int getMaxFragmentSize();
 
-  /** @return the writer, which is used by the processor to write follow up events */
+  /** @return the actual log stream writer, used to write any record */
   TypedStreamWriter getLogStreamWriter();
+
+  /** @return the specific writers, like command, response, etc */
+  Writers getWriters();
 
   /** @return the pool, which contains the mapping from ValueType to UnpackedObject (record) */
   RecordValues getRecordValues();
@@ -48,12 +49,12 @@ public interface ReadonlyProcessingContext {
   /** @return the state, where the data is stored during processing */
   ZeebeState getZeebeState();
 
-  /** @return the database context for the current actor */
-  DbContext getDbContext();
-
-  /** @return the response writer, which is used during processing */
-  CommandResponseWriter getCommandResponseWriter();
+  /** @return the transaction context for the current actor */
+  TransactionContext getTransactionContext();
 
   /** @return condition which indicates, whether the processing should stop or not */
   BooleanSupplier getAbortCondition();
+
+  /** @return the consumer of events to apply their state changes */
+  EventApplier getEventApplier();
 }

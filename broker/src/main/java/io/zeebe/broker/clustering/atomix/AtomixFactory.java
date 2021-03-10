@@ -71,6 +71,8 @@ public final class AtomixFactory {
             .withClusterId(clusterCfg.getClusterName())
             .withMemberId(localMemberId)
             .withMembershipProtocol(membershipProtocol)
+            .withMessagingInterface(networkCfg.getInternalApi().getHost())
+            .withMessagingPort(networkCfg.getInternalApi().getPort())
             .withAddress(
                 Address.from(
                     networkCfg.getInternalApi().getAdvertisedHost(),
@@ -78,7 +80,7 @@ public final class AtomixFactory {
             .withMembershipProvider(discoveryProvider);
 
     final DataCfg dataConfiguration = configuration.getData();
-    final String rootDirectory = dataConfiguration.getDirectories().get(0);
+    final String rootDirectory = dataConfiguration.getDirectory();
     IoUtil.ensureDirectoryExists(new File(rootDirectory), "Zeebe data directory");
 
     final RaftPartitionGroup partitionGroup =
@@ -109,10 +111,10 @@ public final class AtomixFactory {
             .withSnapshotStoreFactory(snapshotStoreFactory)
             .withMaxAppendBatchSize((int) experimentalCfg.getMaxAppendBatchSizeInBytes())
             .withMaxAppendsPerFollower(experimentalCfg.getMaxAppendsPerFollower())
-            .withStorageLevel(dataCfg.getAtomixStorageLevel())
             .withEntryValidator(new ZeebeEntryValidator())
             .withFlushExplicitly(!experimentalCfg.isDisableExplicitRaftFlush())
-            .withFreeDiskSpace(dataCfg.getFreeDiskSpaceReplicationWatermark());
+            .withFreeDiskSpace(dataCfg.getFreeDiskSpaceReplicationWatermark())
+            .withJournalIndexDensity(dataCfg.getLogIndexDensity());
 
     // by default, the Atomix max entry size is 1 MB
     final int maxMessageSize = (int) networkCfg.getMaxMessageSizeInBytes();

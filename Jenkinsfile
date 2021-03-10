@@ -2,6 +2,8 @@
 
 @Library(["camunda-ci", "zeebe-jenkins-shared-library"]) _
 
+// the build name will be used as a kubernetes label, and kubernetes has strict syntax rules - see
+// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
 def buildName = "${env.JOB_BASE_NAME.replaceAll("%2F", "-").replaceAll("\\.", "-").take(20)}-${env.BUILD_ID}"
 
 def masterBranchName = 'master'
@@ -13,8 +15,18 @@ def isDevelopBranch = env.BRANCH_NAME == developBranchName
 def daysToKeep = isDevelopBranch ? '7' : '-1'
 def numToKeep = isDevelopBranch ? '-1' : '10'
 
-//the develop branch should be run hourly to detect flaky tests and instability, other branches only on commit
-def cronTrigger = isDevelopBranch ? '@hourly' : ''
+// single step timeouts - remember to be generous to avoid occasional slow downs, e.g. waiting to be
+// scheduled by Kubernetes, slow downloads of remote docker images, etc.
+def shortTimeoutMinutes = 10
+def longTimeoutMinutes = 45
+
+// the IT agent needs to share some files for post analysis, and since they share the same name as
+// those in the main agent, we unstash them in a separate directory
+itAgentUnstashDirectory = '.tmp/it'
+itFlakyTestStashName = 'it-flakyTests'
+
+//the develop branch should be run at midnight to do a nightly build including QA test run
+def cronTrigger = isDevelopBranch ? '0 0 * * *' : ''
 
 pipeline {
     agent {
@@ -22,7 +34,7 @@ pipeline {
             cloud 'zeebe-ci'
             label "zeebe-ci-build_${buildName}"
             defaultContainer 'jnlp'
-            yamlFile '.ci/podSpecs/distribution.yml'
+            yaml templatePodspec('.ci/podSpecs/distribution-template.yml')
         }
     }
 
@@ -38,76 +50,110 @@ pipeline {
     options {
         buildDiscarder(logRotator(daysToKeepStr: daysToKeep, numToKeepStr: numToKeep))
         timestamps()
-        timeout(time: 45, unit: 'MINUTES')
+    }
+
+    parameters {
+        booleanParam(name: 'SKIP_VERIFY', defaultValue: false, description: "Skip 'Verify' Stage")
+        booleanParam(name: 'RUN_QA', defaultValue: false, description: "Run QA Stage")
+        string(name: 'GENERATION_TEMPLATE', defaultValue: 'Zeebe SNAPSHOT', description: "Generation template for QA tests (the QA test will be run with this Zeebe version and Operate/Elasticsearch version from the generation template)")
     }
 
     stages {
-        stage('Prepare') {
+        stage('Prepare Distribution') {
             steps {
-                script {
-                    commit_summary = sh([returnStdout: true, script: 'git show -s --format=%s']).trim()
-                    displayNameFull = "#" + BUILD_NUMBER + ': ' + commit_summary
+                timeout(time: shortTimeoutMinutes, unit: 'MINUTES') {
+                    setHumanReadableBuildDisplayName()
 
-                    if (displayNameFull.length() <= 45) {
-                        currentBuild.displayName = displayNameFull
-                    } else {
-                        displayStringHardTruncate = displayNameFull.take(45)
-                        currentBuild.displayName = displayStringHardTruncate.take(displayStringHardTruncate.lastIndexOf(" "))
+                    prepareMavenContainer()
+                    prepareMavenContainer('jdk8')
+                    container('golang') {
+                        sh '.ci/scripts/distribution/prepare-go.sh'
                     }
-                }
-                container('maven') {
-                    sh '.ci/scripts/distribution/prepare.sh'
-                }
-                container('maven-jdk8') {
-                    sh '.ci/scripts/distribution/prepare.sh'
-                }
-                container('golang') {
-                    sh '.ci/scripts/distribution/prepare-go.sh'
-                }
 
-            }
-        }
-
-        stage('Build (Java)') {
-            steps {
-                container('maven') {
-                    configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
-                        sh '.ci/scripts/distribution/build-java.sh'
-                    }
+                    // prepare unstash directory for IT files - required since the file names will
+                    // be the same as in the other stages. it's necessary to set the permissions to
+                    // 0777 has shell scripts are executed as root, whereas Jenkins directives such
+                    // as unstash are executed as jenkins
+                    runMavenContainerCommand("mkdir -m 0777 -p ${itAgentUnstashDirectory}")
                 }
             }
         }
 
-        stage('Prepare Tests') {
+        stage('Build Distribution') {
             environment {
-                IMAGE = "camunda/zeebe"
                 VERSION = readMavenPom(file: 'parent/pom.xml').getVersion()
+            }
+            steps {
+                timeout(time: shortTimeoutMinutes, unit: 'MINUTES') {
+                    // since zbctl is included in zeebe-distribution.tar.gz, which is produced by
+                    // maven, we have to build the go artifacts first
+                    container('golang') {
+                        sh '.ci/scripts/distribution/build-go.sh'
+                    }
+                    runMavenContainerCommand('.ci/scripts/distribution/build-java.sh')
+
+                    // to simplify building the Docker image, we copy the distribution to a fixed
+                    // filename that doesn't include the version
+                    runMavenContainerCommand('cp dist/target/zeebe-distribution-*.tar.gz zeebe-distribution.tar.gz')
+                    stash name: "zeebe-build", includes: "m2-repository/io/zeebe/*/${VERSION}/*"
+                    stash name: "zeebe-distro", includes: "zeebe-distribution.tar.gz"
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            environment {
+                DOCKER_BUILDKIT = "1"
+                IMAGE = "camunda/zeebe"
                 TAG = 'current-test'
             }
 
             steps {
-                container('maven') {
-                    sh 'cp dist/target/zeebe-distribution-*.tar.gz zeebe-distribution.tar.gz'
-                }
+                timeout(time: shortTimeoutMinutes, unit: 'MINUTES') {
+                    container('docker') {
+                        sh '.ci/scripts/docker/build.sh'
 
-                container('docker') {
-                    sh '.ci/scripts/docker/build.sh'
-                    sh '.ci/scripts/docker/build_zeebe-hazelcast-exporter.sh'
+                        // the hazelcast exporter is used by the BPMN TCK, and must therefore be
+                        // built beforehand - if this ever becomes too slow, we can move this to a
+                        // BPMN TCK agent and make this is a sequential stage prior to running the
+                        // TCK
+                        sh '.ci/scripts/docker/build_zeebe-hazelcast-exporter.sh'
+                    }
                 }
             }
         }
 
-
-        stage('Test') {
+        stage('Verify') {
+            when { not { expression { params.SKIP_VERIFY } } }
             parallel {
-                stage('Go') {
+                stage('Analyse') {
                     steps {
-                        container('golang') {
-                            sh '.ci/scripts/distribution/build-go.sh'
+                        timeout(time: longTimeoutMinutes, unit: 'MINUTES') {
+                            runMavenContainerCommand('.ci/scripts/distribution/analyse-java.sh')
                         }
+                    }
+                }
 
-                        container('golang') {
-                            sh '.ci/scripts/distribution/test-go.sh'
+                stage('BPMN TCK') {
+                    steps {
+                        timeout(time: longTimeoutMinutes, unit: 'MINUTES') {
+                            runMavenContainerCommand('.ci/scripts/distribution/test-tck.sh')
+                        }
+                    }
+
+                    post {
+                        always {
+                            junit testResults: "bpmn-tck/**/*/TEST*.xml", keepLongStdio: true
+                        }
+                    }
+                }
+
+                stage('Test (Go)') {
+                    steps {
+                        timeout(time: longTimeoutMinutes, unit: 'MINUTES') {
+                            container('golang') {
+                                sh '.ci/scripts/distribution/test-go.sh'
+                            }
                         }
                     }
 
@@ -118,26 +164,18 @@ pipeline {
                     }
                 }
 
-                stage('Analyse (Java)') {
-                    steps {
-                        container('maven') {
-                            configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
-                                sh '.ci/scripts/distribution/analyse-java.sh'
-                            }
-                        }
-                    }
-                }
-
-                stage('Unit (Java)') {
+                stage('Test (Java)') {
                     environment {
                         SUREFIRE_REPORT_NAME_SUFFIX = 'java-testrun'
+                        MAVEN_PARALLELISM = 2
+                        SUREFIRE_FORK_COUNT = 6
+                        JUNIT_THREAD_COUNT = 6
                     }
 
                     steps {
-                        container('maven') {
-                            configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
-                                sh '.ci/scripts/distribution/test-java.sh'
-                            }
+                        timeout(time: longTimeoutMinutes, unit: 'MINUTES') {
+                            runMavenContainerCommand('.ci/scripts/distribution/test-java.sh')
+                            runMavenContainerCommand('.ci/scripts/distribution/random-test-java.sh')
                         }
                     }
 
@@ -147,16 +185,15 @@ pipeline {
                         }
                     }
                 }
-                stage('Unit 8 (Java 8)') {
+
+                stage('Test (Java 8)') {
                     environment {
                         SUREFIRE_REPORT_NAME_SUFFIX = 'java8-testrun'
                     }
 
                     steps {
-                        container('maven-jdk8') {
-                            configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
-                                sh '.ci/scripts/distribution/test-java8.sh'
-                            }
+                        timeout(time: longTimeoutMinutes, unit: 'MINUTES') {
+                            runMavenContainerCommand('.ci/scripts/distribution/test-java8.sh', 'jdk8')
                         }
                     }
 
@@ -167,61 +204,77 @@ pipeline {
                     }
                 }
 
-                stage('IT (Java)') {
+                stage('IT') {
+                    // NOTE: all nested stages in the IT stage will be run on the following agent,
+                    // identified by its label. Keep in mind that any artefacts produced in this
+                    // agent will be unavailable in other agents, so you will need to copy them
+                    // NOTE: agents (except the main one) are terminated once their stage is
+                    // finished, so if you want to run several steps/stages in that agent they have
+                    // to be sequential (since you cannot nest parallels/matrixes). if you need
+                    // parallelism, consider spawning a sub-job
                     agent {
                         kubernetes {
                             cloud 'zeebe-ci'
                             label "zeebe-ci-build_${buildName}_it"
                             defaultContainer 'jnlp'
-                            yamlFile '.ci/podSpecs/distribution.yml'
+                            yaml templatePodspec('.ci/podSpecs/integration-test-template.yml')
                         }
                     }
 
-                    environment {
-                        SUREFIRE_REPORT_NAME_SUFFIX = 'it-testrun'
-                        NEXUS = credentials("camunda-nexus")
-                        IMAGE = "camunda/zeebe"
-                        VERSION = readMavenPom(file: 'parent/pom.xml').getVersion()
-                        TAG = 'current-test'
-                    }
+                    stages {
+                        stage('Prepare') {
+                            steps {
+                                timeout(time: shortTimeoutMinutes, unit: 'MINUTES') {
+                                    prepareMavenContainer()
 
-                    steps {
-                        container('maven') {
-                            configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
-                                sh '.ci/scripts/distribution/prepare.sh'
-                                sh '.ci/scripts/distribution/build-java.sh'
-                                sh 'cp dist/target/zeebe-distribution-*.tar.gz zeebe-distribution.tar.gz'
+                                    unstash name: "zeebe-build"
+                                    runMavenContainerCommand('.ci/scripts/distribution/it-prepare.sh')
+                                }
                             }
                         }
-                        container('docker') {
-                            sh '.ci/scripts/docker/build.sh'
-                        }
-                        container('maven') {
-                            configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
-                                sh '.ci/scripts/distribution/it-java.sh'
+
+                        stage('Build Docker Image') {
+                            environment {
+                                DOCKER_BUILDKIT = "1"
+                                IMAGE = "camunda/zeebe"
+                                TAG = 'current-test'
+                            }
+
+                            steps {
+                                timeout(time: shortTimeoutMinutes, unit: 'MINUTES') {
+                                    unstash name: "zeebe-distro"
+                                    container('docker') {
+                                        sh '.ci/scripts/docker/build.sh'
+                                    }
+                                }
                             }
                         }
-                    }
 
-                    post {
-                        always {
-                            junit testResults: "**/*/TEST*${SUREFIRE_REPORT_NAME_SUFFIX}*.xml", keepLongStdio: true
-                        }
-                    }
-                }
-
-                stage('BPMN TCK') {
-                    steps {
-                        container('maven') {
-                            configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
-                                sh '.ci/scripts/distribution/test-tck.sh'
+                        stage('Test') {
+                            environment {
+                                SUREFIRE_REPORT_NAME_SUFFIX = 'it-testrun'
+                                MAVEN_PARALLELISM = 2
+                                SUREFIRE_FORK_COUNT = 6
+                                JUNIT_THREAD_COUNT = 6
                             }
-                        }
-                    }
 
-                    post {
-                        always {
-                            junit testResults: "bpmn-tck/**/*/TEST*.xml", keepLongStdio: true
+                            steps {
+                                timeout(time: longTimeoutMinutes, unit: 'MINUTES') {
+                                    runMavenContainerCommand('.ci/scripts/distribution/it-java.sh')
+                                }
+                            }
+
+                            post {
+                                always {
+                                    junit testResults: "**/*/TEST*${SUREFIRE_REPORT_NAME_SUFFIX}*.xml", keepLongStdio: true
+                                    stash allowEmpty: true, name: itFlakyTestStashName, includes: '**/FlakyTests.txt'
+                                }
+
+                                failure {
+                                    zip zipFile: 'test-reports-it.zip', archive: true, glob: "**/*/surefire-reports/**"
+                                    zip zipFile: 'test-errors-it.zip', archive: true, glob: "**/hs_err_*.log"
+                                }
+                            }
                         }
                     }
                 }
@@ -229,25 +282,78 @@ pipeline {
 
             post {
                 always {
-                    jacoco(
-                            execPattern: '**/*.exec',
-                            classPattern: '**/target/classes',
-                            sourcePattern: '**/src/main/java,**/generated-sources/protobuf/java,**/generated-sources/assertj-assertions,**/generated-sources/sbe',
-                            exclusionPattern: '**/io/zeebe/gateway/protocol/**,'
-                                    + '**/*Encoder.class,**/*Decoder.class,**/MetaAttribute.class,'
-                                    + '**/io/zeebe/protocol/record/**/*Assert.class,**/io/zeebe/protocol/record/Assertions.class,', // classes from generated resources
-                            runAlways: true
-                    )
-                    zip zipFile: 'test-coverage-reports.zip', archive: true, glob: "**/target/site/jacoco/**"
+                    checkCodeCoverage()
                 }
+
                 failure {
                     zip zipFile: 'test-reports.zip', archive: true, glob: "**/*/surefire-reports/**"
-                    archive "**/hs_err_*.log"
+                    zip zipFile: 'test-errors.zip', archive: true, glob: "**/hs_err_*.log"
+                    dir(itAgentUnstashDirectory) {
+                        unstash name: itFlakyTestStashName
+                    }
 
                     script {
-                        if (fileExists('./target/FlakyTests.txt')) {
-                            currentBuild.description = "Flaky Tests: <br>" + readFile('./target/FlakyTests.txt').split('\n').join('<br>')
+                        def flakeFiles = ['./FlakyTests.txt', "${itAgentUnstashDirectory}/FlakyTests.txt"]
+                        def flakes = combineFlakeResults(flakeFiles)
+
+                        if (flakes) {
+                            currentBuild.description = "Flaky Tests: <br>" + flakes.join('<br>')
                         }
+                    }
+                }
+            }
+        }
+
+        stage('QA') {
+            when {
+                anyOf {
+                    expression { params.RUN_QA }
+                    allOf {
+                        branch developBranchName
+                        triggeredBy 'TimerTrigger'
+                    }
+                }
+            }
+            environment {
+                IMAGE = "gcr.io/zeebe-io/zeebe"
+                VERSION = readMavenPom(file: 'parent/pom.xml').getVersion()
+                TAG = "${env.VERSION}-${env.GIT_COMMIT}"
+                DOCKER_GCR = credentials("zeebe-gcr-serviceaccount-json")
+                ZEEBE_AUTHORIZATION_SERVER_URL = 'https://login.cloud.ultrawombat.com/oauth/token'
+                ZEEBE_CLIENT_ID = 'W5a4JUc3I1NIetNnodo3YTvdsRIFb12w'
+                QA_RUN_VARIABLES = "{\"zeebeImage\": \"${env.IMAGE}:${env.TAG}\", \"generationTemplate\": \"${params.GENERATION_TEMPLATE}\", " +
+                                    "\"channel\": \"Internal Dev\", \"branch\": \"${env.BRANCH_NAME}\", \"build\": \"${currentBuild.absoluteUrl}\", " +
+                                    "\"businessKey\": \"${currentBuild.absoluteUrl}\", \"processId\": \"qa-protocol\"}"
+                BUSINESS_KEY = "${currentBuild.absoluteUrl}"
+            }
+
+            steps {
+                container('docker') {
+                    sh '.ci/scripts/docker/upload-gcr.sh'
+                }
+                container('maven') {
+                    withVault(
+                        [vaultSecrets:
+                             [
+                                 [path        : 'secret/common/ci-zeebe/testbench-secrets-int',
+                                  secretValues:
+                                      [
+                                          [envVar: 'ZEEBE_CLIENT_SECRET', vaultKey: 'clientSecret'],
+                                          [envVar: 'ZEEBE_ADDRESS', vaultKey: 'contactPoint'],
+                                      ]
+                                 ],
+                             ]
+                        ]
+                    ) {
+                        sh '.ci/scripts/distribution/qa-testbench.sh'
+                    }
+                }
+            }
+
+            post {
+                failure {
+                    script {
+                        currentBuild.description = 'Failure in QA Stage'
                     }
                 }
             }
@@ -257,10 +363,8 @@ pipeline {
             when { allOf { branch developBranchName; not { triggeredBy 'TimerTrigger' } } }
             steps {
                 retry(3) {
-                    container('maven') {
-                        configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe', variable: 'MAVEN_SETTINGS_XML')]) {
-                            sh '.ci/scripts/distribution/upload.sh'
-                        }
+                    timeout(time: shortTimeoutMinutes, unit: 'MINUTES') {
+                        runMavenContainerCommand('.ci/scripts/distribution/upload.sh')
                     }
                 }
             }
@@ -279,12 +383,14 @@ pipeline {
 
                     steps {
                         retry(3) {
-                            build job: 'zeebe-docker', parameters: [
+                            timeout(time: shortTimeoutMinutes, unit: 'MINUTES') {
+                                build job: 'zeebe-docker', parameters: [
                                     string(name: 'BRANCH', value: env.BRANCH_NAME),
                                     string(name: 'VERSION', value: env.VERSION),
                                     booleanParam(name: 'IS_LATEST', value: isMasterBranch),
                                     booleanParam(name: 'PUSH', value: isDevelopBranch)
-                            ]
+                                ]
+                            }
                         }
                     }
                 }
@@ -294,13 +400,16 @@ pipeline {
 
     post {
         always {
-            // Retrigger the build if there were connection issues
+            // Retrigger the build if there were connection issues (but not
+            // on bors staging branch as bors does not recognize this result)
             script {
                 if (agentDisconnected()) {
                     currentBuild.result = 'ABORTED'
                     currentBuild.description = "Aborted due to connection error"
 
-                    build job: currentBuild.projectName, propagate: false, quietPeriod: 60, wait: false
+                    if (!isBorsStagingBranch()) {
+                        build job: currentBuild.projectName, propagate: false, quietPeriod: 60, wait: false
+                    }
                 }
 
                 String userReason = null
@@ -315,11 +424,7 @@ pipeline {
                 if (env.BRANCH_NAME != 'develop' || agentDisconnected()) {
                     return
                 }
-
-                echo "Send slack message"
-                slackSend(
-                        channel: "#zeebe-ci${jenkins.model.JenkinsLocationConfiguration.get()?.getUrl()?.contains('stage') ? '-stage' : ''}",
-                        message: "Zeebe ${env.BRANCH_NAME} build ${currentBuild.absoluteUrl} changed status to ${currentBuild.currentResult}")
+                sendZeebeSlackMessage()
             }
         }
         changed {
@@ -330,14 +435,111 @@ pipeline {
                 if (currentBuild.currentResult == 'FAILURE') {
                     return // already handled above
                 }
-
-                if (hasBuildResultChanged()) {
-                    echo "Send slack message"
-                    slackSend(
-                            channel: "#zeebe-ci${jenkins.model.JenkinsLocationConfiguration.get()?.getUrl()?.contains('stage') ? '-stage' : ''}",
-                            message: "Zeebe ${env.BRANCH_NAME} build ${currentBuild.absoluteUrl} changed status to ${currentBuild.currentResult}")
+                if (!hasBuildResultChanged()) {
+                    return
                 }
+
+                sendZeebeSlackMessage()
             }
         }
     }
+}
+
+//////////////////// Helper functions ////////////////////
+
+def getMavenContainerNameForJDK(String jdk = null) {
+    "maven${jdk ? '-' + jdk : ''}"
+}
+
+def prepareMavenContainer(String jdk = null) {
+    container(getMavenContainerNameForJDK(jdk)) {
+        sh '.ci/scripts/distribution/prepare.sh'
+    }
+}
+
+def runMavenContainerCommand(String shellCommand, String jdk = null) {
+    container(getMavenContainerNameForJDK(jdk)) {
+        configFileProvider([configFile(fileId: 'maven-nexus-settings-zeebe-local-repo', variable: 'MAVEN_SETTINGS_XML')]) {
+            sh shellCommand
+        }
+    }
+}
+
+// TODO: can be extracted to zeebe-jenkins-shared-library
+def setHumanReadableBuildDisplayName(int maximumLength = 45) {
+    script {
+        commit_summary = sh([returnStdout: true, script: 'git show -s --format=%s']).trim()
+        displayNameFull = "#${env.BUILD_NUMBER}: ${commit_summary}"
+
+        if (displayNameFull.length() <= maximumLength) {
+            currentBuild.displayName = displayNameFull
+        } else {
+            displayStringHardTruncate = displayNameFull.take(maximumLength)
+            currentBuild.displayName = displayStringHardTruncate.take(displayStringHardTruncate.lastIndexOf(' '))
+        }
+    }
+}
+
+// TODO: can be extracted to zeebe-jenkins-shared-library
+def sendZeebeSlackMessage() {
+    echo "Send slack message"
+    slackSend(
+        channel: "#zeebe-ci${jenkins.model.JenkinsLocationConfiguration.get()?.getUrl()?.contains('stage') ? '-stage' : ''}",
+        message: "Zeebe ${env.BRANCH_NAME} build ${currentBuild.absoluteUrl} changed status to ${currentBuild.currentResult}")
+}
+
+def isBorsStagingBranch() {
+    env.BRANCH_NAME == 'staging'
+}
+
+def templatePodspec(String podspecPath, flags = [:]) {
+    def defaultFlags = [
+        /* Criteria for using stable node pools:
+         * - staging branch: to have smooth staging builds and avoid unnecessary retries
+         * - params.RUN_QA: during QA stage the node must wait for the result. This can take several hours. Therefore a stable node is needed
+         * - env.isDevelopBranch: the core requirement is to have a stable node for nightly builds, which also rn QA (see above)
+         */
+        useStableNodePool: isBorsStagingBranch() || params.RUN_QA || env.isDevelopBranch
+    ]
+    // will merge Maps by overwriting left Map with values of the right Map
+    def effectiveFlags = defaultFlags + flags
+
+    def nodePoolName = "agents-n1-standard-32-netssd-${effectiveFlags.useStableNodePool ? 'stable' : 'preempt'}"
+
+    // Needs no workspace, see:
+    // https://www.jenkins.io/doc/pipeline/steps/workflow-multibranch/#readtrusted-read-trusted-file-from-scm
+    String templateString = readTrusted(podspecPath)
+
+    // Note: Templating is currently done via simple string substitution as this
+    // is enough to solve all existing use cases. If need arises the templating
+    // can be transparently changed to a more sophisticated YAML-merge based
+    // approach as it is an implementation detail that the caller does not know.
+    templateString = templateString.replaceAll('PODSPEC_TEMPLATE_NODE_POOL', nodePoolName)
+
+    templateString
+}
+
+def combineFlakeResults(flakeFiles = []) {
+    def flakes = []
+
+    for (flakeFile in flakeFiles) {
+        if (fileExists(flakeFile)) {
+            flakes += readFile(flakeFile).split('\n')
+        }
+    }
+
+    return flakes
+}
+
+def checkCodeCoverage() {
+    jacoco(
+        execPattern: '**/*.exec',
+        classPattern: '**/target/classes',
+        sourcePattern: '**/src/main/java,**/generated-sources/protobuf/java,**/generated-sources/assertj-assertions,**/generated-sources/sbe',
+        exclusionPattern: '**/io/zeebe/gateway/protocol/**,'
+            + '**/*Encoder.class,**/*Decoder.class,**/MetaAttribute.class,'
+            + '**/io/zeebe/protocol/record/**/*Assert.class,**/io/zeebe/protocol/record/Assertions.class,', // classes from generated resources
+        runAlways: true
+    )
+    zip zipFile: "test-coverage-reports.zip", archive: true, glob: '**/target/site/jacoco/**'
 }

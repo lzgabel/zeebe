@@ -16,12 +16,13 @@
 package worker
 
 import (
+	"context"
+	"github.com/camunda-cloud/zeebe/clients/go/internal/mock_pb"
+	"github.com/camunda-cloud/zeebe/clients/go/internal/utils"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/entities"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/pb"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
-	"github.com/zeebe-io/zeebe/clients/go/internal/mock_pb"
-	"github.com/zeebe-io/zeebe/clients/go/internal/utils"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/entities"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/pb"
 	"io"
 	"math"
 	"sync"
@@ -37,12 +38,12 @@ type JobPollerSuite struct {
 	waitGroup sync.WaitGroup
 }
 
-func (suite *JobPollerSuite) BeforeTest(suiteName, testName string) {
+func (suite *JobPollerSuite) BeforeTest(_, _ string) {
 	suite.ctrl = gomock.NewController(suite.T())
 	suite.client = mock_pb.NewMockGatewayClient(suite.ctrl)
 	suite.poller = jobPoller{
 		client:         suite.client,
-		request:        pb.ActivateJobsRequest{},
+		request:        &pb.ActivateJobsRequest{},
 		requestTimeout: utils.DefaultTestTimeout,
 		maxJobsActive:  DefaultJobWorkerMaxJobActive,
 		pollInterval:   DefaultJobWorkerPollInterval,
@@ -51,11 +52,12 @@ func (suite *JobPollerSuite) BeforeTest(suiteName, testName string) {
 		closeSignal:    make(chan struct{}),
 		remaining:      0,
 		threshold:      int(math.Round(float64(DefaultJobWorkerMaxJobActive) * DefaultJobWorkerPollThreshold)),
+		shouldRetry:    func(_ context.Context, _ error) bool { return false },
 	}
 	suite.waitGroup.Add(1)
 }
 
-func (suite *JobPollerSuite) AfterTest(suiteName, testName string) {
+func (suite *JobPollerSuite) AfterTest(_, _ string) {
 	defer suite.ctrl.Finish()
 
 	close(suite.poller.closeSignal)

@@ -57,16 +57,13 @@ public final class BrokerCfg {
     exporters.values().forEach(e -> e.init(this, brokerBase));
     gateway.init(this, brokerBase);
     backpressure.init(this, brokerBase);
+    experimental.init(this, brokerBase);
   }
 
   private void applyEnvironment(final Environment environment) {
-    environment
-        .get(ENV_DEBUG_EXPORTER)
-        .ifPresent(
-            value ->
-                exporters.put(
-                    DebugLogExporter.defaultExporterId(),
-                    DebugLogExporter.defaultConfig("pretty".equalsIgnoreCase(value))));
+    if (environment.getBool(ENV_DEBUG_EXPORTER).orElse(false)) {
+      exporters.put(DebugLogExporter.defaultExporterId(), DebugLogExporter.defaultConfig());
+    }
   }
 
   public NetworkCfg getNetwork() {

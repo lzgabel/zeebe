@@ -9,10 +9,9 @@ package io.zeebe.broker.system.partitions.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.atomix.raft.storage.log.Indexed;
 import io.atomix.raft.zeebe.ZeebeEntry;
-import io.atomix.storage.journal.Indexed;
 import io.zeebe.broker.system.partitions.SnapshotReplication;
-import io.zeebe.db.impl.DefaultColumnFamily;
 import io.zeebe.db.impl.rocksdb.ZeebeRocksDbFactory;
 import io.zeebe.snapshots.broker.ConstructableSnapshotStore;
 import io.zeebe.snapshots.broker.impl.FileBasedSnapshotStoreFactory;
@@ -20,10 +19,13 @@ import io.zeebe.snapshots.raft.ReceivableSnapshotStore;
 import io.zeebe.snapshots.raft.SnapshotChunk;
 import io.zeebe.snapshots.raft.TransientSnapshot;
 import io.zeebe.test.util.AutoCloseableRule;
+import io.zeebe.util.sched.testing.ActorSchedulerRule;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import org.junit.Rule;
 import org.junit.Test;
@@ -33,6 +35,7 @@ public final class FailingSnapshotChunkReplicationTest {
 
   @Rule public final TemporaryFolder tempFolderRule = new TemporaryFolder();
   @Rule public final AutoCloseableRule autoCloseableRule = new AutoCloseableRule();
+  @Rule public final ActorSchedulerRule actorSchedulerRule = new ActorSchedulerRule();
 
   private StateControllerImpl replicatorSnapshotController;
   private StateControllerImpl receiverSnapshotController;
@@ -42,39 +45,41 @@ public final class FailingSnapshotChunkReplicationTest {
   public void setup(final SnapshotReplication replicator) throws IOException {
     final var senderRoot = tempFolderRule.newFolder("sender").toPath();
 
-    final var senderFactory = new FileBasedSnapshotStoreFactory();
-    senderFactory.createReceivableSnapshotStore(senderRoot, "1");
-    senderStore = senderFactory.getConstructableSnapshotStore("1");
+    final var senderFactory = new FileBasedSnapshotStoreFactory(actorSchedulerRule.get(), 1);
+    senderFactory.createReceivableSnapshotStore(senderRoot, 1);
+    senderStore = senderFactory.getConstructableSnapshotStore(1);
 
     final var receiverRoot = tempFolderRule.newFolder("receiver").toPath();
-    final var receiverFactory = new FileBasedSnapshotStoreFactory();
-    receiverStore = receiverFactory.createReceivableSnapshotStore(receiverRoot, "1");
+    final var receiverFactory = new FileBasedSnapshotStoreFactory(actorSchedulerRule.get(), 2);
+    receiverStore = receiverFactory.createReceivableSnapshotStore(receiverRoot, 1);
 
     replicatorSnapshotController =
         new StateControllerImpl(
             1,
-            ZeebeRocksDbFactory.newFactory(DefaultColumnFamily.class),
+            ZeebeRocksDbFactory.newFactory(),
             senderStore,
-            senderFactory.getReceivableSnapshotStore("1"),
+            senderFactory.getReceivableSnapshotStore(1),
             senderRoot.resolve("runtime"),
             replicator,
             l ->
                 Optional.of(
-                    new Indexed(l, new ZeebeEntry(1, System.currentTimeMillis(), 1, 10, null), 0)),
+                    new Indexed(
+                        l, new ZeebeEntry(1, System.currentTimeMillis(), 1, 10, null), 0, -1)),
             db -> Long.MAX_VALUE);
     senderStore.addSnapshotListener(replicatorSnapshotController);
 
     receiverSnapshotController =
         new StateControllerImpl(
             1,
-            ZeebeRocksDbFactory.newFactory(DefaultColumnFamily.class),
-            receiverFactory.getConstructableSnapshotStore("1"),
-            receiverFactory.getReceivableSnapshotStore("1"),
+            ZeebeRocksDbFactory.newFactory(),
+            receiverFactory.getConstructableSnapshotStore(1),
+            receiverFactory.getReceivableSnapshotStore(1),
             receiverRoot.resolve("runtime"),
             replicator,
             l ->
                 Optional.ofNullable(
-                    new Indexed(l, new ZeebeEntry(1, System.currentTimeMillis(), 1, 10, null), 0)),
+                    new Indexed(
+                        l, new ZeebeEntry(1, System.currentTimeMillis(), 1, 10, null), 0, -1)),
             db -> Long.MAX_VALUE);
     receiverStore.addSnapshotListener(receiverSnapshotController);
 
@@ -93,7 +98,7 @@ public final class FailingSnapshotChunkReplicationTest {
     final var transientSnapshot = takeSnapshot();
 
     // when
-    transientSnapshot.persist();
+    transientSnapshot.persist().join();
 
     // then
     final List<SnapshotChunk> replicatedChunks = replicator.replicatedChunks;
@@ -110,7 +115,7 @@ public final class FailingSnapshotChunkReplicationTest {
     final var transientSnapshot = takeSnapshot();
 
     // when
-    transientSnapshot.persist();
+    transientSnapshot.persist().join();
 
     // then
     final List<SnapshotChunk> replicatedChunks = replicator.replicatedChunks;
@@ -127,13 +132,15 @@ public final class FailingSnapshotChunkReplicationTest {
 
     final List<SnapshotChunk> replicatedChunks = new ArrayList<>();
     private Consumer<SnapshotChunk> chunkConsumer;
+    // Consumers are usually running on a separate thread
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     @Override
     public void replicate(final SnapshotChunk snapshot) {
       replicatedChunks.add(snapshot);
       if (chunkConsumer != null) {
         if (replicatedChunks.size() < 3) {
-          chunkConsumer.accept(snapshot);
+          executorService.execute(() -> chunkConsumer.accept(snapshot));
         }
       }
     }
@@ -151,13 +158,17 @@ public final class FailingSnapshotChunkReplicationTest {
 
     final List<SnapshotChunk> replicatedChunks = new ArrayList<>();
     private Consumer<SnapshotChunk> chunkConsumer;
+    // Consumers are usually running on a separate thread
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     @Override
     public void replicate(final SnapshotChunk snapshot) {
       replicatedChunks.add(snapshot);
       if (chunkConsumer != null) {
-        chunkConsumer.accept(
-            replicatedChunks.size() > 1 ? new DisruptedSnapshotChunk(snapshot) : snapshot);
+        executorService.execute(
+            () ->
+                chunkConsumer.accept(
+                    replicatedChunks.size() > 1 ? new DisruptedSnapshotChunk(snapshot) : snapshot));
       }
     }
 

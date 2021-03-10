@@ -103,7 +103,8 @@ public final class SkipFailingEventsTest {
         DefaultZeebeDbFactory.defaultFactory(),
         (processingContext) -> {
           zeebeState = processingContext.getZeebeState();
-          return TypedRecordProcessors.processors(zeebeState.getKeyGenerator())
+          return TypedRecordProcessors.processors(
+                  zeebeState.getKeyGenerator(), processingContext.getWriters())
               .onEvent(
                   ValueType.WORKFLOW_INSTANCE,
                   WorkflowInstanceIntent.ELEMENT_ACTIVATING,
@@ -142,7 +143,8 @@ public final class SkipFailingEventsTest {
         DefaultZeebeDbFactory.defaultFactory(),
         (processingContext) -> {
           zeebeState = processingContext.getZeebeState();
-          return TypedRecordProcessors.processors(zeebeState.getKeyGenerator())
+          return TypedRecordProcessors.processors(
+                  zeebeState.getKeyGenerator(), processingContext.getWriters())
               .onEvent(
                   ValueType.WORKFLOW_INSTANCE,
                   WorkflowInstanceIntent.ELEMENT_ACTIVATING,
@@ -190,7 +192,8 @@ public final class SkipFailingEventsTest {
         DefaultZeebeDbFactory.defaultFactory(),
         (processingContext) -> {
           zeebeState = processingContext.getZeebeState();
-          return TypedRecordProcessors.processors(zeebeState.getKeyGenerator())
+          return TypedRecordProcessors.processors(
+                  zeebeState.getKeyGenerator(), processingContext.getWriters())
               .onEvent(
                   ValueType.WORKFLOW_INSTANCE, WorkflowInstanceIntent.ELEMENT_ACTIVATING, processor)
               .onEvent(
@@ -236,7 +239,7 @@ public final class SkipFailingEventsTest {
     metadata.valueType(ValueType.WORKFLOW_INSTANCE);
     final MockTypedRecord<WorkflowInstanceRecord> mockTypedRecord =
         new MockTypedRecord<>(0, metadata, Records.workflowInstance(1));
-    Assertions.assertThat(zeebeState.isOnBlacklist(mockTypedRecord)).isTrue();
+    Assertions.assertThat(zeebeState.getBlackListState().isOnBlacklist(mockTypedRecord)).isTrue();
 
     verify(dumpProcessor, times(1)).processRecord(any(), any(), any(), any());
     assertThat(dumpProcessor.processedInstances).containsExactly(2L);
@@ -270,7 +273,8 @@ public final class SkipFailingEventsTest {
         DefaultZeebeDbFactory.defaultFactory(),
         (processingContext) -> {
           zeebeState = processingContext.getZeebeState();
-          return TypedRecordProcessors.processors(zeebeState.getKeyGenerator())
+          return TypedRecordProcessors.processors(
+                  zeebeState.getKeyGenerator(), processingContext.getWriters())
               .withListener(
                   new StreamProcessorLifecycleAware() {
                     @Override
@@ -289,7 +293,7 @@ public final class SkipFailingEventsTest {
     metadata.valueType(ValueType.WORKFLOW_INSTANCE);
     final MockTypedRecord<WorkflowInstanceRecord> mockTypedRecord =
         new MockTypedRecord<>(0, metadata, Records.workflowInstance(1));
-    waitUntil(() -> zeebeState.isOnBlacklist(mockTypedRecord));
+    waitUntil(() -> zeebeState.getBlackListState().isOnBlacklist(mockTypedRecord));
   }
 
   @Test
@@ -328,7 +332,8 @@ public final class SkipFailingEventsTest {
         DefaultZeebeDbFactory.defaultFactory(),
         (processingContext) -> {
           zeebeState = processingContext.getZeebeState();
-          return TypedRecordProcessors.processors(zeebeState.getKeyGenerator())
+          return TypedRecordProcessors.processors(
+                  zeebeState.getKeyGenerator(), processingContext.getWriters())
               .onCommand(ValueType.JOB, JobIntent.COMPLETE, errorProneProcessor)
               .onEvent(ValueType.JOB, JobIntent.ACTIVATED, dumpProcessor);
         });
@@ -368,7 +373,7 @@ public final class SkipFailingEventsTest {
     metadata.valueType(ValueType.WORKFLOW_INSTANCE);
     final MockTypedRecord<WorkflowInstanceRecord> mockTypedRecord =
         new MockTypedRecord<>(0, metadata, Records.workflowInstance(1));
-    Assertions.assertThat(zeebeState.isOnBlacklist(mockTypedRecord)).isFalse();
+    Assertions.assertThat(zeebeState.getBlackListState().isOnBlacklist(mockTypedRecord)).isFalse();
 
     verify(dumpProcessor, timeout(1000).times(2)).processRecord(any(), any(), any(), any());
     assertThat(processedInstances).containsExactly(1L, 2L);
@@ -402,7 +407,8 @@ public final class SkipFailingEventsTest {
         DefaultZeebeDbFactory.defaultFactory(),
         (processingContext) -> {
           zeebeState = processingContext.getZeebeState();
-          return TypedRecordProcessors.processors(zeebeState.getKeyGenerator())
+          return TypedRecordProcessors.processors(
+                  zeebeState.getKeyGenerator(), processingContext.getWriters())
               .onCommand(ValueType.TIMER, TimerIntent.CREATE, errorProneProcessor);
         });
 
@@ -429,7 +435,7 @@ public final class SkipFailingEventsTest {
     metadata.valueType(ValueType.TIMER);
     final MockTypedRecord<TimerRecord> mockTypedRecord =
         new MockTypedRecord<>(0, metadata, Records.timer(TimerInstance.NO_ELEMENT_INSTANCE));
-    Assertions.assertThat(zeebeState.isOnBlacklist(mockTypedRecord)).isFalse();
+    Assertions.assertThat(zeebeState.getBlackListState().isOnBlacklist(mockTypedRecord)).isFalse();
     assertThat(processedInstances).containsExactly((long) TimerInstance.NO_ELEMENT_INSTANCE);
   }
 

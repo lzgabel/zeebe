@@ -16,7 +16,13 @@
               },
               {
                 "name": "YAML",
-                "integer": 2
+                "integer": 2,
+                "options": [
+                  {
+                    "name": "deprecated",
+                    "value": "true"
+                  }
+                ]
               }
             ]
           },
@@ -28,6 +34,22 @@
               },
               {
                 "name": "FOLLOWER",
+                "integer": 1
+              },
+              {
+                "name": "INACTIVE",
+                "integer": 2
+              }
+            ]
+          },
+          {
+            "name": "Partition.PartitionBrokerHealth",
+            "enum_fields": [
+              {
+                "name": "HEALTHY"
+              },
+              {
+                "name": "UNHEALTHY",
                 "integer": 1
               }
             ]
@@ -305,7 +327,13 @@
               {
                 "id": 2,
                 "name": "type",
-                "type": "ResourceType"
+                "type": "ResourceType",
+                "options": [
+                  {
+                    "name": "deprecated",
+                    "value": "true"
+                  }
+                ]
               },
               {
                 "id": 3,
@@ -531,6 +559,11 @@
                 "id": 2,
                 "name": "role",
                 "type": "PartitionBrokerRole"
+              },
+              {
+                "id": 3,
+                "name": "health",
+                "type": "PartitionBrokerHealth"
               }
             ]
           },

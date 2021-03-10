@@ -1,36 +1,25 @@
 <differences>
   <difference>
-    <className>io/zeebe/client/api/command/ActivateJobsCommandStep1$ActivateJobsCommandStep3</className>
-    <method>io.zeebe.client.api.command.ActivateJobsCommandStep1$ActivateJobsCommandStep3 timeout(long)</method>
-    <differenceType>7002</differenceType>
-  </difference>
-  <difference>
-    <className>io/zeebe/client/impl/command/ActivateJobsCommandImpl</className>
-    <method>io.zeebe.client.api.command.ActivateJobsCommandStep1$ActivateJobsCommandStep3 timeout(long)</method>
-    <differenceType>7002</differenceType>
-  </difference>
-  <difference>
-    <className>io/zeebe/client/api/response/JobEvent</className>
+    <className>io/zeebe/client/util/Environment</className>
     <differenceType>8001</differenceType>
   </difference>
   <difference>
-    <className>io/zeebe/client/impl/ZeebeClientCredentials</className>
-    <method>ZeebeClientCredentials(java.lang.String, long, java.lang.String, java.lang.String)</method>
-    <differenceType>7004</differenceType>
-  </difference>
-  <difference>
-    <className>io/zeebe/client/api/**/*</className>
-    <method>*</method>
-    <differenceType>7012</differenceType>
+    <className>io/zeebe/client/util/VersionUtil</className>
+    <differenceType>8001</differenceType>
   </difference>
   <difference>
     <className>io/zeebe/client/ZeebeClientBuilder</className>
-    <method>io.zeebe.client.ZeebeClientBuilder gatewayAddress(java.lang.String)</method>
+    <method>io.zeebe.client.ZeebeClientBuilder withJsonMapper(io.zeebe.client.api.JsonMapper)</method>
     <differenceType>7012</differenceType>
   </difference>
   <difference>
     <className>io/zeebe/client/ZeebeClientConfiguration</className>
-    <method>java.lang.String getGatewayAddress()</method>
+    <method>io.zeebe.client.api.JsonMapper getJsonMapper()</method>
     <differenceType>7012</differenceType>
+  </difference>
+  <difference>
+    <className>io/zeebe/client/api/worker/JobWorkerBuilderStep1$JobWorkerBuilderStep3</className>
+    <differenceType>7012</differenceType>
+    <method>io.zeebe.client.api.worker.JobWorkerBuilderStep1$JobWorkerBuilderStep3 backoffSupplier(io.zeebe.client.api.worker.BackoffSupplier)</method>
   </difference>
 </differences>

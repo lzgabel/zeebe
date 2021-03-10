@@ -20,13 +20,14 @@ import io.zeebe.logstreams.impl.backpressure.AppenderGradient2Cfg;
 import io.zeebe.logstreams.impl.backpressure.AppenderVegasCfg;
 import io.zeebe.logstreams.impl.backpressure.BackpressureConstants;
 import io.zeebe.logstreams.impl.backpressure.NoopAppendLimiter;
-import io.zeebe.logstreams.spi.LogStorage;
+import io.zeebe.logstreams.storage.LogStorage;
 import io.zeebe.util.Environment;
 import io.zeebe.util.collection.Tuple;
 import io.zeebe.util.health.FailureListener;
 import io.zeebe.util.health.HealthMonitorable;
 import io.zeebe.util.health.HealthStatus;
 import io.zeebe.util.sched.Actor;
+import io.zeebe.util.sched.clock.ActorClock;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
 import java.nio.ByteBuffer;
@@ -116,7 +117,7 @@ public class LogStorageAppender extends Actor implements HealthMonitorable {
     // Commit position is the position of the last event.
     appendBackpressureMetrics.newEntryToAppend();
     if (appendEntryLimiter.tryAcquire(positions.getRight())) {
-      final var listener = new Listener(this, positions.getRight());
+      final var listener = new Listener(this, positions.getRight(), ActorClock.currentTimeMillis());
       logStorage.append(positions.getLeft(), positions.getRight(), copiedBuffer, listener);
 
       blockPeek.markCompleted();
@@ -215,18 +216,20 @@ public class LogStorageAppender extends Actor implements HealthMonitorable {
     actor.run(() -> appendEntryLimiter.onCommit(highestPosition));
   }
 
-  void notifyWritePosition(final long highestPosition) {
+  void notifyWritePosition(final long highestPosition, final long startTime) {
     actor.run(
         () -> {
           appenderMetrics.setLastAppendedPosition(highestPosition);
+          appenderMetrics.appendLatency(startTime, ActorClock.currentTimeMillis());
         });
   }
 
-  void notifyCommitPosition(final long highestPosition) {
+  void notifyCommitPosition(final long highestPosition, final long startTime) {
     actor.run(
         () -> {
           commitPositionListener.accept(highestPosition);
           appenderMetrics.setLastCommittedPosition(highestPosition);
+          appenderMetrics.commitLatency(startTime, ActorClock.currentTimeMillis());
         });
   }
 }

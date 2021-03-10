@@ -9,6 +9,7 @@ package io.zeebe.snapshots.broker.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.zeebe.util.sched.ActorScheduler;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -20,10 +21,10 @@ public final class FileBasedSnapshotStoreFactoryTest {
   public void shouldCreateDirectoriesIfNotExist() {
     // given
     final var root = temporaryFolder.getRoot().toPath();
-    final var factory = new FileBasedSnapshotStoreFactory();
+    final var factory = new FileBasedSnapshotStoreFactory(createActorScheduler(), 1);
 
     // when
-    final var store = factory.createReceivableSnapshotStore(root, "ignored");
+    final var store = factory.createReceivableSnapshotStore(root, 1);
 
     // then
     assertThat(root.resolve(FileBasedSnapshotStoreFactory.SNAPSHOTS_DIRECTORY))
@@ -33,5 +34,11 @@ public final class FileBasedSnapshotStoreFactoryTest {
         .exists()
         .isDirectory();
     assertThat(store.getLatestSnapshot()).isEmpty();
+  }
+
+  private ActorScheduler createActorScheduler() {
+    final var actorScheduler = ActorScheduler.newActorScheduler().build();
+    actorScheduler.start();
+    return actorScheduler;
   }
 }

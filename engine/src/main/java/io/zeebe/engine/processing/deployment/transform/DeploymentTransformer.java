@@ -12,20 +12,19 @@ import static io.zeebe.util.buffer.BufferUtil.wrapString;
 import io.zeebe.engine.Loggers;
 import io.zeebe.engine.processing.common.ExpressionProcessor;
 import io.zeebe.engine.processing.deployment.model.BpmnFactory;
-import io.zeebe.engine.processing.deployment.model.yaml.BpmnYamlParser;
+import io.zeebe.engine.processing.streamprocessor.writers.StateWriter;
 import io.zeebe.engine.state.KeyGenerator;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.engine.state.deployment.DeployedWorkflow;
-import io.zeebe.engine.state.deployment.WorkflowState;
+import io.zeebe.engine.state.immutable.WorkflowState;
 import io.zeebe.model.bpmn.Bpmn;
 import io.zeebe.model.bpmn.BpmnModelInstance;
 import io.zeebe.model.bpmn.instance.Process;
 import io.zeebe.protocol.impl.record.value.deployment.DeploymentRecord;
 import io.zeebe.protocol.impl.record.value.deployment.DeploymentResource;
 import io.zeebe.protocol.record.RejectionType;
-import io.zeebe.protocol.record.value.deployment.ResourceType;
+import io.zeebe.protocol.record.intent.WorkflowIntent;
 import io.zeebe.util.buffer.BufferUtil;
-import java.io.ByteArrayOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
@@ -38,10 +37,10 @@ import org.agrona.io.DirectBufferInputStream;
 import org.slf4j.Logger;
 
 public final class DeploymentTransformer {
+
   private static final Logger LOG = Loggers.WORKFLOW_PROCESSOR_LOGGER;
 
   private final BpmnValidator validator;
-  private final BpmnYamlParser yamlParser = new BpmnYamlParser();
   private final WorkflowState workflowState;
   private final KeyGenerator keyGenerator;
   private final MessageDigest digestGenerator;
@@ -50,15 +49,24 @@ public final class DeploymentTransformer {
   // internal changes during processing
   private RejectionType rejectionType;
   private String rejectionReason;
+  private final StateWriter stateWriter;
 
   public DeploymentTransformer(
-      final ZeebeState zeebeState, final ExpressionProcessor expressionProcessor) {
+      final StateWriter stateWriter,
+      final ZeebeState zeebeState,
+      final ExpressionProcessor expressionProcessor) {
+    this.stateWriter = stateWriter;
     workflowState = zeebeState.getWorkflowState();
     keyGenerator = zeebeState.getKeyGenerator();
     validator = BpmnFactory.createValidator(expressionProcessor);
 
     try {
-      digestGenerator = MessageDigest.getInstance("MD5");
+      // We get an alert by LGTM, since MD5 is a weak cryptographic hash function,
+      // but it is not easy to exchange this weak algorithm without getting compatibility issues
+      // with previous versions. Furthermore it is very unlikely that we get problems on checking
+      // the deployments hashes.
+      digestGenerator =
+          MessageDigest.getInstance("MD5"); // lgtm [java/weak-cryptographic-algorithm]
     } catch (final NoSuchAlgorithmException e) {
       throw new IllegalStateException(e);
     }
@@ -155,34 +163,34 @@ public final class DeploymentTransformer {
         final String bpmnProcessId = workflow.getId();
         final DeployedWorkflow lastWorkflow =
             workflowState.getLatestWorkflowVersionByProcessId(BufferUtil.wrapString(bpmnProcessId));
-        final long key;
-        final int version;
 
         final DirectBuffer lastDigest =
             workflowState.getLatestVersionDigest(wrapString(bpmnProcessId));
         final DirectBuffer resourceDigest =
             new UnsafeBuffer(digestGenerator.digest(deploymentResource.getResource()));
 
-        if (isDuplicateOfLatest(deploymentResource, resourceDigest, lastWorkflow, lastDigest)) {
-          key = lastWorkflow.getKey();
-          version = lastWorkflow.getVersion();
-        } else {
-          key = keyGenerator.nextKey();
-          version = workflowState.getNextWorkflowVersion(bpmnProcessId);
-          workflowState.putLatestVersionDigest(wrapString(bpmnProcessId), resourceDigest);
-        }
-
-        deploymentEvent
-            .workflows()
-            .add()
+        // adds workflow record to deployment record
+        final var workflowRecord = deploymentEvent.workflows().add();
+        workflowRecord
             .setBpmnProcessId(BufferUtil.wrapString(workflow.getId()))
-            .setVersion(version)
-            .setKey(key)
-            .setResourceName(deploymentResource.getResourceNameBuffer());
+            .setChecksum(resourceDigest)
+            .setResourceName(deploymentResource.getResourceNameBuffer())
+            .setResource(deploymentResource.getResourceBuffer());
+
+        final var isDuplicate =
+            isDuplicateOfLatest(deploymentResource, resourceDigest, lastWorkflow, lastDigest);
+        if (isDuplicate) {
+          workflowRecord.setVersion(lastWorkflow.getVersion()).setKey(lastWorkflow.getKey());
+        } else {
+          final var key = keyGenerator.nextKey();
+          workflowRecord
+              .setKey(key)
+              .setVersion(workflowState.getWorkflowVersion(bpmnProcessId) + 1);
+
+          stateWriter.appendFollowUpEvent(key, WorkflowIntent.CREATED, workflowRecord);
+        }
       }
     }
-
-    transformYamlWorkflowResource(deploymentResource, definition);
   }
 
   private boolean isDuplicateOfLatest(
@@ -199,25 +207,7 @@ public final class DeploymentTransformer {
   private BpmnModelInstance readWorkflowDefinition(final DeploymentResource deploymentResource) {
     final DirectBuffer resource = deploymentResource.getResourceBuffer();
     final DirectBufferInputStream resourceStream = new DirectBufferInputStream(resource);
-
-    switch (deploymentResource.getResourceType()) {
-      case YAML_WORKFLOW:
-        return yamlParser.readFromStream(resourceStream);
-      case BPMN_XML:
-      default:
-        return Bpmn.readModelFromStream(resourceStream);
-    }
-  }
-
-  private void transformYamlWorkflowResource(
-      final DeploymentResource deploymentResource, final BpmnModelInstance definition) {
-    if (deploymentResource.getResourceType() != ResourceType.BPMN_XML) {
-      final ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-      Bpmn.writeModelToStream(outStream, definition);
-
-      final DirectBuffer bpmnXml = BufferUtil.wrapArray(outStream.toByteArray());
-      deploymentResource.setResource(bpmnXml);
-    }
+    return Bpmn.readModelFromStream(resourceStream);
   }
 
   public RejectionType getRejectionType() {

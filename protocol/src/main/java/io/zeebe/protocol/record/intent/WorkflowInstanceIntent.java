@@ -15,6 +15,9 @@
  */
 package io.zeebe.protocol.record.intent;
 
+import java.util.EnumSet;
+import java.util.Set;
+
 public enum WorkflowInstanceIntent implements WorkflowInstanceRelatedIntent {
   CANCEL((short) 0, false),
 
@@ -27,7 +30,15 @@ public enum WorkflowInstanceIntent implements WorkflowInstanceRelatedIntent {
   ELEMENT_TERMINATING((short) 6),
   ELEMENT_TERMINATED((short) 7),
 
-  EVENT_OCCURRED((short) 8);
+  EVENT_OCCURRED((short) 8),
+
+  ACTIVATE_ELEMENT((short) 9),
+  COMPLETE_ELEMENT((short) 10),
+  TERMINATE_ELEMENT((short) 11);
+
+  private static final Set<WorkflowInstanceIntent> WORKFLOW_INSTANCE_COMMANDS = EnumSet.of(CANCEL);
+  private static final Set<WorkflowInstanceIntent> BPMN_ELEMENT_COMMANDS =
+      EnumSet.of(ACTIVATE_ELEMENT, COMPLETE_ELEMENT, TERMINATE_ELEMENT);
 
   private final short value;
   private final boolean shouldBlacklist;
@@ -65,6 +76,12 @@ public enum WorkflowInstanceIntent implements WorkflowInstanceRelatedIntent {
         return ELEMENT_TERMINATED;
       case 8:
         return EVENT_OCCURRED;
+      case 9:
+        return ACTIVATE_ELEMENT;
+      case 10:
+        return COMPLETE_ELEMENT;
+      case 11:
+        return TERMINATE_ELEMENT;
       default:
         return Intent.UNKNOWN;
     }
@@ -78,5 +95,17 @@ public enum WorkflowInstanceIntent implements WorkflowInstanceRelatedIntent {
   @Override
   public boolean shouldBlacklistInstanceOnError() {
     return shouldBlacklist;
+  }
+
+  public static boolean isWorkflowInstanceCommand(final WorkflowInstanceIntent intent) {
+    return WORKFLOW_INSTANCE_COMMANDS.contains(intent);
+  }
+
+  public static boolean isBpmnElementCommand(final WorkflowInstanceIntent intent) {
+    return BPMN_ELEMENT_COMMANDS.contains(intent);
+  }
+
+  public static boolean isBpmnElementEvent(final WorkflowInstanceIntent intent) {
+    return !isWorkflowInstanceCommand(intent) && !isBpmnElementCommand(intent);
   }
 }

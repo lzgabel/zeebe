@@ -9,12 +9,13 @@ package io.zeebe.engine.processing.message;
 
 import io.zeebe.engine.processing.message.command.SubscriptionCommandSender;
 import io.zeebe.engine.processing.streamprocessor.TypedRecordProcessors;
+import io.zeebe.engine.processing.streamprocessor.writers.Writers;
 import io.zeebe.engine.state.KeyGenerator;
 import io.zeebe.engine.state.ZeebeState;
-import io.zeebe.engine.state.instance.EventScopeInstanceState;
-import io.zeebe.engine.state.message.MessageStartEventSubscriptionState;
-import io.zeebe.engine.state.message.MessageState;
-import io.zeebe.engine.state.message.MessageSubscriptionState;
+import io.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
+import io.zeebe.engine.state.mutable.MutableMessageStartEventSubscriptionState;
+import io.zeebe.engine.state.mutable.MutableMessageState;
+import io.zeebe.engine.state.mutable.MutableMessageSubscriptionState;
 import io.zeebe.protocol.record.ValueType;
 import io.zeebe.protocol.record.intent.MessageIntent;
 import io.zeebe.protocol.record.intent.MessageStartEventSubscriptionIntent;
@@ -25,53 +26,57 @@ public final class MessageEventProcessors {
   public static void addMessageProcessors(
       final TypedRecordProcessors typedRecordProcessors,
       final ZeebeState zeebeState,
-      final SubscriptionCommandSender subscriptionCommandSender) {
+      final SubscriptionCommandSender subscriptionCommandSender,
+      final Writers writers) {
 
-    final MessageState messageState = zeebeState.getMessageState();
-    final MessageSubscriptionState subscriptionState = zeebeState.getMessageSubscriptionState();
-    final MessageStartEventSubscriptionState startEventSubscriptionState =
+    final MutableMessageState messageState = zeebeState.getMessageState();
+    final MutableMessageSubscriptionState subscriptionState =
+        zeebeState.getMessageSubscriptionState();
+    final MutableMessageStartEventSubscriptionState startEventSubscriptionState =
         zeebeState.getMessageStartEventSubscriptionState();
-    final EventScopeInstanceState eventScopeInstanceState =
-        zeebeState.getWorkflowState().getEventScopeInstanceState();
+    final MutableEventScopeInstanceState eventScopeInstanceState =
+        zeebeState.getEventScopeInstanceState();
     final KeyGenerator keyGenerator = zeebeState.getKeyGenerator();
 
     typedRecordProcessors
         .onCommand(
             ValueType.MESSAGE,
             MessageIntent.PUBLISH,
-            new PublishMessageProcessor(
+            new MessagePublishProcessor(
                 messageState,
                 subscriptionState,
                 startEventSubscriptionState,
                 eventScopeInstanceState,
                 subscriptionCommandSender,
-                keyGenerator))
+                keyGenerator,
+                writers))
         .onCommand(
-            ValueType.MESSAGE, MessageIntent.DELETE, new DeleteMessageProcessor(messageState))
+            ValueType.MESSAGE, MessageIntent.EXPIRE, new MessageExpireProcessor(writers.state()))
         .onCommand(
             ValueType.MESSAGE_SUBSCRIPTION,
-            MessageSubscriptionIntent.OPEN,
-            new OpenMessageSubscriptionProcessor(
-                messageState, subscriptionState, subscriptionCommandSender))
+            MessageSubscriptionIntent.CREATE,
+            new MessageSubscriptionCreateProcessor(
+                messageState, subscriptionState, subscriptionCommandSender, writers))
         .onCommand(
             ValueType.MESSAGE_SUBSCRIPTION,
             MessageSubscriptionIntent.CORRELATE,
-            new CorrelateMessageSubscriptionProcessor(
-                messageState, subscriptionState, subscriptionCommandSender))
+            new MessageSubscriptionCorrelateProcessor(
+                messageState, subscriptionState, subscriptionCommandSender, writers))
         .onCommand(
             ValueType.MESSAGE_SUBSCRIPTION,
-            MessageSubscriptionIntent.CLOSE,
-            new CloseMessageSubscriptionProcessor(subscriptionState, subscriptionCommandSender))
+            MessageSubscriptionIntent.DELETE,
+            new MessageSubscriptionDeleteProcessor(
+                subscriptionState, subscriptionCommandSender, writers))
         .onCommand(
             ValueType.MESSAGE_SUBSCRIPTION,
             MessageSubscriptionIntent.REJECT,
-            new RejectMessageCorrelationProcessor(
-                messageState, subscriptionState, subscriptionCommandSender))
+            new MessageSubscriptionRejectProcessor(
+                messageState, subscriptionState, subscriptionCommandSender, writers))
         .onCommand(
             ValueType.MESSAGE_START_EVENT_SUBSCRIPTION,
             MessageStartEventSubscriptionIntent.OPEN,
             new OpenMessageStartEventSubscriptionProcessor(
-                startEventSubscriptionState, zeebeState.getWorkflowState()))
+                startEventSubscriptionState, zeebeState.getEventScopeInstanceState()))
         .onCommand(
             ValueType.MESSAGE_START_EVENT_SUBSCRIPTION,
             MessageStartEventSubscriptionIntent.CLOSE,

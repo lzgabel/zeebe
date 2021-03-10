@@ -33,18 +33,20 @@ import io.zeebe.protocol.record.RecordType;
 import io.zeebe.protocol.record.ValueType;
 import io.zeebe.protocol.record.intent.DeploymentIntent;
 import io.zeebe.protocol.record.intent.WorkflowInstanceIntent;
+import io.zeebe.protocol.record.value.BpmnElementType;
 import io.zeebe.test.util.TestUtil;
 import io.zeebe.util.exception.RecoverableException;
 import io.zeebe.util.sched.ActorControl;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.assertj.core.api.Assertions;
+import org.awaitility.Awaitility;
 import org.junit.Rule;
 import org.junit.Test;
 import org.mockito.InOrder;
@@ -163,9 +165,12 @@ public final class StreamProcessorTest {
 
     inOrder.verifyNoMoreInteractions();
 
-    Assertions.assertThat(
-            streamProcessorRule.getZeebeState().getLastSuccessfulProcessedRecordPosition())
-        .isEqualTo(position);
+    Awaitility.await()
+        .untilAsserted(
+            () -> {
+              Assertions.assertThat(streamProcessorRule.getLastSuccessfulProcessedRecordPosition())
+                  .isEqualTo(position);
+            });
   }
 
   @Test
@@ -234,6 +239,57 @@ public final class StreamProcessorTest {
   }
 
   @Test
+  public void shouldProcessOnlyCommands() {
+    // given
+    final TypedRecordProcessor<?> typedRecordProcessor = mock(TypedRecordProcessor.class);
+    streamProcessorRule.startTypedStreamProcessor(
+        (processors, state) ->
+            processors
+                .onCommand(
+                    ValueType.WORKFLOW_INSTANCE,
+                    WorkflowInstanceIntent.ACTIVATE_ELEMENT,
+                    typedRecordProcessor)
+                .onEvent(
+                    ValueType.WORKFLOW_INSTANCE,
+                    WorkflowInstanceIntent.ELEMENT_ACTIVATING,
+                    typedRecordProcessor));
+
+    final var record =
+        new WorkflowInstanceRecord().setBpmnElementType(BpmnElementType.TESTING_ONLY);
+
+    // when
+    final long commandPosition =
+        streamProcessorRule.writeCommand(WorkflowInstanceIntent.ACTIVATE_ELEMENT, record);
+
+    final long eventPosition =
+        streamProcessorRule.writeEvent(WorkflowInstanceIntent.ACTIVATE_ELEMENT, record);
+
+    final var rejectionPosition =
+        streamProcessorRule.writeCommandRejection(WorkflowInstanceIntent.ACTIVATE_ELEMENT, record);
+
+    final var nextCommandPosition =
+        streamProcessorRule.writeCommand(WorkflowInstanceIntent.ACTIVATE_ELEMENT, record);
+
+    // then
+    final InOrder inOrder = inOrder(typedRecordProcessor);
+    inOrder.verify(typedRecordProcessor, TIMEOUT.times(2)).onRecovered(any());
+    inOrder
+        .verify(typedRecordProcessor, TIMEOUT)
+        .processRecord(eq(commandPosition), any(), any(), any(), any());
+    inOrder
+        .verify(typedRecordProcessor, never())
+        .processRecord(eq(eventPosition), any(), any(), any(), any());
+    inOrder
+        .verify(typedRecordProcessor, never())
+        .processRecord(eq(rejectionPosition), any(), any(), any(), any());
+    inOrder
+        .verify(typedRecordProcessor, TIMEOUT)
+        .processRecord(eq(nextCommandPosition), any(), any(), any(), any());
+
+    inOrder.verifyNoMoreInteractions();
+  }
+
+  @Test
   public void shouldWriteFollowUpEvent() {
     // given
     final StreamProcessor streamProcessor =
@@ -242,7 +298,7 @@ public final class StreamProcessorTest {
                 processors.onEvent(
                     ValueType.WORKFLOW_INSTANCE,
                     WorkflowInstanceIntent.ELEMENT_ACTIVATING,
-                    new TypedRecordProcessor<UnifiedRecordValue>() {
+                    new TypedRecordProcessor<>() {
                       @Override
                       public void processRecord(
                           final long position,
@@ -262,16 +318,7 @@ public final class StreamProcessorTest {
         streamProcessorRule.writeWorkflowInstanceEvent(WorkflowInstanceIntent.ELEMENT_ACTIVATING);
 
     // then
-    final Record<WorkflowInstanceRecord> activatedEvent =
-        TestUtil.doRepeatedly(
-                () ->
-                    streamProcessorRule
-                        .events()
-                        .onlyWorkflowInstanceRecords()
-                        .withIntent(WorkflowInstanceIntent.ELEMENT_ACTIVATED)
-                        .findAny())
-            .until(Optional::isPresent)
-            .get();
+    final Record<WorkflowInstanceRecord> activatedEvent = waitForActivated();
     assertThat(activatedEvent).isNotNull();
     assertThat((activatedEvent).getSourceRecordPosition()).isEqualTo(position);
 
@@ -289,7 +336,7 @@ public final class StreamProcessorTest {
             processors.onEvent(
                 ValueType.WORKFLOW_INSTANCE,
                 WorkflowInstanceIntent.ELEMENT_ACTIVATING,
-                new TypedRecordProcessor<UnifiedRecordValue>() {
+                new TypedRecordProcessor<>() {
                   @Override
                   public void processRecord(
                       final long position,
@@ -321,7 +368,7 @@ public final class StreamProcessorTest {
             processors.onEvent(
                 ValueType.WORKFLOW_INSTANCE,
                 WorkflowInstanceIntent.ELEMENT_ACTIVATING,
-                new TypedRecordProcessor<UnifiedRecordValue>() {
+                new TypedRecordProcessor<>() {
                   @Override
                   public void processRecord(
                       final long position,
@@ -353,7 +400,7 @@ public final class StreamProcessorTest {
             processors.onEvent(
                 ValueType.WORKFLOW_INSTANCE,
                 WorkflowInstanceIntent.ELEMENT_ACTIVATING,
-                new TypedRecordProcessor<UnifiedRecordValue>() {
+                new TypedRecordProcessor<>() {
                   @Override
                   public void processRecord(
                       final long position,
@@ -386,7 +433,7 @@ public final class StreamProcessorTest {
         processingContext -> {
           processingContextActor = processingContext.getActor();
           final ZeebeState state = processingContext.getZeebeState();
-          return processors(state.getKeyGenerator())
+          return processors(state.getKeyGenerator(), processingContext.getWriters())
               .onEvent(
                   ValueType.WORKFLOW_INSTANCE,
                   WorkflowInstanceIntent.ELEMENT_ACTIVATING,
@@ -445,7 +492,7 @@ public final class StreamProcessorTest {
         processingContext -> {
           processingContextActor = processingContext.getActor();
           final ZeebeState state = processingContext.getZeebeState();
-          return processors(state.getKeyGenerator())
+          return processors(state.getKeyGenerator(), processingContext.getWriters())
               .onEvent(
                   ValueType.WORKFLOW_INSTANCE,
                   WorkflowInstanceIntent.ELEMENT_ACTIVATING,
@@ -500,7 +547,7 @@ public final class StreamProcessorTest {
             processors.onEvent(
                 ValueType.WORKFLOW_INSTANCE,
                 WorkflowInstanceIntent.ELEMENT_ACTIVATING,
-                new TypedRecordProcessor<UnifiedRecordValue>() {
+                new TypedRecordProcessor<>() {
                   @Override
                   public void processRecord(
                       final long position,
@@ -539,7 +586,7 @@ public final class StreamProcessorTest {
             processors.onEvent(
                 ValueType.WORKFLOW_INSTANCE,
                 WorkflowInstanceIntent.ELEMENT_ACTIVATING,
-                new TypedRecordProcessor<UnifiedRecordValue>() {
+                new TypedRecordProcessor<>() {
                   @Override
                   public void processRecord(
                       final long position,
@@ -572,7 +619,7 @@ public final class StreamProcessorTest {
   }
 
   @Test
-  public void shouldInvokeOnProcessedListener() throws InterruptedException, TimeoutException {
+  public void shouldInvokeOnProcessedListener() throws InterruptedException {
     // given
     final var onProcessedListener = new AwaitableProcessedListener();
     streamProcessorRule.startTypedStreamProcessor(
@@ -668,9 +715,70 @@ public final class StreamProcessorTest {
 
     // then
     assertThat(onProcessedListener.await()).isTrue();
-    Assertions.assertThat(
-            streamProcessorRule.getZeebeState().getLastSuccessfulProcessedRecordPosition())
+    Assertions.assertThat(streamProcessorRule.getLastSuccessfulProcessedRecordPosition())
         .isEqualTo(positionProcessedAfterResume);
+  }
+
+  @Test
+  public void shouldNotOverwriteLastWrittenPositionIfNoFollowUpEvent()
+      throws ExecutionException, InterruptedException {
+    // given
+    final var onProcessedListener = new AwaitableProcessedListener();
+    streamProcessorRule.startTypedStreamProcessor(
+        (processors, state) ->
+            processors
+                .onEvent(
+                    ValueType.WORKFLOW_INSTANCE,
+                    WorkflowInstanceIntent.ELEMENT_ACTIVATING,
+                    new TypedRecordProcessor<>() {
+                      @Override
+                      public void processRecord(
+                          final long position,
+                          final TypedRecord<UnifiedRecordValue> record,
+                          final TypedResponseWriter responseWriter,
+                          final TypedStreamWriter streamWriter,
+                          final Consumer<SideEffectProducer> sideEffect) {
+                        streamWriter.appendFollowUpEvent(
+                            record.getKey(),
+                            WorkflowInstanceIntent.ELEMENT_ACTIVATED,
+                            record.getValue());
+                      }
+                    })
+                .onEvent(
+                    ValueType.WORKFLOW_INSTANCE,
+                    WorkflowInstanceIntent.ELEMENT_ACTIVATED,
+                    mock(TypedRecordProcessor.class))
+                .onEvent(
+                    ValueType.WORKFLOW_INSTANCE,
+                    WorkflowInstanceIntent.CANCEL,
+                    mock(TypedRecordProcessor.class)),
+        onProcessedListener.expect(2));
+
+    // when
+    streamProcessorRule.writeWorkflowInstanceEvent(WorkflowInstanceIntent.ELEMENT_ACTIVATING);
+    assertThat(onProcessedListener.await()).isTrue();
+    final long activatedPosition = waitForActivated().getPosition();
+
+    onProcessedListener.expect(1);
+    streamProcessorRule.writeWorkflowInstanceEvent(WorkflowInstanceIntent.CANCEL);
+    assertThat(onProcessedListener.await()).isTrue();
+
+    // then
+    final long lastWrittenPos =
+        streamProcessorRule.getStreamProcessor(0).getLastWrittenPositionAsync().get();
+    assertThat(lastWrittenPos).isEqualTo(activatedPosition);
+  }
+
+  private Record<WorkflowInstanceRecord> waitForActivated() {
+    return TestUtil.doRepeatedly(
+            () ->
+                streamProcessorRule
+                    .events()
+                    .onlyWorkflowInstanceRecords()
+                    .withIntent(WorkflowInstanceIntent.ELEMENT_ACTIVATED)
+                    .findAny())
+        .until(Optional::isPresent)
+        .get();
   }
 
   /**
@@ -679,6 +787,7 @@ public final class StreamProcessorTest {
    * <p>It is necessary to always call {@link #expect(int)} before {@link #accept(TypedRecord)}}
    */
   private static final class AwaitableProcessedListener implements Consumer<TypedRecord> {
+
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
     private CountDownLatch latch;
@@ -696,7 +805,7 @@ public final class StreamProcessorTest {
     }
 
     private boolean await() throws InterruptedException {
-      return getLatch().await(TIMEOUT.toMillis(), TimeUnit.SECONDS);
+      return getLatch().await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
     }
 
     private CountDownLatch getLatch() {

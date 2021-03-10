@@ -7,6 +7,8 @@
  */
 package io.zeebe.gateway.impl.broker.cluster;
 
+import static io.zeebe.gateway.impl.broker.cluster.BrokerClusterState.NODE_ID_NULL;
+
 import io.atomix.cluster.ClusterMembershipEvent;
 import io.atomix.cluster.ClusterMembershipEvent.Type;
 import io.atomix.cluster.ClusterMembershipEventListener;
@@ -27,6 +29,7 @@ public final class BrokerTopologyManagerImpl extends Actor
 
   protected final AtomicReference<BrokerClusterStateImpl> topology;
   private final Supplier<Set<Member>> membersSupplier;
+  private final GatewayTopologyMetrics topologyMetrics = new GatewayTopologyMetrics();
 
   public BrokerTopologyManagerImpl(final Supplier<Set<Member>> membersSupplier) {
     this.membersSupplier = membersSupplier;
@@ -113,6 +116,7 @@ public final class BrokerTopologyManagerImpl extends Actor
             }
 
             topology.set(newTopology);
+            updateMetrics(newTopology);
           });
     }
   }
@@ -131,7 +135,13 @@ public final class BrokerTopologyManagerImpl extends Actor
         newTopology::addPartitionIfAbsent,
         (leaderPartitionId, term) ->
             newTopology.setPartitionLeader(leaderPartitionId, nodeId, term),
-        followerPartitionId -> newTopology.addPartitionFollower(followerPartitionId, nodeId));
+        followerPartitionId -> newTopology.addPartitionFollower(followerPartitionId, nodeId),
+        inactivePartitionId -> newTopology.addPartitionInactive(inactivePartitionId, nodeId));
+
+    distributedBrokerInfo.consumePartitionsHealth(
+        newTopology::addPartitionIfAbsent,
+        partition -> newTopology.setPartitionHealthy(nodeId, partition),
+        partition -> newTopology.setPartitionUnhealthy(nodeId, partition));
 
     final String clientAddress = distributedBrokerInfo.getCommandApiAddress();
     if (clientAddress != null) {
@@ -139,5 +149,21 @@ public final class BrokerTopologyManagerImpl extends Actor
     }
 
     newTopology.setBrokerVersionIfPresent(nodeId, distributedBrokerInfo.getVersion());
+  }
+
+  private void updateMetrics(final BrokerClusterState topology) {
+    final var partitions = topology.getPartitions();
+    partitions.forEach(
+        partition -> {
+          final var leader = topology.getLeaderForPartition(partition);
+          if (leader != NODE_ID_NULL) {
+            topologyMetrics.setLeaderForPartition(partition, leader);
+          }
+
+          final var followers = topology.getFollowersForPartition(partition);
+          if (followers != null) {
+            followers.forEach(broker -> topologyMetrics.setFollower(partition, broker));
+          }
+        });
   }
 }

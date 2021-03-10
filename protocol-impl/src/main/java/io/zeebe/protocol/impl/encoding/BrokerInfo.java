@@ -222,6 +222,11 @@ public final class BrokerInfo implements BufferReader, BufferWriter {
     return addPartitionRole(partitionId, PartitionRole.LEADER);
   }
 
+  public BrokerInfo setInactiveForPartition(final int partitionId) {
+    partitionLeaderTerms.remove(partitionId);
+    return addPartitionRole(partitionId, PartitionRole.INACTIVE);
+  }
+
   // TODO: This will be fixed in the https://github.com/zeebe-io/zeebe/issues/5640
   @SuppressWarnings("squid:S138")
   @Override
@@ -414,16 +419,19 @@ public final class BrokerInfo implements BufferReader, BufferWriter {
     return new String(BASE_64_ENCODER.encode(bytes), BASE_64_CHARSET);
   }
 
-  public BrokerInfo consumePartitions(
+  public void consumePartitions(
       final ObjLongConsumer<Integer> leaderPartitionConsumer,
-      final IntConsumer followerPartitionsConsumer) {
-    return consumePartitions(p -> {}, leaderPartitionConsumer, followerPartitionsConsumer);
+      final IntConsumer followerPartitionsConsumer,
+      final IntConsumer inactivePartitionsConsumer) {
+    consumePartitions(
+        p -> {}, leaderPartitionConsumer, followerPartitionsConsumer, inactivePartitionsConsumer);
   }
 
-  public BrokerInfo consumePartitions(
+  public void consumePartitions(
       final IntConsumer partitionConsumer,
       final ObjLongConsumer<Integer> leaderPartitionConsumer,
-      final IntConsumer followerPartitionsConsumer) {
+      final IntConsumer followerPartitionsConsumer,
+      final IntConsumer inactivePartitionsConsumer) {
     partitionRoles.forEach(
         (partition, role) -> {
           partitionConsumer.accept(partition);
@@ -434,8 +442,31 @@ public final class BrokerInfo implements BufferReader, BufferWriter {
             case FOLLOWER:
               followerPartitionsConsumer.accept(partition);
               break;
+            case INACTIVE:
+              inactivePartitionsConsumer.accept(partition);
+              break;
             default:
               LOG.warn("Failed to decode broker info, found unknown partition role: {}", role);
+          }
+        });
+  }
+
+  public BrokerInfo consumePartitionsHealth(
+      final IntConsumer partitionConsumer,
+      final IntConsumer partitionHealthyConsumer,
+      final IntConsumer partitionUnhealthyConsumer) {
+    partitionHealthStatuses.forEach(
+        (partition, health) -> {
+          partitionConsumer.accept(partition);
+          switch (health) {
+            case HEALTHY:
+              partitionHealthyConsumer.accept(partition);
+              break;
+            case UNHEALTHY:
+              partitionUnhealthyConsumer.accept(partition);
+              break;
+            default:
+              LOG.warn("Failed to decode broker info, found unknown health status: {}", health);
           }
         });
     return this;

@@ -17,6 +17,8 @@ import io.zeebe.engine.processing.streamprocessor.sideeffect.SideEffects;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedCommandWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedResponseWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
+import io.zeebe.engine.processing.streamprocessor.writers.Writers;
+import io.zeebe.engine.processing.variable.VariableBehavior;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.protocol.record.value.BpmnElementType;
 import java.util.function.Function;
@@ -43,15 +45,18 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
       final SideEffects sideEffects,
       final ZeebeState zeebeState,
       final CatchEventBehavior catchEventBehavior,
+      final VariableBehavior variableBehavior,
       final Function<BpmnElementType, BpmnElementContainerProcessor<ExecutableFlowElement>>
-          processorLookup) {
+          processorLookup,
+      final Writers writers) {
 
     this.streamWriter = streamWriter;
     this.expressionBehavior = expressionBehavior;
 
-    stateBehavior = new BpmnStateBehavior(zeebeState);
+    stateBehavior = new BpmnStateBehavior(zeebeState, variableBehavior);
     stateTransitionGuard = new WorkflowInstanceStateTransitionGuard(stateBehavior);
-    variableMappingBehavior = new BpmnVariableMappingBehavior(expressionBehavior, zeebeState);
+    variableMappingBehavior =
+        new BpmnVariableMappingBehavior(expressionBehavior, zeebeState, variableBehavior);
     stateTransitionBehavior =
         new BpmnStateTransitionBehavior(
             streamWriter,
@@ -59,7 +64,8 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
             stateBehavior,
             new WorkflowEngineMetrics(zeebeState.getPartitionId()),
             stateTransitionGuard,
-            processorLookup);
+            processorLookup,
+            writers);
     eventSubscriptionBehavior =
         new BpmnEventSubscriptionBehavior(
             stateBehavior,

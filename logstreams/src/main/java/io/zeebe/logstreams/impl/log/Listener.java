@@ -8,22 +8,24 @@
 package io.zeebe.logstreams.impl.log;
 
 import io.atomix.raft.RaftException.NoLeader;
-import io.zeebe.logstreams.spi.LogStorage.AppendListener;
+import io.zeebe.logstreams.storage.LogStorage.AppendListener;
 import java.util.NoSuchElementException;
 
 public final class Listener implements AppendListener {
-
   private final LogStorageAppender appender;
   private final long highestPosition;
+  private final long startTime;
 
-  public Listener(final LogStorageAppender appender, final long highestPosition) {
+  public Listener(
+      final LogStorageAppender appender, final long highestPosition, final long startTime) {
     this.appender = appender;
     this.highestPosition = highestPosition;
+    this.startTime = startTime;
   }
 
   @Override
   public void onWrite(final long address) {
-    appender.notifyWritePosition(highestPosition);
+    appender.notifyWritePosition(highestPosition, startTime);
   }
 
   @Override
@@ -45,7 +47,7 @@ public final class Listener implements AppendListener {
   @Override
   public void onCommit(final long address) {
     releaseBackPressure();
-    appender.notifyCommitPosition(highestPosition);
+    appender.notifyCommitPosition(highestPosition, startTime);
   }
 
   @Override

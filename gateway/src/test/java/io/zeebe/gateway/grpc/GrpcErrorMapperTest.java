@@ -19,6 +19,8 @@ import io.zeebe.gateway.impl.broker.RequestRetriesExhaustedException;
 import io.zeebe.gateway.impl.broker.response.BrokerError;
 import io.zeebe.protocol.record.ErrorCode;
 import io.zeebe.util.logging.RecordingAppender;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
@@ -27,11 +29,8 @@ import org.apache.logging.slf4j.Log4jLogger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.slf4j.helpers.NOPLogger;
 
-@Execution(ExecutionMode.CONCURRENT)
 final class GrpcErrorMapperTest {
   private final RecordingAppender recorder = new RecordingAppender();
   private final Logger log = (Logger) LogManager.getLogger(GrpcErrorMapperTest.class);
@@ -88,7 +87,7 @@ final class GrpcErrorMapperTest {
     assertThat(statusException.getStatus().getCode()).isEqualTo(Code.RESOURCE_EXHAUSTED);
     assertThat(recorder.getAppendedEvents()).hasSize(2);
     assertThat(recorder.getAppendedEvents().get(0).getLevel())
-        .isEqualTo(Level.ERROR); // partition leader mismatch
+        .isEqualTo(Level.TRACE); // partition leader mismatch
     assertThat(recorder.getAppendedEvents().get(1).getLevel())
         .isEqualTo(Level.TRACE); // resource exhausted
     assertThat(status.getDetailsCount()).isEqualTo(1);
@@ -96,5 +95,24 @@ final class GrpcErrorMapperTest {
     final Status statusDetail = status.getDetails(0).unpack(Status.class);
     assertThat(statusDetail.getCode()).isEqualTo(expectedDetail.getCode());
     assertThat(statusDetail.getMessage()).isEqualTo(expectedDetail.getMessage());
+  }
+
+  @Test
+  void shouldLogTimeoutExceptionWithCorrectStacktrace() {
+    // given
+    final ExecutionException executionException =
+        new ExecutionException(new TimeoutException("Timed out after 1s"));
+
+    // when
+    log.setLevel(Level.TRACE);
+    final StatusRuntimeException statusException = errorMapper.mapError(executionException, logger);
+
+    // then
+    assertThat(statusException.getStatus().getCode()).isEqualTo(Code.DEADLINE_EXCEEDED);
+    assertThat(recorder.getAppendedEvents()).hasSize(1);
+    final LogEvent event = recorder.getAppendedEvents().get(0);
+    assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+
+    assertThat(event.getThrown()).isEqualTo(executionException);
   }
 }

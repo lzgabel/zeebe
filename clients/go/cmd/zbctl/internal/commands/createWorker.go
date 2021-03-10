@@ -18,11 +18,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/commands"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/entities"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/worker"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/zbc"
 	"github.com/spf13/cobra"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/commands"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/entities"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/worker"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/zbc"
 	"io"
 	"log"
 	"os/exec"
@@ -128,13 +128,13 @@ func completeJob(jobClient worker.JobClient, job entities.Job, variables string)
 	if err != nil {
 		failJob(jobClient, job, fmt.Sprint("Unable to set variables", variables, "to complete job", key, err))
 	} else {
-		log.Println("Handler completed job", job.Key, "with variables", variables)
-
 		ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 		defer cancel()
 
 		_, err = request.Send(ctx)
-		if err != nil {
+		if err == nil {
+			log.Println("Handler completed job", job.Key, "with variables", variables)
+		} else {
 			log.Println("Unable to complete job", key, err)
 		}
 	}

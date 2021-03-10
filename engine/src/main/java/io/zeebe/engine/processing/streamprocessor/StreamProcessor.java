@@ -7,10 +7,12 @@
  */
 package io.zeebe.engine.processing.streamprocessor;
 
-import io.zeebe.db.DbContext;
+import io.zeebe.db.TransactionContext;
 import io.zeebe.db.ZeebeDb;
 import io.zeebe.engine.metrics.StreamProcessorMetrics;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriterImpl;
+import io.zeebe.engine.state.EventApplier;
+import io.zeebe.engine.state.ZeebeDbState;
 import io.zeebe.engine.state.ZeebeState;
 import io.zeebe.logstreams.impl.Loggers;
 import io.zeebe.logstreams.log.LogStream;
@@ -28,9 +30,11 @@ import io.zeebe.util.sched.future.CompletableActorFuture;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import org.slf4j.Logger;
 
 public class StreamProcessor extends Actor implements HealthMonitorable {
+
   public static final long UNSET_POSITION = -1L;
   public static final Duration HEALTH_CHECK_TICK_DURATION = Duration.ofSeconds(5);
 
@@ -40,6 +44,7 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
   private final ActorScheduler actorScheduler;
   private final AtomicBoolean isOpened = new AtomicBoolean(false);
   private final List<StreamProcessorLifecycleAware> lifecycleAwareListeners;
+  private final Function<ZeebeState, EventApplier> eventApplierFactory;
 
   // log stream
   private final LogStream logStream;
@@ -71,6 +76,7 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
 
     typedRecordProcessorFactory = processorBuilder.getTypedRecordProcessorFactory();
     zeebeDb = processorBuilder.getZeebeDb();
+    eventApplierFactory = processorBuilder.getEventApplierFactory();
 
     processingContext =
         processorBuilder
@@ -80,7 +86,7 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
             .abortCondition(this::isClosed);
     logStream = processingContext.getLogStream();
     partitionId = logStream.getPartitionId();
-    actorName = buildActorName(processorBuilder.getNodeId(), "StreamProcessor-" + partitionId);
+    actorName = buildActorName(processorBuilder.getNodeId(), "StreamProcessor", partitionId);
   }
 
   public static StreamProcessorBuilder builder() {
@@ -222,8 +228,9 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
     }
   }
 
-  public ActorFuture<Void> openAsync() {
+  public ActorFuture<Void> openAsync(final boolean pauseOnStart) {
     if (isOpened.compareAndSet(false, true)) {
+      shouldProcess = !pauseOnStart;
       openFuture = new CompletableActorFuture<>();
       actorScheduler.submitActor(this);
     }
@@ -242,8 +249,10 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
   }
 
   private long recoverFromSnapshot() {
-    final ZeebeState zeebeState = recoverState();
-    final long snapshotPosition = zeebeState.getLastSuccessfulProcessedRecordPosition();
+    final var zeebeState = recoverState();
+
+    final long snapshotPosition =
+        zeebeState.getLastProcessedPositionState().getLastSuccessfulProcessedRecordPosition();
 
     final boolean failedToRecoverReader = !logStreamReader.seekToNextEvent(snapshotPosition);
     if (failedToRecoverReader) {
@@ -258,12 +267,13 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
     return snapshotPosition;
   }
 
-  private ZeebeState recoverState() {
-    final DbContext dbContext = zeebeDb.createContext();
-    final ZeebeState zeebeState = new ZeebeState(partitionId, zeebeDb, dbContext);
+  private ZeebeDbState recoverState() {
+    final TransactionContext transactionContext = zeebeDb.createContext();
+    final ZeebeDbState zeebeState = new ZeebeDbState(partitionId, zeebeDb, transactionContext);
 
-    processingContext.dbContext(dbContext);
+    processingContext.transactionContext(transactionContext);
     processingContext.zeebeState(zeebeState);
+    processingContext.eventApplier(eventApplierFactory.apply(zeebeState));
 
     return zeebeState;
   }
@@ -278,6 +288,9 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
     // start reading
     lifecycleAwareListeners.forEach(l -> l.onRecovered(processingContext));
     processingStateMachine.startProcessing(lastReprocessedPosition);
+    if (!shouldProcess) {
+      setStateToPausedAndNotifyListeners();
+    }
   }
 
   private void onFailure(final Throwable throwable) {
@@ -346,12 +359,16 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
             recoverFuture.onComplete(
                 (v, t) -> {
                   if (shouldProcess) {
-                    lifecycleAwareListeners.forEach(StreamProcessorLifecycleAware::onPaused);
-                    shouldProcess = false;
-                    phase = Phase.PAUSED;
-                    LOG.debug("Paused processing for partition {}", partitionId);
+                    setStateToPausedAndNotifyListeners();
                   }
                 }));
+  }
+
+  private void setStateToPausedAndNotifyListeners() {
+    lifecycleAwareListeners.forEach(StreamProcessorLifecycleAware::onPaused);
+    shouldProcess = false;
+    phase = Phase.PAUSED;
+    LOG.debug("Paused processing for partition {}", partitionId);
   }
 
   public void resumeProcessing() {

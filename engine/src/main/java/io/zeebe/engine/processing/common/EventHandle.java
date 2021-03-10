@@ -9,10 +9,11 @@ package io.zeebe.engine.processing.common;
 
 import io.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableStartEvent;
+import io.zeebe.engine.processing.streamprocessor.writers.TypedEventWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
 import io.zeebe.engine.state.KeyGenerator;
 import io.zeebe.engine.state.instance.ElementInstance;
-import io.zeebe.engine.state.instance.EventScopeInstanceState;
+import io.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
 import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceRecord;
 import io.zeebe.protocol.record.intent.WorkflowInstanceIntent;
 import io.zeebe.protocol.record.value.BpmnElementType;
@@ -22,16 +23,17 @@ public final class EventHandle {
 
   private final WorkflowInstanceRecord eventOccurredRecord = new WorkflowInstanceRecord();
   private final KeyGenerator keyGenerator;
-  private final EventScopeInstanceState eventScopeInstanceState;
+  private final MutableEventScopeInstanceState eventScopeInstanceState;
 
   public EventHandle(
-      final KeyGenerator keyGenerator, final EventScopeInstanceState eventScopeInstanceState) {
+      final KeyGenerator keyGenerator,
+      final MutableEventScopeInstanceState eventScopeInstanceState) {
     this.keyGenerator = keyGenerator;
     this.eventScopeInstanceState = eventScopeInstanceState;
   }
 
   public boolean triggerEvent(
-      final TypedStreamWriter streamWriter,
+      final TypedEventWriter eventWriter,
       final ElementInstance eventScopeInstance,
       final ExecutableFlowElement catchEvent,
       final DirectBuffer variables) {
@@ -64,7 +66,7 @@ public final class EventHandle {
         eventOccurredRecord.wrap(eventScopeInstance.getValue());
       }
 
-      streamWriter.appendFollowUpEvent(
+      eventWriter.appendFollowUpEvent(
           eventOccurredKey, WorkflowInstanceIntent.EVENT_OCCURRED, eventOccurredRecord);
     }
 
@@ -83,24 +85,32 @@ public final class EventHandle {
             workflowKey, newElementInstanceKey, elementId, variables);
 
     if (triggered) {
-
       final var workflowInstanceKey = keyGenerator.nextKey();
-      final var eventOccurredKey = keyGenerator.nextKey();
-
-      eventOccurredRecord
-          .setBpmnElementType(BpmnElementType.START_EVENT)
-          .setWorkflowKey(workflowKey)
-          .setWorkflowInstanceKey(workflowInstanceKey)
-          .setElementId(elementId);
-
-      streamWriter.appendFollowUpEvent(
-          eventOccurredKey, WorkflowInstanceIntent.EVENT_OCCURRED, eventOccurredRecord);
-
+      activateStartEvent(streamWriter, workflowKey, workflowInstanceKey, elementId);
       return workflowInstanceKey;
 
     } else {
       return -1L;
     }
+  }
+
+  public void activateStartEvent(
+      final TypedStreamWriter streamWriter,
+      final long workflowKey,
+      final long workflowInstanceKey,
+      final DirectBuffer elementId) {
+
+    final var eventOccurredKey = keyGenerator.nextKey();
+
+    eventOccurredRecord
+        .setBpmnElementType(BpmnElementType.START_EVENT)
+        .setWorkflowKey(workflowKey)
+        .setWorkflowInstanceKey(workflowInstanceKey)
+        .setElementId(elementId);
+
+    // TODO (saig0): create the workflow instance by writing an ACTIVATE command (#6184)
+    streamWriter.appendFollowUpEvent(
+        eventOccurredKey, WorkflowInstanceIntent.EVENT_OCCURRED, eventOccurredRecord);
   }
 
   private boolean isEventSubprocess(final ExecutableFlowElement catchEvent) {

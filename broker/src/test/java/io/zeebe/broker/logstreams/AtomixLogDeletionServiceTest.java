@@ -11,9 +11,8 @@ package io.zeebe.broker.logstreams;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.atomix.raft.storage.RaftStorage;
+import io.atomix.raft.storage.log.Indexed;
 import io.atomix.raft.storage.log.RaftLogReader;
-import io.atomix.storage.journal.Indexed;
-import io.atomix.storage.journal.JournalSegmentDescriptor;
 import io.zeebe.logstreams.util.AtomixLogStorageRule;
 import io.zeebe.snapshots.broker.impl.FileBasedSnapshotStore;
 import io.zeebe.snapshots.broker.impl.SnapshotMetrics;
@@ -132,10 +131,11 @@ public final class AtomixLogDeletionServiceTest {
       final RaftStorage.Builder builder, final TemporaryFolder folder) {
     try {
       return builder
-          // hardcode max segment size to allow a single entry only
-          .withMaxSegmentSize(JournalSegmentDescriptor.BYTES + 9 * Integer.BYTES)
+          .withMaxSegmentSize(246)
           .withSnapshotStore(
               new FileBasedSnapshotStore(
+                  1,
+                  1,
                   new SnapshotMetrics("1"),
                   folder.newFolder("runtime").toPath(),
                   folder.newFolder("snapshots").toPath()));

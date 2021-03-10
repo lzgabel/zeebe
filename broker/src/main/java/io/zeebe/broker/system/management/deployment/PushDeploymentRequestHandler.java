@@ -93,7 +93,8 @@ public final class PushDeploymentRequestHandler
   public void sendDeploymentResponse(final long deploymentKey, final int partitionId) {
     final PushDeploymentResponse deploymentResponse = new PushDeploymentResponse();
     deploymentResponse.deploymentKey(deploymentKey).partitionId(partitionId);
-    final String topic = DeploymentDistributorImpl.getDeploymentResponseTopic(deploymentKey);
+    final String topic =
+        DeploymentDistributorImpl.getDeploymentResponseTopic(deploymentKey, partitionId);
 
     atomix.getEventService().broadcast(topic, deploymentResponse.toBytes());
     LOG.trace("Send deployment response on topic {} for partition {}", topic, partitionId);
@@ -140,10 +141,10 @@ public final class PushDeploymentRequestHandler
           }
 
           final boolean success =
-              writeCreatingDeployment(logStream, deploymentKey, deploymentRecord);
+              writeDistributeDeployment(logStream, deploymentKey, deploymentRecord);
           if (success) {
             LOG.debug(
-                "Deployment CREATE command for deployment {} was written on partition {}",
+                "Deployment DISTRIBUTE command for deployment {} was written on partition {}",
                 deploymentKey,
                 partitionId);
             actor.done();
@@ -177,11 +178,11 @@ public final class PushDeploymentRequestHandler
     responseFuture.complete(notLeaderResponse.toBytes());
   }
 
-  private boolean writeCreatingDeployment(
+  private boolean writeDistributeDeployment(
       final LogStreamRecordWriter logStreamWriter, final long key, final UnpackedObject event) {
     final RecordType recordType = RecordType.COMMAND;
     final ValueType valueType = ValueType.DEPLOYMENT;
-    final Intent intent = DeploymentIntent.CREATE;
+    final Intent intent = DeploymentIntent.DISTRIBUTE;
 
     logStreamWriter.reset();
     recordMetadata.reset().recordType(recordType).valueType(valueType).intent(intent);

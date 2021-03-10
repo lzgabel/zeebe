@@ -16,10 +16,11 @@ import io.zeebe.engine.processing.streamprocessor.writers.NoopResponseWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedResponseWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
 import io.zeebe.engine.state.ZeebeState;
-import io.zeebe.engine.state.instance.IncidentState;
+import io.zeebe.engine.state.immutable.JobState;
+import io.zeebe.engine.state.immutable.JobState.State;
 import io.zeebe.engine.state.instance.IndexedRecord;
-import io.zeebe.engine.state.instance.JobState;
-import io.zeebe.engine.state.instance.JobState.State;
+import io.zeebe.engine.state.mutable.MutableIncidentState;
+import io.zeebe.engine.state.mutable.MutableJobState;
 import io.zeebe.protocol.impl.record.value.incident.IncidentRecord;
 import io.zeebe.protocol.impl.record.value.job.JobRecord;
 import io.zeebe.protocol.impl.record.value.workflowinstance.WorkflowInstanceRecord;
@@ -37,17 +38,16 @@ public final class ResolveIncidentProcessor implements TypedRecordProcessor<Inci
 
   private final ZeebeState zeebeState;
   private final TypedRecordProcessor<WorkflowInstanceRecord> bpmnStreamProcessor;
-  private final JobErrorThrownProcessor jobErrorThrownProcessor;
 
   private final IncidentRecordWrapper incidentRecordWrapper = new IncidentRecordWrapper();
+  private final JobErrorThrownProcessor jobErrorThrownProcessor;
 
   public ResolveIncidentProcessor(
       final ZeebeState zeebeState,
-      final TypedRecordProcessor<WorkflowInstanceRecord> bpmnStreamProcessor,
-      final JobErrorThrownProcessor jobErrorThrownProcessor) {
+      final TypedRecordProcessor<WorkflowInstanceRecord> bpmnStreamProcessor) {
     this.bpmnStreamProcessor = bpmnStreamProcessor;
     this.zeebeState = zeebeState;
-    this.jobErrorThrownProcessor = jobErrorThrownProcessor;
+    jobErrorThrownProcessor = new JobErrorThrownProcessor(zeebeState);
   }
 
   @Override
@@ -57,7 +57,7 @@ public final class ResolveIncidentProcessor implements TypedRecordProcessor<Inci
       final TypedStreamWriter streamWriter,
       final Consumer<SideEffectProducer> sideEffect) {
     final long incidentKey = command.getKey();
-    final IncidentState incidentState = zeebeState.getIncidentState();
+    final MutableIncidentState incidentState = zeebeState.getIncidentState();
 
     final IncidentRecord incidentRecord = incidentState.getIncidentRecord(incidentKey);
     if (incidentRecord != null) {
@@ -107,7 +107,7 @@ public final class ResolveIncidentProcessor implements TypedRecordProcessor<Inci
       final IncidentRecord incidentRecord) {
     final long elementInstanceKey = incidentRecord.getElementInstanceKey();
     final IndexedRecord failedRecord =
-        zeebeState.getWorkflowState().getElementInstanceState().getFailedRecord(elementInstanceKey);
+        zeebeState.getElementInstanceState().getFailedRecord(elementInstanceKey);
 
     if (failedRecord != null) {
 
@@ -123,7 +123,7 @@ public final class ResolveIncidentProcessor implements TypedRecordProcessor<Inci
   }
 
   private void attemptToSolveJobIncident(final long jobKey, final TypedStreamWriter streamWriter) {
-    final JobState jobState = zeebeState.getJobState();
+    final MutableJobState jobState = zeebeState.getJobState();
     final JobRecord job = jobState.getJob(jobKey);
     final JobState.State state = jobState.getState(jobKey);
 
@@ -132,6 +132,7 @@ public final class ResolveIncidentProcessor implements TypedRecordProcessor<Inci
       jobState.resolve(jobKey, job);
 
     } else if (state == State.ERROR_THROWN) {
+
       // try to throw the error again
       jobErrorThrownProcessor.processRecord(jobKey, job, streamWriter);
     }

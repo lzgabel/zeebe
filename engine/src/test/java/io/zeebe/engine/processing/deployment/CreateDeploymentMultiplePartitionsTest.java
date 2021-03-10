@@ -16,17 +16,15 @@ import io.zeebe.model.bpmn.BpmnModelInstance;
 import io.zeebe.protocol.record.Assertions;
 import io.zeebe.protocol.record.Record;
 import io.zeebe.protocol.record.RecordType;
+import io.zeebe.protocol.record.intent.DeploymentDistributionIntent;
 import io.zeebe.protocol.record.intent.DeploymentIntent;
+import io.zeebe.protocol.record.value.DeploymentDistributionRecordValue;
 import io.zeebe.protocol.record.value.DeploymentRecordValue;
 import io.zeebe.protocol.record.value.deployment.DeployedWorkflow;
 import io.zeebe.protocol.record.value.deployment.DeploymentResource;
-import io.zeebe.protocol.record.value.deployment.ResourceType;
 import io.zeebe.test.util.record.RecordingExporter;
 import io.zeebe.test.util.record.RecordingExporterTestWatcher;
 import java.io.ByteArrayOutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -35,6 +33,7 @@ import org.junit.Rule;
 import org.junit.Test;
 
 public final class CreateDeploymentMultiplePartitionsTest {
+
   public static final String PROCESS_ID = "process";
   public static final int PARTITION_ID = DEPLOYMENT_PARTITION;
   public static final int PARTITION_COUNT = 3;
@@ -56,41 +55,105 @@ public final class CreateDeploymentMultiplePartitionsTest {
             .startEvent()
             .endEvent()
             .done();
+    final BpmnModelInstance secondNoopModel =
+        Bpmn.createExecutableProcess("shouldCreateDeploymentOnAllPartitionsSecondNoopDeployment")
+            .startEvent()
+            .endEvent()
+            .done();
     final Record<DeploymentRecordValue> deployment =
         ENGINE.deployment().withXmlResource("process.bpmn", modelInstance).deploy();
+    final Record<DeploymentRecordValue> secondDeployment =
+        ENGINE.deployment().withXmlResource("secondNoopModel.bpmn", secondNoopModel).deploy();
 
     // then
-    assertThat(deployment.getKey()).isGreaterThanOrEqualTo(0L);
+    assertThat(deployment.getKey()).isNotNegative();
 
     assertThat(deployment.getPartitionId()).isEqualTo(PARTITION_ID);
     assertThat(deployment.getRecordType()).isEqualTo(RecordType.EVENT);
-    assertThat(deployment.getIntent()).isEqualTo(DeploymentIntent.DISTRIBUTED);
+    assertThat(deployment.getIntent()).isEqualTo(DeploymentIntent.CREATED);
+
+    final var deploymentRecords =
+        RecordingExporter.records()
+            .limit(
+                r ->
+                    r.getIntent() == DeploymentIntent.FULLY_DISTRIBUTED
+                        && r.getKey() == secondDeployment.getKey())
+            .withRecordKey(deployment.getKey())
+            .collect(Collectors.toList());
+
+    final var listOfFullyDistributed =
+        deploymentRecords.stream()
+            .filter(r -> r.getIntent() == DeploymentIntent.FULLY_DISTRIBUTED)
+            .collect(Collectors.toList());
+    assertThat(listOfFullyDistributed).hasSize(1);
+
+    final var fullyDistributedDeployment = listOfFullyDistributed.get(0);
+    assertThat(fullyDistributedDeployment.getKey()).isNotNegative();
+    assertThat(fullyDistributedDeployment.getPartitionId()).isEqualTo(PARTITION_ID);
+    assertThat(fullyDistributedDeployment.getRecordType()).isEqualTo(RecordType.EVENT);
+    assertThat(fullyDistributedDeployment.getIntent())
+        .isEqualTo(DeploymentIntent.FULLY_DISTRIBUTED);
+
+    assertThat(
+            deploymentRecords.stream()
+                .filter(r -> r.getIntent() == DeploymentIntent.DISTRIBUTE)
+                .count())
+        .isEqualTo(PARTITION_COUNT - 1);
+
+    assertThat(
+            deploymentRecords.stream()
+                .filter(r -> r.getIntent() == DeploymentDistributionIntent.DISTRIBUTING)
+                .count())
+        .isEqualTo(PARTITION_COUNT - 1);
+
+    assertThat(
+            deploymentRecords.stream()
+                .filter(r -> r.getIntent() == DeploymentDistributionIntent.COMPLETE)
+                .count())
+        .isEqualTo(PARTITION_COUNT - 1);
+
+    //    todo(zell): https://github.com/zeebe-io/zeebe/issues/6314 fully distributed contains
+    //    currently no longer any resources
+    //
+    //    assertDeploymentEventResources(
+    //        DEPLOYMENT_PARTITION,
+    //        DeploymentIntent.CREATED,
+    //        deployment.getKey(),
+    //        (createdDeployment) ->
+    //            assertDeploymentRecord(fullyDistributedDeployment, createdDeployment));
 
     ENGINE
         .getPartitionIds()
         .forEach(
-            partitionId ->
-                assertCreatedDeploymentEventResources(
-                    partitionId,
-                    deployment.getKey(),
-                    (createdDeployment) -> {
-                      final DeploymentResource resource =
-                          createdDeployment.getValue().getResources().get(0);
+            partitionId -> {
+              if (DEPLOYMENT_PARTITION == partitionId) {
+                return;
+              }
 
-                      Assertions.assertThat(resource)
-                          .hasResource(bpmnXml(WORKFLOW))
-                          .hasResourceType(ResourceType.BPMN_XML);
+              assertDeploymentEventResources(
+                  partitionId,
+                  DeploymentIntent.DISTRIBUTED,
+                  deployment.getKey(),
+                  (createdDeployment) -> assertDeploymentRecord(deployment, createdDeployment));
+            });
+  }
 
-                      final List<DeployedWorkflow> deployedWorkflows =
-                          createdDeployment.getValue().getDeployedWorkflows();
+  private void assertDeploymentRecord(
+      final Record<DeploymentRecordValue> deployment,
+      final Record<DeploymentRecordValue> createdDeployment) {
+    final DeploymentResource resource = createdDeployment.getValue().getResources().get(0);
 
-                      assertThat(deployedWorkflows).hasSize(1);
-                      Assertions.assertThat(deployedWorkflows.get(0))
-                          .hasBpmnProcessId("shouldCreateDeploymentOnAllPartitions")
-                          .hasVersion(1)
-                          .hasWorkflowKey(getDeployedWorkflow(deployment, 0).getWorkflowKey())
-                          .hasResourceName("process.bpmn");
-                    }));
+    Assertions.assertThat(resource).hasResource(bpmnXml(WORKFLOW));
+
+    final List<DeployedWorkflow> deployedWorkflows =
+        createdDeployment.getValue().getDeployedWorkflows();
+
+    assertThat(deployedWorkflows).hasSize(1);
+    Assertions.assertThat(deployedWorkflows.get(0))
+        .hasBpmnProcessId("shouldCreateDeploymentOnAllPartitions")
+        .hasVersion(1)
+        .hasWorkflowKey(getDeployedWorkflow(deployment, 0).getWorkflowKey())
+        .hasResourceName("process.bpmn");
   }
 
   @Test
@@ -99,58 +162,44 @@ public final class CreateDeploymentMultiplePartitionsTest {
     final long deploymentKey1 = ENGINE.deployment().withXmlResource(WORKFLOW).deploy().getKey();
 
     // then
-    final List<Record<DeploymentRecordValue>> deploymentRecords =
-        RecordingExporter.deploymentRecords()
+    final List<Record<DeploymentDistributionRecordValue>> deploymentRecords =
+        RecordingExporter.deploymentDistributionRecords()
             .withRecordKey(deploymentKey1)
-            .limit(r -> r.getIntent() == DeploymentIntent.DISTRIBUTED)
-            .withIntent(DeploymentIntent.DISTRIBUTE)
+            .withIntent(DeploymentDistributionIntent.DISTRIBUTING)
+            .limit(PARTITION_COUNT - 1)
             .asList();
 
-    assertThat(deploymentRecords).hasSize(1);
-    assertThat(deploymentRecords.get(0).getPartitionId()).isEqualTo(DEPLOYMENT_PARTITION);
+    assertThat(deploymentRecords).hasSize(PARTITION_COUNT - 1);
+    assertThat(deploymentRecords)
+        .extracting(Record::getValue)
+        .extracting(DeploymentDistributionRecordValue::getPartitionId)
+        .doesNotContain(DEPLOYMENT_PARTITION);
   }
 
   @Test
-  public void shouldCreateDeploymentWithYamlResourcesOnAllPartitions() throws Exception {
-    // given
-    final Path yamlFile =
-        Paths.get(getClass().getResource("/workflows/simple-workflow.yaml").toURI());
-    final byte[] yamlWorkflow = Files.readAllBytes(yamlFile);
-
+  public void shouldWriteDistributingRecordsForOtherPartitions() {
     // when
-    final Record<DeploymentRecordValue> distributedDeployment =
-        ENGINE.deployment().withYamlResource("simple-workflow.yaml", yamlWorkflow).deploy();
+    final long deploymentKey = ENGINE.deployment().withXmlResource(WORKFLOW).deploy().getKey();
 
     // then
-    assertThat(distributedDeployment.getKey()).isGreaterThanOrEqualTo(0L);
+    final List<Record<DeploymentDistributionRecordValue>> deploymentDistributionRecords =
+        RecordingExporter.deploymentDistributionRecords()
+            .withIntent(DeploymentDistributionIntent.DISTRIBUTING)
+            .limit(2)
+            .asList();
 
-    assertThat(distributedDeployment.getPartitionId()).isEqualTo(PARTITION_ID);
-    assertThat(distributedDeployment.getRecordType()).isEqualTo(RecordType.EVENT);
-    assertThat(distributedDeployment.getIntent()).isEqualTo(DeploymentIntent.DISTRIBUTED);
+    assertThat(deploymentDistributionRecords)
+        .extracting(Record::getKey)
+        .containsOnly(deploymentKey);
 
-    ENGINE
-        .getPartitionIds()
-        .forEach(
-            partitionId ->
-                assertCreatedDeploymentEventResources(
-                    partitionId,
-                    distributedDeployment.getKey(),
-                    (deploymentCreatedEvent) -> {
-                      final DeploymentRecordValue deployment = deploymentCreatedEvent.getValue();
-                      final DeploymentResource resource = deployment.getResources().get(0);
-                      Assertions.assertThat(resource).hasResourceType(ResourceType.YAML_WORKFLOW);
+    assertThat(deploymentDistributionRecords)
+        .extracting(Record::getPartitionId)
+        .containsOnly(DEPLOYMENT_PARTITION);
 
-                      final List<DeployedWorkflow> deployedWorkflows =
-                          deployment.getDeployedWorkflows();
-                      assertThat(deployedWorkflows).hasSize(1);
-
-                      Assertions.assertThat(deployedWorkflows.get(0))
-                          .hasBpmnProcessId("yaml-workflow")
-                          .hasVersion(1)
-                          .hasWorkflowKey(
-                              getDeployedWorkflow(distributedDeployment, 0).getWorkflowKey())
-                          .hasResourceName("simple-workflow.yaml");
-                    }));
+    assertThat(deploymentDistributionRecords)
+        .extracting(Record::getValue)
+        .extracting(DeploymentDistributionRecordValue::getPartitionId)
+        .containsExactly(2, 3);
   }
 
   @Test
@@ -167,17 +216,17 @@ public final class CreateDeploymentMultiplePartitionsTest {
 
     // then
     assertThat(deployment.getRecordType()).isEqualTo(RecordType.EVENT);
-    assertThat(deployment.getIntent()).isEqualTo(DeploymentIntent.DISTRIBUTED);
+    assertThat(deployment.getIntent()).isEqualTo(DeploymentIntent.CREATED);
 
-    final List<Record<DeploymentRecordValue>> createdDeployments =
+    final List<Record<DeploymentRecordValue>> distributedDeployments =
         RecordingExporter.deploymentRecords()
-            .withIntent(DeploymentIntent.CREATED)
+            .withIntent(DeploymentIntent.DISTRIBUTED)
             .withRecordKey(deployment.getKey())
-            .limit(PARTITION_COUNT)
+            .limit(PARTITION_COUNT - 1)
             .asList();
 
-    assertThat(createdDeployments)
-        .hasSize(PARTITION_COUNT)
+    assertThat(distributedDeployments)
+        .hasSize(PARTITION_COUNT - 1)
         .extracting(Record::getValue)
         .flatExtracting(DeploymentRecordValue::getDeployedWorkflows)
         .extracting(DeployedWorkflow::getBpmnProcessId)
@@ -200,33 +249,23 @@ public final class CreateDeploymentMultiplePartitionsTest {
         ENGINE.deployment().withXmlResource("process2.bpmn", modelInstance).deploy();
 
     // then
-    final List<Record<DeploymentRecordValue>> firstCreatedDeployments =
+    final Record<DeploymentRecordValue> firstCreatedDeployment =
         RecordingExporter.deploymentRecords()
             .withIntent(DeploymentIntent.CREATED)
             .withRecordKey(firstDeployment.getKey())
-            .limit(PARTITION_COUNT)
-            .asList();
+            .getFirst();
 
-    assertThat(firstCreatedDeployments)
-        .hasSize(PARTITION_COUNT)
-        .extracting(Record::getValue)
-        .flatExtracting(DeploymentRecordValue::getDeployedWorkflows)
-        .extracting(DeployedWorkflow::getVersion)
-        .containsOnly(1);
+    var deployedWorkflows = firstCreatedDeployment.getValue().getDeployedWorkflows();
+    assertThat(deployedWorkflows).flatExtracting(DeployedWorkflow::getVersion).containsOnly(1);
 
-    final List<Record<DeploymentRecordValue>> secondCreatedDeployments =
+    final Record<DeploymentRecordValue> secondCreatedDeployments =
         RecordingExporter.deploymentRecords()
             .withIntent(DeploymentIntent.CREATED)
             .withRecordKey(secondDeployment.getKey())
-            .limit(PARTITION_COUNT)
-            .asList();
+            .getFirst();
 
-    assertThat(secondCreatedDeployments)
-        .hasSize(PARTITION_COUNT)
-        .extracting(Record::getValue)
-        .flatExtracting(DeploymentRecordValue::getDeployedWorkflows)
-        .extracting(DeployedWorkflow::getVersion)
-        .containsOnly(2);
+    deployedWorkflows = secondCreatedDeployments.getValue().getDeployedWorkflows();
+    assertThat(deployedWorkflows).flatExtracting(DeployedWorkflow::getVersion).containsOnly(2);
   }
 
   @Test
@@ -247,20 +286,20 @@ public final class CreateDeploymentMultiplePartitionsTest {
     assertThat(repeatedWorkflows.size()).isEqualTo(originalWorkflows.size()).isOne();
 
     assertThat(
-            RecordingExporter.deploymentRecords(DeploymentIntent.CREATE)
+            RecordingExporter.deploymentRecords(DeploymentIntent.DISTRIBUTE)
                 .withRecordKey(repeated.getKey())
                 .limit(PARTITION_COUNT - 1)
                 .count())
         .isEqualTo(PARTITION_COUNT - 1);
 
     final List<DeployedWorkflow> repeatedWfs =
-        RecordingExporter.deploymentRecords(DeploymentIntent.CREATED)
+        RecordingExporter.deploymentRecords(DeploymentIntent.DISTRIBUTED)
             .withRecordKey(repeated.getKey())
-            .limit(PARTITION_COUNT)
+            .limit(PARTITION_COUNT - 1)
             .map(r -> r.getValue().getDeployedWorkflows().get(0))
             .collect(Collectors.toList());
 
-    assertThat(repeatedWfs.size()).isEqualTo(PARTITION_COUNT);
+    assertThat(repeatedWfs.size()).isEqualTo(PARTITION_COUNT - 1);
     repeatedWfs.forEach(repeatedWf -> assertSameResource(originalWorkflows.get(0), repeatedWf));
   }
 
@@ -284,20 +323,20 @@ public final class CreateDeploymentMultiplePartitionsTest {
     assertDifferentResources(originalWorkflows.get(0), repeatedWorkflows.get(0));
 
     assertThat(
-            RecordingExporter.deploymentRecords(DeploymentIntent.CREATE)
+            RecordingExporter.deploymentRecords(DeploymentIntent.DISTRIBUTE)
                 .withRecordKey(repeated.getKey())
                 .limit(PARTITION_COUNT - 1)
                 .count())
         .isEqualTo(PARTITION_COUNT - 1);
 
     final List<DeployedWorkflow> repeatedWfs =
-        RecordingExporter.deploymentRecords(DeploymentIntent.CREATED)
+        RecordingExporter.deploymentRecords(DeploymentIntent.DISTRIBUTED)
             .withRecordKey(repeated.getKey())
-            .limit(PARTITION_COUNT)
+            .limit(PARTITION_COUNT - 1)
             .map(r -> r.getValue().getDeployedWorkflows().get(0))
             .collect(Collectors.toList());
 
-    assertThat(repeatedWfs.size()).isEqualTo(PARTITION_COUNT);
+    assertThat(repeatedWfs.size()).isEqualTo(PARTITION_COUNT - 1);
     repeatedWfs.forEach(
         repeatedWf -> assertDifferentResources(originalWorkflows.get(0), repeatedWf));
   }
@@ -329,14 +368,15 @@ public final class CreateDeploymentMultiplePartitionsTest {
     return record.getValue().getDeployedWorkflows().get(offset);
   }
 
-  private void assertCreatedDeploymentEventResources(
+  private void assertDeploymentEventResources(
       final int expectedPartition,
+      final DeploymentIntent deploymentIntent,
       final long expectedKey,
       final Consumer<Record<DeploymentRecordValue>> deploymentAssert) {
     final Record deploymentCreatedEvent =
         RecordingExporter.deploymentRecords()
             .withPartitionId(expectedPartition)
-            .withIntent(DeploymentIntent.CREATED)
+            .withIntent(deploymentIntent)
             .withRecordKey(expectedKey)
             .getFirst();
 

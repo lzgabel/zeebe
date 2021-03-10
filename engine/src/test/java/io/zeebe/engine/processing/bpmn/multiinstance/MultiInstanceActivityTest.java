@@ -940,7 +940,7 @@ public final class MultiInstanceActivityTest {
     completeJobs(workflowInstanceKey, INPUT_COLLECTION.size() - 1);
 
     // make sure message subcription is opened, before publishing
-    RecordingExporter.messageSubscriptionRecords(MessageSubscriptionIntent.OPENED)
+    RecordingExporter.messageSubscriptionRecords(MessageSubscriptionIntent.CREATED)
         .withWorkflowInstanceKey(workflowInstanceKey)
         .await();
 
@@ -956,11 +956,12 @@ public final class MultiInstanceActivityTest {
     assertThat(
             RecordingExporter.messageSubscriptionRecords()
                 .withWorkflowInstanceKey(workflowInstanceKey)
-                .limit(4))
+                .limit(5))
         .extracting(Record::getIntent)
         .containsExactly(
-            MessageSubscriptionIntent.OPEN,
-            MessageSubscriptionIntent.OPENED,
+            MessageSubscriptionIntent.CREATE,
+            MessageSubscriptionIntent.CREATED,
+            MessageSubscriptionIntent.CORRELATING,
             MessageSubscriptionIntent.CORRELATE,
             MessageSubscriptionIntent.CORRELATED);
 
@@ -1035,7 +1036,7 @@ public final class MultiInstanceActivityTest {
     completeJobs(workflowInstanceKey, INPUT_COLLECTION.size() - 1);
 
     // make sure message subscription is opened, before publishing
-    RecordingExporter.messageSubscriptionRecords(MessageSubscriptionIntent.OPENED)
+    RecordingExporter.messageSubscriptionRecords(MessageSubscriptionIntent.CREATED)
         .withWorkflowInstanceKey(workflowInstanceKey)
         .await();
 
@@ -1074,15 +1075,16 @@ public final class MultiInstanceActivityTest {
     assertThat(
             RecordingExporter.messageSubscriptionRecords()
                 .withWorkflowInstanceKey(workflowInstanceKey)
-                .limit(6))
+                .limit(7))
         .extracting(Record::getIntent)
         .containsExactly(
-            MessageSubscriptionIntent.OPEN,
-            MessageSubscriptionIntent.OPENED,
+            MessageSubscriptionIntent.CREATE,
+            MessageSubscriptionIntent.CREATED,
+            MessageSubscriptionIntent.CORRELATING,
             MessageSubscriptionIntent.CORRELATE,
             MessageSubscriptionIntent.CORRELATED,
-            MessageSubscriptionIntent.CLOSE,
-            MessageSubscriptionIntent.CLOSED);
+            MessageSubscriptionIntent.DELETE,
+            MessageSubscriptionIntent.DELETED);
 
     assertThat(
             RecordingExporter.workflowInstanceRecords()

@@ -19,14 +19,15 @@ import io.zeebe.engine.processing.deployment.model.element.ExecutableMessage;
 import io.zeebe.engine.processing.message.MessageCorrelationKeyException;
 import io.zeebe.engine.processing.message.MessageNameException;
 import io.zeebe.engine.processing.message.command.SubscriptionCommandSender;
+import io.zeebe.engine.processing.streamprocessor.MigratedStreamProcessors;
 import io.zeebe.engine.processing.streamprocessor.sideeffect.SideEffects;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
 import io.zeebe.engine.state.ZeebeState;
-import io.zeebe.engine.state.instance.EventScopeInstanceState;
+import io.zeebe.engine.state.immutable.TimerInstanceState;
 import io.zeebe.engine.state.instance.TimerInstance;
-import io.zeebe.engine.state.instance.TimerInstanceState;
 import io.zeebe.engine.state.message.WorkflowInstanceSubscription;
-import io.zeebe.engine.state.message.WorkflowInstanceSubscriptionState;
+import io.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
+import io.zeebe.engine.state.mutable.MutableWorkflowInstanceSubscriptionState;
 import io.zeebe.model.bpmn.util.time.Timer;
 import io.zeebe.protocol.impl.SubscriptionUtil;
 import io.zeebe.protocol.impl.record.value.timer.TimerRecord;
@@ -46,8 +47,8 @@ public final class CatchEventBehavior {
   private final SubscriptionCommandSender subscriptionCommandSender;
   private final int partitionsCount;
 
-  private final EventScopeInstanceState eventScopeInstanceState;
-  private final WorkflowInstanceSubscriptionState workflowInstanceSubscriptionState;
+  private final MutableEventScopeInstanceState eventScopeInstanceState;
+  private final MutableWorkflowInstanceSubscriptionState workflowInstanceSubscriptionState;
   private final TimerInstanceState timerInstanceState;
 
   private final WorkflowInstanceSubscription subscription = new WorkflowInstanceSubscription();
@@ -64,8 +65,8 @@ public final class CatchEventBehavior {
     this.subscriptionCommandSender = subscriptionCommandSender;
     this.partitionsCount = partitionsCount;
 
-    eventScopeInstanceState = zeebeState.getWorkflowState().getEventScopeInstanceState();
-    timerInstanceState = zeebeState.getWorkflowState().getTimerState();
+    eventScopeInstanceState = zeebeState.getEventScopeInstanceState();
+    timerInstanceState = zeebeState.getTimerState();
     workflowInstanceSubscriptionState = zeebeState.getWorkflowInstanceSubscriptionState();
   }
 
@@ -120,8 +121,11 @@ public final class CatchEventBehavior {
       }
     }
 
-    eventScopeInstanceState.createIfNotExists(
-        context.getElementInstanceKey(), supplier.getInterruptingElementIds());
+    // todo: remove after all are migrated
+    if (!MigratedStreamProcessors.isMigrated(context.getBpmnElementType()) && !events.isEmpty()) {
+      eventScopeInstanceState.createIfNotExists(
+          context.getElementInstanceKey(), supplier.getInterruptingElementIds());
+    }
   }
 
   public void subscribeToTimerEvent(
@@ -187,6 +191,7 @@ public final class CatchEventBehavior {
     subscription.setCorrelationKey(correlationKey);
     subscription.setTargetElementId(handler.getId());
     subscription.setCloseOnCorrelate(closeOnCorrelate);
+    // todo(zell): phil will migrate this via writing the open subscription
     workflowInstanceSubscriptionState.put(subscription);
 
     sideEffects.add(

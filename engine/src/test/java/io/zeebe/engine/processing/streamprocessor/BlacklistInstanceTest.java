@@ -110,8 +110,8 @@ public final class BlacklistInstanceTest {
       ////////////////////////////////////////
       {ValueType.MESSAGE, MessageIntent.PUBLISH, false},
       {ValueType.MESSAGE, MessageIntent.PUBLISHED, false},
-      {ValueType.MESSAGE, MessageIntent.DELETE, false},
-      {ValueType.MESSAGE, MessageIntent.DELETED, false},
+      {ValueType.MESSAGE, MessageIntent.EXPIRE, false},
+      {ValueType.MESSAGE, MessageIntent.EXPIRED, false},
 
       ////////////////////////////////////////
       ////////// MSG START EVENT SUB /////////
@@ -134,12 +134,12 @@ public final class BlacklistInstanceTest {
       ////////////////////////////////////////
       /////////////// MSG SUB ////////////////
       ////////////////////////////////////////
-      {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.OPEN, true},
-      {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.OPENED, true},
+      {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.CREATE, true},
+      {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.CREATED, true},
       {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.CORRELATE, true},
       {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.CORRELATED, true},
-      {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.CLOSE, true},
-      {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.CLOSED, true},
+      {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.DELETE, true},
+      {ValueType.MESSAGE_SUBSCRIPTION, MessageSubscriptionIntent.DELETED, true},
 
       ////////////////////////////////////////
       //////////////// TIMERS ////////////////
@@ -222,13 +222,14 @@ public final class BlacklistInstanceTest {
 
     // when
     final ZeebeState zeebeState = ZEEBE_STATE_RULE.getZeebeState();
-    zeebeState.tryToBlacklist(typedEvent, (workflowInstanceKey) -> {});
+    zeebeState.getBlackListState().tryToBlacklist(typedEvent, (workflowInstanceKey) -> {});
 
     // then
     metadata.intent(WorkflowInstanceIntent.ELEMENT_ACTIVATING);
     metadata.valueType(ValueType.WORKFLOW_INSTANCE);
     typedEvent.wrap(null, metadata, new Value());
-    assertThat(zeebeState.isOnBlacklist(typedEvent)).isEqualTo(expectedToBlacklist);
+    assertThat(zeebeState.getBlackListState().isOnBlacklist(typedEvent))
+        .isEqualTo(expectedToBlacklist);
   }
 
   private final class Value extends UnifiedRecordValue implements WorkflowInstanceRelated {

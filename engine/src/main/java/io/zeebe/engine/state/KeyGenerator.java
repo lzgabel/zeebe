@@ -7,7 +7,14 @@
  */
 package io.zeebe.engine.state;
 
+/** Generate unique keys. Should be used for records only. */
+@FunctionalInterface
 public interface KeyGenerator {
 
+  /**
+   * Returns the next key of a record and updates the key generator.
+   *
+   * @return the next key for a new record
+   */
   long nextKey();
 }
