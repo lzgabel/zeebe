@@ -10,6 +10,7 @@ package io.zeebe.gateway;
 import static java.lang.Runtime.getRuntime;
 
 import io.atomix.cluster.AtomixCluster;
+import io.atomix.cluster.Node;
 import io.atomix.cluster.discovery.BootstrapDiscoveryProvider;
 import io.atomix.cluster.protocol.GroupMembershipProtocol;
 import io.atomix.cluster.protocol.SwimMembershipProtocol;
@@ -23,7 +24,12 @@ import io.zeebe.gateway.impl.configuration.MembershipCfg;
 import io.zeebe.util.VersionUtil;
 import io.zeebe.util.sched.ActorScheduler;
 import java.io.IOException;
+import java.time.Duration;
+import java.util.List;
 import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import org.apache.logging.log4j.LogManager;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +74,8 @@ public class StandaloneGateway {
             .withSyncInterval(membershipCfg.getSyncInterval())
             .build();
 
+    final String[] addresses = clusterCfg.getContactPoint().split(",");
+    final List<Address> nodes = Stream.of(addresses).map(Address::from).collect(Collectors.toList());
     final var atomix =
         AtomixCluster.builder()
             .withMemberId(clusterCfg.getMemberId())
@@ -75,7 +83,7 @@ public class StandaloneGateway {
             .withClusterId(clusterCfg.getClusterName())
             .withMembershipProvider(
                 BootstrapDiscoveryProvider.builder()
-                    .withNodes(Address.from(clusterCfg.getContactPoint()))
+                    .withNodes(nodes.stream().map(address -> Node.builder().withAddress(address).build()).collect(Collectors.toList()))
                     .build())
             .withMembershipProtocol(membershipProtocol)
             .build();
