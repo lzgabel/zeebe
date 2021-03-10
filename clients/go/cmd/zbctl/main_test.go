@@ -28,10 +28,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/camunda-cloud/zeebe/clients/go/internal/containersuite"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/zbc"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/suite"
-	"github.com/zeebe-io/zeebe/clients/go/internal/containersuite"
-	"github.com/zeebe-io/zeebe/clients/go/pkg/zbc"
 )
 
 var zbctl string
