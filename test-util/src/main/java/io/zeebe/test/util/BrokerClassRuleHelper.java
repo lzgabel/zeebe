@@ -2,11 +2,12 @@
  * Copyright Camunda Services GmbH and/or licensed to Camunda Services GmbH under
  * one or more contributor license agreements. See the NOTICE file distributed
  * with this work for additional information regarding copyright ownership.
- * Licensed under the Zeebe Community License 1.0. You may not use this file
- * except in compliance with the Zeebe Community License 1.0.
+ * Licensed under the Zeebe Community License 1.1. You may not use this file
+ * except in compliance with the Zeebe Community License 1.1.
  */
 package io.zeebe.test.util;
 
+import io.zeebe.test.util.record.RecordLogger;
 import io.zeebe.test.util.record.RecordingExporter;
 import org.junit.rules.TestWatcher;
 import org.junit.runner.Description;
@@ -21,8 +22,7 @@ public final class BrokerClassRuleHelper extends TestWatcher {
 
   @Override
   protected void failed(final Throwable e, final Description description) {
-    LOG.info("Test failed, following records were exported:");
-    RecordingExporter.getRecords().forEach(r -> LOG.info(r.toString()));
+    RecordLogger.logRecords();
   }
 
   @Override
@@ -41,7 +41,7 @@ public final class BrokerClassRuleHelper extends TestWatcher {
   }
 
   public String getBpmnProcessId() {
-    return "workflow-" + currentTestMethod;
+    return "process-" + currentTestMethod;
   }
 
   public String getCorrelationValue() {
