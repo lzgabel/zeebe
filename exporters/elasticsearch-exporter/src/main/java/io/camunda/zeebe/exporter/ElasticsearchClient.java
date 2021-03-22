@@ -73,7 +73,7 @@ public class ElasticsearchClient {
     this.configuration = configuration;
     client = createClient();
     this.bulkRequest = bulkRequest;
-    formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
+    formatter = DateTimeFormatter.ofPattern("yyyy-MM").withZone(ZoneOffset.UTC);
   }
 
   public void close() throws IOException {
@@ -377,10 +377,8 @@ public class ElasticsearchClient {
 
   protected String indexFor(final Record<?> record) {
     final Instant timestamp = Instant.ofEpochMilli(record.getTimestamp());
-    //    return indexPrefixForValueTypeWithDelimiter(record.getValueType())
-    //        + formatter.format(timestamp);
-    // 不再根据时间创建索引
-    return indexPrefixForValueTypeWithDelimiter(record.getValueType());
+        return indexPrefixForValueTypeWithDelimiter(record.getValueType())
+            + formatter.format(timestamp);
   }
 
   protected String idFor(final Record<?> record) {
