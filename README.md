@@ -24,6 +24,14 @@ Starting with Zeebe 0.20.0, the "developer preview" label was removed from Zeebe
 
 To learn more about what we're currently working on, please visit the [roadmap](https://zeebe.io/roadmap).
 
+## 打包
+
+```$java
+bash clients/go/cmd/zbctl/build.sh
+mvn clean  package  -DskipTests=true  -Pchecks,spotbugs,prepare-offline -Dcheckstyle.skip=true -Dlicense.skip=true -Dfmt.skip=true
+```
+
+
 ## Helpful Links
 
 * [Blog](https://zeebe.io/blog)
