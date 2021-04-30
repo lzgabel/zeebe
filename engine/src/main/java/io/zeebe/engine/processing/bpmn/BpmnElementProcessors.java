@@ -9,6 +9,7 @@ package io.zeebe.engine.processing.bpmn;
 
 import io.zeebe.engine.processing.bpmn.behavior.BpmnBehaviors;
 import io.zeebe.engine.processing.bpmn.container.CallActivityProcessor;
+import io.zeebe.engine.processing.bpmn.container.EventSubProcessProcessor;
 import io.zeebe.engine.processing.bpmn.container.MultiInstanceBodyProcessor;
 import io.zeebe.engine.processing.bpmn.container.ProcessProcessor;
 import io.zeebe.engine.processing.bpmn.container.SubProcessProcessor;
@@ -19,7 +20,6 @@ import io.zeebe.engine.processing.bpmn.event.StartEventProcessor;
 import io.zeebe.engine.processing.bpmn.gateway.EventBasedGatewayProcessor;
 import io.zeebe.engine.processing.bpmn.gateway.ExclusiveGatewayProcessor;
 import io.zeebe.engine.processing.bpmn.gateway.ParallelGatewayProcessor;
-import io.zeebe.engine.processing.bpmn.sequenceflow.SequenceFlowProcessor;
 import io.zeebe.engine.processing.bpmn.task.ReceiveTaskProcessor;
 import io.zeebe.engine.processing.bpmn.task.ServiceTaskProcessor;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
@@ -36,6 +36,7 @@ public final class BpmnElementProcessors {
     // tasks
     processors.put(BpmnElementType.SERVICE_TASK, new ServiceTaskProcessor(bpmnBehaviors));
     processors.put(BpmnElementType.RECEIVE_TASK, new ReceiveTaskProcessor(bpmnBehaviors));
+    processors.put(BpmnElementType.USER_TASK, new ServiceTaskProcessor(bpmnBehaviors));
 
     // gateways
     processors.put(BpmnElementType.EXCLUSIVE_GATEWAY, new ExclusiveGatewayProcessor(bpmnBehaviors));
@@ -46,6 +47,7 @@ public final class BpmnElementProcessors {
     // containers
     processors.put(BpmnElementType.PROCESS, new ProcessProcessor(bpmnBehaviors));
     processors.put(BpmnElementType.SUB_PROCESS, new SubProcessProcessor(bpmnBehaviors));
+    processors.put(BpmnElementType.EVENT_SUB_PROCESS, new EventSubProcessProcessor(bpmnBehaviors));
     processors.put(
         BpmnElementType.MULTI_INSTANCE_BODY, new MultiInstanceBodyProcessor(bpmnBehaviors));
     processors.put(BpmnElementType.CALL_ACTIVITY, new CallActivityProcessor(bpmnBehaviors));
@@ -57,9 +59,6 @@ public final class BpmnElementProcessors {
         new IntermediateCatchEventProcessor(bpmnBehaviors));
     processors.put(BpmnElementType.END_EVENT, new EndEventProcessor(bpmnBehaviors));
     processors.put(BpmnElementType.BOUNDARY_EVENT, new BoundaryEventProcessor(bpmnBehaviors));
-
-    // others
-    processors.put(BpmnElementType.SEQUENCE_FLOW, new SequenceFlowProcessor(bpmnBehaviors));
   }
 
   public <T extends ExecutableFlowElement> BpmnElementProcessor<T> getProcessor(

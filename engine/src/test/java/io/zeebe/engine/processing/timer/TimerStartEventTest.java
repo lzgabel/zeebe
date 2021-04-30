@@ -233,10 +233,10 @@ public final class TimerStartEventTest {
                 .limit(4))
         .extracting(Record::getIntent)
         .containsExactly(
-            ProcessInstanceIntent.EVENT_OCCURRED, // causes the instance creation
+            ProcessInstanceIntent.ACTIVATE_ELEMENT, // causes the flow node activation
             ProcessInstanceIntent.ELEMENT_ACTIVATING, // causes the flow node activation
             ProcessInstanceIntent.ELEMENT_ACTIVATED, // input mappings applied
-            ProcessInstanceIntent.ELEMENT_ACTIVATING); // triggers the start event
+            ProcessInstanceIntent.ACTIVATE_ELEMENT); // triggers the start event
   }
 
   @Test

@@ -40,7 +40,7 @@ import io.atomix.utils.logging.LoggerContext;
 import io.atomix.utils.memory.MemorySize;
 import io.atomix.utils.serializer.Namespace;
 import io.atomix.utils.serializer.Namespaces;
-import io.zeebe.snapshots.raft.ReceivableSnapshotStoreFactory;
+import io.zeebe.snapshots.ReceivableSnapshotStoreFactory;
 import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -418,27 +418,6 @@ public class RaftPartitionGroup implements ManagedPartitionGroup {
      */
     public Builder withSegmentSize(final MemorySize segmentSize) {
       config.getStorageConfig().setSegmentSize(segmentSize);
-      return this;
-    }
-
-    /**
-     * Sets the maximum Raft log entry size.
-     *
-     * @param maxEntrySize the maximum Raft log entry size
-     * @return the Raft partition group builder
-     */
-    public Builder withMaxEntrySize(final int maxEntrySize) {
-      return withMaxEntrySize(new MemorySize(maxEntrySize));
-    }
-
-    /**
-     * Sets the maximum Raft log entry size.
-     *
-     * @param maxEntrySize the maximum Raft log entry size
-     * @return the Raft partition group builder
-     */
-    public Builder withMaxEntrySize(final MemorySize maxEntrySize) {
-      config.getStorageConfig().setMaxEntrySize(maxEntrySize);
       return this;
     }
 

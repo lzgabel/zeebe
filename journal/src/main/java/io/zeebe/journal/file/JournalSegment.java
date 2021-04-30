@@ -20,8 +20,9 @@ import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.collect.Sets;
-import io.zeebe.journal.StorageException;
+import io.zeebe.journal.JournalException;
 import java.io.IOException;
+import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.Files;
@@ -35,6 +36,8 @@ import org.agrona.IoUtil;
  */
 class JournalSegment implements AutoCloseable {
 
+  private static final ByteOrder ENDIANNESS = ByteOrder.LITTLE_ENDIAN;
+
   private final JournalSegmentFile file;
   private final JournalSegmentDescriptor descriptor;
   private final JournalIndex index;
@@ -46,7 +49,7 @@ class JournalSegment implements AutoCloseable {
   public JournalSegment(
       final JournalSegmentFile file,
       final JournalSegmentDescriptor descriptor,
-      final int maxEntrySize,
+      final long maxWrittenIndex,
       final JournalIndex journalIndex) {
     this.file = file;
     this.descriptor = descriptor;
@@ -54,7 +57,8 @@ class JournalSegment implements AutoCloseable {
     buffer =
         IoUtil.mapExistingFile(
             file.file(), MapMode.READ_WRITE, file.name(), 0, descriptor.maxSegmentSize());
-    writer = createWriter(maxEntrySize);
+    buffer.order(ENDIANNESS);
+    writer = createWriter(maxWrittenIndex);
   }
 
   /**
@@ -64,15 +68,6 @@ class JournalSegment implements AutoCloseable {
    */
   public long id() {
     return descriptor.id();
-  }
-
-  /**
-   * Returns the segment version.
-   *
-   * @return The segment version.
-   */
-  public long version() {
-    return descriptor.version();
   }
 
   /**
@@ -146,11 +141,12 @@ class JournalSegment implements AutoCloseable {
    */
   MappedJournalSegmentReader createReader() {
     checkOpen();
-    return new MappedJournalSegmentReader(buffer.asReadOnlyBuffer().position(0), this, index);
+    return new MappedJournalSegmentReader(
+        buffer.asReadOnlyBuffer().position(0).order(ENDIANNESS), this, index);
   }
 
-  private MappedJournalSegmentWriter createWriter(final int maxEntrySize) {
-    return new MappedJournalSegmentWriter(buffer, this, maxEntrySize, index);
+  private MappedJournalSegmentWriter createWriter(final long lastWrittenIndex) {
+    return new MappedJournalSegmentWriter(buffer, this, index, lastWrittenIndex);
   }
 
   /**
@@ -190,16 +186,12 @@ class JournalSegment implements AutoCloseable {
     try {
       Files.deleteIfExists(file.file().toPath());
     } catch (final IOException e) {
-      throw new StorageException(e);
+      throw new JournalException(e);
     }
   }
 
   @Override
   public String toString() {
-    return toStringHelper(this)
-        .add("id", id())
-        .add("version", version())
-        .add("index", index())
-        .toString();
+    return toStringHelper(this).add("id", id()).add("index", index()).toString();
   }
 }

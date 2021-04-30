@@ -14,16 +14,14 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License.
   -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <artifactId>atomix-cluster</artifactId>
 
   <dependencies>
     <dependency>
       <artifactId>atomix-utils</artifactId>
-      <groupId>io.zeebe</groupId>
-    </dependency>
-    <dependency>
-      <artifactId>atomix-storage</artifactId>
       <groupId>io.zeebe</groupId>
     </dependency>
     <dependency>
@@ -163,6 +161,23 @@
       <artifactId>junit-vintage-engine</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.zeebe</groupId>
+      <artifactId>zeebe-journal</artifactId>
+      <scope>test</scope>
+      <version>${parent.version}</version>
+      <type>test-jar</type>
+    </dependency>
   </dependencies>
 
   <modelVersion>4.0.0</modelVersion>
@@ -216,6 +231,7 @@
           <mainClass>uk.co.real_logic.sbe.SbeTool</mainClass>
           <arguments>
             <argument>${project.build.resources[0].directory}/snapshot-schema.xml</argument>
+            <argument>${project.build.resources[0].directory}/raft-entry-schema.xml</argument>
           </arguments>
           <workingDirectory>${project.build.directory}/generated-sources</workingDirectory>
           <!-- system properties defined in zeebe-parent -->

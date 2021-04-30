@@ -167,10 +167,12 @@ public final class ParallelGatewayTest {
             tuple("fork", ProcessInstanceIntent.ELEMENT_COMPLETING),
             tuple("fork", ProcessInstanceIntent.ELEMENT_COMPLETED),
             tuple("flow2", ProcessInstanceIntent.SEQUENCE_FLOW_TAKEN),
+            tuple("end", ProcessInstanceIntent.ACTIVATE_ELEMENT),
             tuple("end", ProcessInstanceIntent.ELEMENT_ACTIVATING),
             tuple("end", ProcessInstanceIntent.ELEMENT_ACTIVATED),
             tuple("end", ProcessInstanceIntent.ELEMENT_COMPLETING),
             tuple("end", ProcessInstanceIntent.ELEMENT_COMPLETED),
+            tuple(PROCESS_ID, ProcessInstanceIntent.COMPLETE_ELEMENT),
             tuple(PROCESS_ID, ProcessInstanceIntent.ELEMENT_COMPLETING),
             tuple(PROCESS_ID, ProcessInstanceIntent.ELEMENT_COMPLETED));
   }
@@ -200,7 +202,7 @@ public final class ParallelGatewayTest {
         .extracting(e -> e.getValue().getElementId(), Record::getIntent)
         .containsSequence(
             tuple("fork", ProcessInstanceIntent.ELEMENT_COMPLETED),
-            tuple(PROCESS_ID, ProcessInstanceIntent.ELEMENT_COMPLETING));
+            tuple(PROCESS_ID, ProcessInstanceIntent.COMPLETE_ELEMENT));
   }
 
   @Test

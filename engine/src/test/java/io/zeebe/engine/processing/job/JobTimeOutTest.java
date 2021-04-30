@@ -56,13 +56,12 @@ public final class JobTimeOutTest {
 
     // then activated again
     final List<Record<JobRecordValue>> jobEvents =
-        jobRecords().withType(jobType).limit(4).collect(Collectors.toList());
+        jobRecords().withType(jobType).limit(3).collect(Collectors.toList());
 
     assertThat(jobEvents).extracting(Record::getKey).contains(jobKey);
     assertThat(jobEvents)
         .extracting(Record::getIntent)
-        .containsExactly(
-            JobIntent.CREATE, JobIntent.CREATED, JobIntent.TIME_OUT, JobIntent.TIMED_OUT);
+        .containsExactly(JobIntent.CREATED, JobIntent.TIME_OUT, JobIntent.TIMED_OUT);
   }
 
   @Test
@@ -137,8 +136,8 @@ public final class JobTimeOutTest {
         jobRecords(JobIntent.TIMED_OUT)
             .filter(
                 r -> {
-                  final long wfInstanceKey = r.getValue().getProcessInstanceKey();
-                  return wfInstanceKey == instanceKey1 || wfInstanceKey == instanceKey2;
+                  final long processInstanceKey = r.getValue().getProcessInstanceKey();
+                  return processInstanceKey == instanceKey1 || processInstanceKey == instanceKey2;
                 })
             .limit(2)
             .collect(Collectors.toList());

@@ -69,6 +69,11 @@ public final class BpmnStateBehavior {
     elementInstanceState.updateInstance(context.getFlowScopeKey(), modifier);
   }
 
+  public void updateElementInstance(
+      final long elementInstanceKey, final Consumer<ElementInstance> modifier) {
+    elementInstanceState.updateInstance(elementInstanceKey, modifier);
+  }
+
   public JobState getJobState() {
     return jobState;
   }
@@ -249,5 +254,13 @@ public final class BpmnStateBehavior {
     final var variables =
         variablesState.getVariablesAsDocument(sourceContext.getElementInstanceKey());
     variablesState.setTemporaryVariables(targetContext.getElementInstanceKey(), variables);
+  }
+
+  public boolean isInterrupted(final BpmnElementContext flowScopeContext) {
+    final var flowScopeInstance =
+        elementInstanceState.getInstance(flowScopeContext.getElementInstanceKey());
+    return flowScopeInstance.getNumberOfActiveElementInstances() == 0
+        && flowScopeInstance.isInterrupted()
+        && flowScopeInstance.isActive();
   }
 }

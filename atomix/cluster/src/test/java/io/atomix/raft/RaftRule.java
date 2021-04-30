@@ -24,7 +24,6 @@ import io.atomix.raft.RaftServer.Builder;
 import io.atomix.raft.RaftServer.Role;
 import io.atomix.raft.cluster.RaftMember;
 import io.atomix.raft.impl.RaftContext;
-import io.atomix.raft.partition.impl.RaftNamespaces;
 import io.atomix.raft.primitive.TestMember;
 import io.atomix.raft.protocol.TestRaftProtocolFactory;
 import io.atomix.raft.protocol.TestRaftServerProtocol;
@@ -41,9 +40,9 @@ import io.atomix.raft.zeebe.ZeebeLogAppender;
 import io.atomix.utils.AbstractIdentifier;
 import io.atomix.utils.concurrent.SingleThreadContext;
 import io.atomix.utils.concurrent.ThreadContext;
-import io.zeebe.snapshots.raft.PersistedSnapshot;
-import io.zeebe.snapshots.raft.PersistedSnapshotListener;
-import io.zeebe.snapshots.raft.PersistedSnapshotStore;
+import io.zeebe.snapshots.PersistedSnapshot;
+import io.zeebe.snapshots.PersistedSnapshotListener;
+import io.zeebe.snapshots.PersistedSnapshotStore;
 import io.zeebe.util.FileUtil;
 import java.io.File;
 import java.io.IOException;
@@ -377,8 +376,7 @@ public final class RaftRule extends ExternalResource {
 
         final var log = server.getContext().getLog();
         final List<IndexedRaftLogEntry> entryList = new ArrayList<>();
-        try (final var raftLogReader = log.openReader(1, Mode.ALL)) {
-
+        try (final var raftLogReader = log.openReader(Mode.ALL)) {
           while (raftLogReader.hasNext()) {
             final var indexedEntry = raftLogReader.next();
             entryList.add(indexedEntry);
@@ -483,8 +481,7 @@ public final class RaftRule extends ExternalResource {
             .withSnapshotStore(
                 snapshotStores.compute(
                     memberId.id(),
-                    (k, v) -> new TestSnapshotStore(getOrCreatePersistedSnapshot(memberId.id()))))
-            .withNamespace(RaftNamespaces.RAFT_STORAGE);
+                    (k, v) -> new TestSnapshotStore(getOrCreatePersistedSnapshot(memberId.id()))));
     return configurator.apply(defaults).build();
   }
 

@@ -22,15 +22,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import io.atomix.raft.storage.log.RaftLog;
 import io.atomix.raft.storage.system.MetaStore;
-import io.atomix.storage.StorageException;
-import io.atomix.storage.buffer.FileBuffer;
-import io.atomix.utils.serializer.Namespace;
-import io.atomix.utils.serializer.Serializer;
-import io.zeebe.snapshots.raft.PersistedSnapshotStore;
-import io.zeebe.snapshots.raft.ReceivableSnapshotStore;
+import io.zeebe.snapshots.PersistedSnapshotStore;
+import io.zeebe.snapshots.ReceivableSnapshotStore;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.function.Predicate;
 import org.agrona.IoUtil;
 
@@ -55,9 +52,7 @@ public final class RaftStorage {
 
   private final String prefix;
   private final File directory;
-  private final Namespace namespace;
   private final int maxSegmentSize;
-  private final int maxEntrySize;
   private final long freeDiskSpace;
   private final boolean flushExplicitly;
   private final ReceivableSnapshotStore persistedSnapshotStore;
@@ -66,18 +61,14 @@ public final class RaftStorage {
   private RaftStorage(
       final String prefix,
       final File directory,
-      final Namespace namespace,
       final int maxSegmentSize,
-      final int maxEntrySize,
       final long freeDiskSpace,
       final boolean flushExplicitly,
       final ReceivableSnapshotStore persistedSnapshotStore,
       final int journalIndexDensity) {
     this.prefix = prefix;
     this.directory = directory;
-    this.namespace = namespace;
     this.maxSegmentSize = maxSegmentSize;
-    this.maxEntrySize = maxEntrySize;
     this.freeDiskSpace = freeDiskSpace;
     this.flushExplicitly = flushExplicitly;
     this.persistedSnapshotStore = persistedSnapshotStore;
@@ -102,15 +93,6 @@ public final class RaftStorage {
    */
   public String prefix() {
     return prefix;
-  }
-
-  /**
-   * Returns the storage serializer.
-   *
-   * @return The storage serializer.
-   */
-  public Namespace namespace() {
-    return namespace;
   }
 
   /**
@@ -144,15 +126,11 @@ public final class RaftStorage {
     final File file = new File(directory, String.format(".%s.lock", prefix));
     try {
       if (file.createNewFile()) {
-        try (final FileBuffer buffer = FileBuffer.allocate(file)) {
-          buffer.writeString(id).flush();
-        }
+        Files.writeString(file.toPath(), id, StandardOpenOption.WRITE);
         return true;
       } else {
-        try (final FileBuffer buffer = FileBuffer.allocate(file)) {
-          final String lock = buffer.readString();
-          return lock != null && lock.equals(id);
-        }
+        final String lock = Files.readString(file.toPath());
+        return lock != null && lock.equals(id);
       }
     } catch (final IOException e) {
       throw new StorageException("Failed to acquire storage lock");
@@ -186,7 +164,11 @@ public final class RaftStorage {
    * @return The metastore.
    */
   public MetaStore openMetaStore() {
-    return new MetaStore(this, Serializer.using(namespace));
+    try {
+      return new MetaStore(this);
+    } catch (final IOException e) {
+      throw new StorageException("Failed to open metastore", e);
+    }
   }
 
   /**
@@ -231,15 +213,19 @@ public final class RaftStorage {
    * @return The opened log.
    */
   public RaftLog openLog() {
+    final long lastWrittenIndex;
+    try (final MetaStore metaStore = openMetaStore()) {
+      lastWrittenIndex = metaStore.loadLastWrittenIndex();
+    }
+
     return RaftLog.builder()
         .withName(prefix)
         .withDirectory(directory)
-        .withNamespace(namespace)
         .withMaxSegmentSize(maxSegmentSize)
-        .withMaxEntrySize(maxEntrySize)
         .withFreeDiskSpace(freeDiskSpace)
         .withFlushExplicitly(flushExplicitly)
         .withJournalIndexDensity(journalIndexDensity)
+        .withLastWrittenIndex(lastWrittenIndex)
         .build();
   }
 
@@ -292,16 +278,13 @@ public final class RaftStorage {
     private static final String DEFAULT_DIRECTORY =
         System.getProperty("atomix.data", System.getProperty("user.dir"));
     private static final int DEFAULT_MAX_SEGMENT_SIZE = 1024 * 1024 * 32;
-    private static final int DEFAULT_MAX_ENTRY_SIZE = 1024 * 1024;
     private static final long DEFAULT_FREE_DISK_SPACE = 1024L * 1024 * 1024;
     private static final boolean DEFAULT_FLUSH_EXPLICITLY = true;
     private static final int DEFAULT_JOURNAL_INDEX_DENSITY = 100;
 
     private String prefix = DEFAULT_PREFIX;
     private File directory = new File(DEFAULT_DIRECTORY);
-    private Namespace namespace;
     private int maxSegmentSize = DEFAULT_MAX_SEGMENT_SIZE;
-    private int maxEntrySize = DEFAULT_MAX_ENTRY_SIZE;
     private long freeDiskSpace = DEFAULT_FREE_DISK_SPACE;
     private boolean flushExplicitly = DEFAULT_FLUSH_EXPLICITLY;
     private ReceivableSnapshotStore persistedSnapshotStore;
@@ -352,18 +335,6 @@ public final class RaftStorage {
     }
 
     /**
-     * Sets the storage namespace.
-     *
-     * @param namespace The storage namespace.
-     * @return The storage builder.
-     * @throws NullPointerException If the {@code namespace} is {@code null}
-     */
-    public Builder withNamespace(final Namespace namespace) {
-      this.namespace = checkNotNull(namespace, "namespace cannot be null");
-      return this;
-    }
-
-    /**
      * Sets the maximum segment size in bytes, returning the builder for method chaining.
      *
      * <p>The maximum segment size dictates when logs should roll over to new segments. As entries
@@ -379,19 +350,6 @@ public final class RaftStorage {
      */
     public Builder withMaxSegmentSize(final int maxSegmentSize) {
       this.maxSegmentSize = maxSegmentSize;
-      return this;
-    }
-
-    /**
-     * Sets the maximum entry size in bytes, returning the builder for method chaining.
-     *
-     * @param maxEntrySize the maximum entry size in bytes
-     * @return the storage builder
-     * @throws IllegalArgumentException if the {@code maxEntrySize} is not positive
-     */
-    public Builder withMaxEntrySize(final int maxEntrySize) {
-      checkArgument(maxEntrySize > 0, "maxEntrySize must be positive");
-      this.maxEntrySize = maxEntrySize;
       return this;
     }
 
@@ -446,9 +404,7 @@ public final class RaftStorage {
       return new RaftStorage(
           prefix,
           directory,
-          namespace,
           maxSegmentSize,
-          maxEntrySize,
           freeDiskSpace,
           flushExplicitly,
           persistedSnapshotStore,

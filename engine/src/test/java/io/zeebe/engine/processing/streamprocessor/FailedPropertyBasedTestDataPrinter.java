@@ -7,8 +7,8 @@
  */
 package io.zeebe.engine.processing.streamprocessor;
 
-import io.zeebe.model.bpmn.Bpmn;
-import io.zeebe.test.util.bpmn.random.AbstractExecutionStep;
+import io.zeebe.test.util.bpmn.random.TestDataGenerator.TestDataRecord;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.junit.rules.TestWatcher;
 import org.junit.runner.Description;
@@ -20,24 +20,25 @@ final class FailedPropertyBasedTestDataPrinter extends TestWatcher {
   private static final Logger LOGGER =
       LoggerFactory.getLogger(FailedPropertyBasedTestDataPrinter.class);
 
-  private final PropertyBasedTest propertyBasedTest;
+  private final Supplier<TestDataRecord> testDataRecordSupplier;
 
-  public FailedPropertyBasedTestDataPrinter(final PropertyBasedTest propertyBasedTest) {
-    this.propertyBasedTest = propertyBasedTest;
+  public FailedPropertyBasedTestDataPrinter(final Supplier<TestDataRecord> testDataRecordSupplier) {
+    this.testDataRecordSupplier = testDataRecordSupplier;
   }
 
   @Override
   protected void failed(final Throwable e, final Description description) {
-    LOGGER.info("Data of failed test case: {}", propertyBasedTest.getDataRecord());
-    LOGGER.info(
-        "Process of failed test case:{}{}",
-        System.lineSeparator(),
-        Bpmn.convertToString(propertyBasedTest.getDataRecord().getBpmnModel()));
+    final var record = testDataRecordSupplier.get();
+    final var currentStep = record.getCurrentStep();
+
+    LOGGER.info("Data of failed test case: {}", record);
+    LOGGER.info("Test case failed at: {}", currentStep);
+
     LOGGER.info(
         "Execution path of failed test case:{}{}",
         System.lineSeparator(),
-        propertyBasedTest.getDataRecord().getExecutionPath().getSteps().stream()
-            .map(AbstractExecutionStep::toString)
+        record.getExecutionPath().getSteps().stream()
+            .map(step -> (step == currentStep ? "--failed here--> " : "") + step.toString())
             .collect(Collectors.joining(System.lineSeparator())));
   }
 }

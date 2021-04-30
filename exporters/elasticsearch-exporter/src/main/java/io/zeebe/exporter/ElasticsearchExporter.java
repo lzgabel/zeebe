@@ -111,14 +111,14 @@ public class ElasticsearchExporter implements Exporter {
     try {
       flush();
     } catch (final Exception e) {
-      log.error(
-          "Unexpected exception occurred on periodically flushing bulk, will retry later.", e);
+      log.warn("Unexpected exception occurred on periodically flushing bulk, will retry later.", e);
     }
     scheduleDelayedFlush();
   }
 
   private void scheduleDelayedFlush() {
-    controller.scheduleTask(Duration.ofSeconds(configuration.bulk.delay), this::flushAndReschedule);
+    controller.scheduleCancellableTask(
+        Duration.ofSeconds(configuration.bulk.delay), this::flushAndReschedule);
   }
 
   private void flush() {
@@ -134,6 +134,9 @@ public class ElasticsearchExporter implements Exporter {
 
       if (index.deployment) {
         createValueIndexTemplate(ValueType.DEPLOYMENT);
+      }
+      if (index.process) {
+        createValueIndexTemplate(ValueType.PROCESS);
       }
       if (index.error) {
         createValueIndexTemplate(ValueType.ERROR);

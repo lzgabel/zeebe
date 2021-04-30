@@ -10,6 +10,7 @@ package io.zeebe.engine.processing.message;
 import static io.zeebe.util.buffer.BufferUtil.bufferAsString;
 
 import io.zeebe.engine.processing.common.EventHandle;
+import io.zeebe.engine.processing.common.EventTriggerBehavior;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
 import io.zeebe.engine.processing.message.command.SubscriptionCommandSender;
 import io.zeebe.engine.processing.streamprocessor.TypedRecord;
@@ -57,6 +58,7 @@ public final class ProcessMessageSubscriptionCorrelateProcessor
       final ProcessMessageSubscriptionState subscriptionState,
       final SubscriptionCommandSender subscriptionCommandSender,
       final MutableZeebeState zeebeState,
+      final EventTriggerBehavior eventTriggerBehavior,
       final Writers writers) {
     this.subscriptionState = subscriptionState;
     this.subscriptionCommandSender = subscriptionCommandSender;
@@ -67,7 +69,11 @@ public final class ProcessMessageSubscriptionCorrelateProcessor
 
     eventHandle =
         new EventHandle(
-            zeebeState.getKeyGenerator(), zeebeState.getEventScopeInstanceState(), writers);
+            zeebeState.getKeyGenerator(),
+            zeebeState.getEventScopeInstanceState(),
+            writers,
+            processState,
+            eventTriggerBehavior);
   }
 
   @Override
@@ -77,12 +83,11 @@ public final class ProcessMessageSubscriptionCorrelateProcessor
       final TypedStreamWriter streamWriter,
       final Consumer<SideEffectProducer> sideEffect) {
 
-    final var subscriptionRecord = command.getValue();
-    final var elementInstanceKey = subscriptionRecord.getElementInstanceKey();
+    final var record = command.getValue();
+    final var elementInstanceKey = record.getElementInstanceKey();
 
     final ProcessMessageSubscription subscription =
-        subscriptionState.getSubscription(
-            elementInstanceKey, subscriptionRecord.getMessageNameBuffer());
+        subscriptionState.getSubscription(elementInstanceKey, record.getMessageNameBuffer());
 
     if (subscription == null) {
       rejectCommand(command, RejectionType.NOT_FOUND, NO_SUBSCRIPTION_FOUND_MESSAGE);
@@ -98,19 +103,25 @@ public final class ProcessMessageSubscriptionCorrelateProcessor
         rejectCommand(command, RejectionType.INVALID_STATE, NO_EVENT_OCCURRED_MESSAGE);
 
       } else {
-        // TODO (saig0): reuse the subscription record in the state (#6533)
-        subscriptionRecord
-            .setElementId(subscription.getTargetElementId())
-            .setInterrupting(subscription.shouldCloseOnCorrelate());
+        // avoid reusing the subscription record directly as any access to the state (e.g. as #get)
+        // will overwrite it - safer to just copy its values into an one-time-use record
+        final ProcessMessageSubscriptionRecord subscriptionRecord = subscription.getRecord();
+        record
+            .setElementId(subscriptionRecord.getElementIdBuffer())
+            .setInterrupting(subscriptionRecord.isInterrupting());
 
         stateWriter.appendFollowUpEvent(
-            command.getKey(), ProcessMessageSubscriptionIntent.CORRELATED, subscriptionRecord);
+            command.getKey(), ProcessMessageSubscriptionIntent.CORRELATED, record);
 
         final var catchEvent =
-            getCatchEvent(elementInstance.getValue(), subscriptionRecord.getElementIdBuffer());
-        eventHandle.activateElement(catchEvent, elementInstanceKey, elementInstance.getValue());
+            getCatchEvent(elementInstance.getValue(), record.getElementIdBuffer());
+        eventHandle.activateElement(
+            catchEvent,
+            elementInstanceKey,
+            elementInstance.getValue(),
+            record.getVariablesBuffer());
 
-        sendAcknowledgeCommand(subscriptionRecord);
+        sendAcknowledgeCommand(record);
       }
     }
   }

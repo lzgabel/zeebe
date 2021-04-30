@@ -15,12 +15,13 @@
  */
 package io.atomix.raft.snapshot;
 
-import io.zeebe.snapshots.raft.PersistedSnapshot;
-import io.zeebe.snapshots.raft.PersistedSnapshotListener;
-import io.zeebe.snapshots.raft.ReceivableSnapshotStore;
-import io.zeebe.snapshots.raft.ReceivedSnapshot;
+import io.zeebe.snapshots.PersistedSnapshot;
+import io.zeebe.snapshots.PersistedSnapshotListener;
+import io.zeebe.snapshots.ReceivableSnapshotStore;
+import io.zeebe.snapshots.ReceivedSnapshot;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -77,6 +78,11 @@ public class TestSnapshotStore implements ReceivableSnapshotStore {
   public ActorFuture<Void> delete() {
     currentPersistedSnapshot.set(null);
     receivedSnapshots.clear();
+    return null;
+  }
+
+  @Override
+  public Path getPath() {
     return null;
   }
 

@@ -21,9 +21,9 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.collect.Sets;
 import io.zeebe.journal.Journal;
+import io.zeebe.journal.JournalException;
 import io.zeebe.journal.JournalReader;
 import io.zeebe.journal.JournalRecord;
-import io.zeebe.journal.StorageException;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -38,12 +38,14 @@ import java.util.NavigableMap;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.locks.StampedLock;
 import org.agrona.DirectBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** A file based journal. The journal is split into multiple segments files. */
 public class SegmentedJournal implements Journal {
+
   public static final long ASQN_IGNORE = -1;
   private static final int SEGMENT_BUFFER_FACTOR = 3;
   private static final int FIRST_SEGMENT_ID = 1;
@@ -53,7 +55,6 @@ public class SegmentedJournal implements Journal {
   private final String name;
   private final File directory;
   private final int maxSegmentSize;
-  private final int maxEntrySize;
   private final NavigableMap<Long, JournalSegment> segments = new ConcurrentSkipListMap<>();
   private final Collection<SegmentedJournalReader> readers = Sets.newConcurrentHashSet();
   private volatile JournalSegment currentSegment;
@@ -61,21 +62,23 @@ public class SegmentedJournal implements Journal {
   private final long minFreeDiskSpace;
   private final JournalIndex journalIndex;
   private final SegmentedJournalWriter writer;
+  private final long lastWrittenIndex;
+  private final StampedLock rwlock = new StampedLock();
 
   public SegmentedJournal(
       final String name,
       final File directory,
       final int maxSegmentSize,
-      final int maxEntrySize,
       final long minFreeSpace,
-      final JournalIndex journalIndex) {
+      final JournalIndex journalIndex,
+      final long lastWrittenIndex) {
     this.name = checkNotNull(name, "name cannot be null");
     this.directory = checkNotNull(directory, "directory cannot be null");
     this.maxSegmentSize = maxSegmentSize;
-    this.maxEntrySize = maxEntrySize;
     journalMetrics = new JournalMetrics(name);
     minFreeDiskSpace = minFreeSpace;
     this.journalIndex = journalIndex;
+    this.lastWrittenIndex = lastWrittenIndex;
     open();
     writer = new SegmentedJournalWriter(this);
   }
@@ -106,7 +109,17 @@ public class SegmentedJournal implements Journal {
 
   @Override
   public void deleteAfter(final long indexExclusive) {
-    writer.deleteAfter(indexExclusive);
+    journalMetrics.observeSegmentTruncation(
+        () -> {
+          final var stamp = rwlock.writeLock();
+          try {
+            writer.deleteAfter(indexExclusive);
+            // Reset segment readers.
+            resetAdvancedReaders(indexExclusive + 1);
+          } finally {
+            rwlock.unlockWrite(stamp);
+          }
+        });
   }
 
   @Override
@@ -146,8 +159,14 @@ public class SegmentedJournal implements Journal {
 
   @Override
   public void reset(final long nextIndex) {
-    journalIndex.clear();
-    writer.reset(nextIndex);
+    final var stamp = rwlock.writeLock();
+    try {
+      journalIndex.clear();
+      writer.reset(nextIndex);
+      resetHead(nextIndex);
+    } finally {
+      rwlock.unlockWrite(stamp);
+    }
   }
 
   @Override
@@ -220,7 +239,6 @@ public class SegmentedJournal implements Journal {
               .build();
 
       currentSegment = createSegment(descriptor);
-      currentSegment.descriptor().update(System.currentTimeMillis());
 
       segments.put(1L, currentSegment);
       journalMetrics.incSegmentCount();
@@ -241,7 +259,7 @@ public class SegmentedJournal implements Journal {
   private void assertDiskSpace() {
     if (directory().getUsableSpace()
         < Math.max(maxSegmentSize() * SEGMENT_BUFFER_FACTOR, minFreeDiskSpace)) {
-      throw new StorageException.OutOfDiskSpace(
+      throw new JournalException.OutOfDiskSpace(
           "Not enough space to allocate a new journal segment");
     }
   }
@@ -406,16 +424,15 @@ public class SegmentedJournal implements Journal {
       raf.setLength(descriptor.maxSegmentSize());
       channel = raf.getChannel();
     } catch (final IOException e) {
-      throw new StorageException(e);
+      throw new JournalException(e);
     }
 
-    final ByteBuffer buffer = ByteBuffer.allocate(JournalSegmentDescriptor.BYTES);
+    final ByteBuffer buffer = ByteBuffer.allocate(JournalSegmentDescriptor.getEncodingLength());
     descriptor.copyTo(buffer);
-    buffer.flip();
     try {
       channel.write(buffer);
     } catch (final IOException e) {
-      throw new StorageException(e);
+      throw new JournalException(e);
     } finally {
       try {
         channel.close();
@@ -438,22 +455,21 @@ public class SegmentedJournal implements Journal {
    */
   protected JournalSegment newSegment(
       final JournalSegmentFile segmentFile, final JournalSegmentDescriptor descriptor) {
-    return new JournalSegment(segmentFile, descriptor, maxEntrySize, journalIndex);
+    return new JournalSegment(segmentFile, descriptor, lastWrittenIndex, journalIndex);
   }
 
   /** Loads a segment. */
   private JournalSegment loadSegment(final long segmentId) {
     final File segmentFile = JournalSegmentFile.createSegmentFile(name, directory, segmentId);
-    final ByteBuffer buffer = ByteBuffer.allocate(JournalSegmentDescriptor.BYTES);
+    final ByteBuffer buffer = ByteBuffer.allocate(JournalSegmentDescriptor.getEncodingLength());
     try (final FileChannel channel = openChannel(segmentFile)) {
       channel.read(buffer);
-      buffer.flip();
       final JournalSegmentDescriptor descriptor = new JournalSegmentDescriptor(buffer);
       final JournalSegment segment = newSegment(new JournalSegmentFile(segmentFile), descriptor);
       log.debug("Loaded disk segment: {} ({})", descriptor.id(), segmentFile.getName());
       return segment;
     } catch (final IOException e) {
-      throw new StorageException(e);
+      throw new JournalException(e);
     }
   }
 
@@ -465,7 +481,7 @@ public class SegmentedJournal implements Journal {
           StandardOpenOption.READ,
           StandardOpenOption.WRITE);
     } catch (final IOException e) {
-      throw new StorageException(e);
+      throw new JournalException(e);
     }
   }
 
@@ -486,12 +502,12 @@ public class SegmentedJournal implements Journal {
       // If the file looks like a segment file, attempt to load the segment.
       if (JournalSegmentFile.isSegmentFile(name, file)) {
         final JournalSegmentFile segmentFile = new JournalSegmentFile(file);
-        final ByteBuffer buffer = ByteBuffer.allocate(JournalSegmentDescriptor.BYTES);
+        final ByteBuffer buffer = ByteBuffer.allocate(JournalSegmentDescriptor.getEncodingLength());
         try (final FileChannel channel = openChannel(file)) {
           channel.read(buffer);
           buffer.flip();
         } catch (final IOException e) {
-          throw new StorageException(e);
+          throw new JournalException(e);
         }
 
         final JournalSegmentDescriptor descriptor = new JournalSegmentDescriptor(buffer);
@@ -542,23 +558,20 @@ public class SegmentedJournal implements Journal {
   void resetHead(final long index) {
     for (final SegmentedJournalReader reader : readers) {
       if (reader.getNextIndex() <= index) {
-        reader.seek(index);
+        reader.unsafeSeek(index);
       }
     }
   }
 
   /**
-   * Resets journal readers to the given tail.
+   * Resets journal readers to the given index, if they are at a larger index.
    *
    * @param index The index at which to reset readers.
    */
-  void resetTail(final long index) {
+  void resetAdvancedReaders(final long index) {
     for (final SegmentedJournalReader reader : readers) {
-      if (reader.getNextIndex() >= index) {
-        reader.seek(index);
-      } else {
-        // This is not thread safe https://github.com/zeebe-io/zeebe/issues/4198
-        reader.seek(reader.getNextIndex());
+      if (reader.getNextIndex() > index) {
+        reader.unsafeSeek(index);
       }
     }
   }
@@ -569,5 +582,13 @@ public class SegmentedJournal implements Journal {
 
   public JournalIndex getJournalIndex() {
     return journalIndex;
+  }
+
+  long acquireReadlock() {
+    return rwlock.readLock();
+  }
+
+  void releaseReadlock(final long stamp) {
+    rwlock.unlockRead(stamp);
   }
 }

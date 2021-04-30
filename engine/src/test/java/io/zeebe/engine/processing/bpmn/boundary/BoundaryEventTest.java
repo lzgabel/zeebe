@@ -22,6 +22,7 @@ import io.zeebe.protocol.record.RecordValue;
 import io.zeebe.protocol.record.ValueType;
 import io.zeebe.protocol.record.intent.IncidentIntent;
 import io.zeebe.protocol.record.intent.JobIntent;
+import io.zeebe.protocol.record.intent.ProcessEventIntent;
 import io.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import io.zeebe.protocol.record.intent.TimerIntent;
 import io.zeebe.protocol.record.value.BpmnElementType;
@@ -127,13 +128,11 @@ public final class BoundaryEventTest {
 
     assertThat(records)
         .extracting(Record::getValueType, Record::getIntent)
-        .containsSequence(
+        .containsSubsequence(
             tuple(ValueType.TIMER, TimerIntent.TRIGGERED),
-            tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.EVENT_OCCURRED),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_TERMINATING),
             tuple(ValueType.JOB, JobIntent.CANCEL),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_TERMINATED),
-            tuple(ValueType.JOB, JobIntent.CANCELED),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_ACTIVATING));
   }
 
@@ -253,15 +252,19 @@ public final class BoundaryEventTest {
         .extracting(Record::getValueType, Record::getIntent)
         .endsWith(
             tuple(ValueType.TIMER, TimerIntent.TRIGGERED),
-            tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.EVENT_OCCURRED),
+            tuple(ValueType.PROCESS_EVENT, ProcessEventIntent.TRIGGERING),
+            tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.TERMINATE_ELEMENT),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_TERMINATING),
+            tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.TERMINATE_ELEMENT),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_TERMINATING),
             tuple(ValueType.JOB, JobIntent.CANCEL),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_TERMINATED),
-            tuple(ValueType.JOB, JobIntent.CANCELED),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_TERMINATED),
+            tuple(ValueType.PROCESS_EVENT, ProcessEventIntent.TRIGGERED),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_ACTIVATING),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_ACTIVATED),
+            tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.COMPLETE_ELEMENT),
+            tuple(ValueType.JOB, JobIntent.CANCELED),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_COMPLETING),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_COMPLETED));
   }
@@ -300,8 +303,7 @@ public final class BoundaryEventTest {
         .extracting(Record::getValueType, Record::getIntent)
         .containsSubsequence(
             tuple(ValueType.TIMER, TimerIntent.TRIGGERED),
-            tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.EVENT_OCCURRED),
-            tuple(ValueType.TIMER, TimerIntent.CREATE),
+            tuple(ValueType.TIMER, TimerIntent.CREATED),
             tuple(ValueType.JOB, JobIntent.COMPLETED),
             tuple(ValueType.PROCESS_INSTANCE, ProcessInstanceIntent.ELEMENT_COMPLETING),
             tuple(ValueType.TIMER, TimerIntent.CANCEL),
@@ -336,12 +338,11 @@ public final class BoundaryEventTest {
 
     // then
     // if correlation key was extracted from the task, then foo in the task scope would be 2 and
-    // no event occurred would be published
+    // the boundary event would not be triggered
     assertThat(
-            RecordingExporter.processInstanceRecords()
-                .withElementId("task")
+            RecordingExporter.processInstanceRecords(ProcessInstanceIntent.ELEMENT_ACTIVATING)
                 .withProcessInstanceKey(processInstanceKey)
-                .withIntent(ProcessInstanceIntent.EVENT_OCCURRED)
+                .withElementType(BpmnElementType.BOUNDARY_EVENT)
                 .getFirst())
         .isNotNull();
   }

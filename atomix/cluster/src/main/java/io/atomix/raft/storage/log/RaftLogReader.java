@@ -17,17 +17,18 @@
 package io.atomix.raft.storage.log;
 
 import io.atomix.raft.storage.log.entry.RaftLogEntry;
+import io.atomix.raft.storage.serializer.RaftEntrySBESerializer;
+import io.atomix.raft.storage.serializer.RaftEntrySerializer;
 import io.zeebe.journal.JournalReader;
 import io.zeebe.journal.JournalRecord;
-import java.nio.ByteBuffer;
 import java.util.NoSuchElementException;
-import org.agrona.DirectBuffer;
 
 /** Raft log reader. */
 public class RaftLogReader implements java.util.Iterator<IndexedRaftLogEntry>, AutoCloseable {
   private final RaftLog log;
   private final JournalReader journalReader;
   private final RaftLogReader.Mode mode;
+  private final RaftEntrySerializer serializer = new RaftEntrySBESerializer();
 
   // NOTE: nextIndex is only used if the reader is in commit mode, hence why it's not subject to
   // inconsistencies when the log is truncated/compacted/etc.
@@ -54,7 +55,7 @@ public class RaftLogReader implements java.util.Iterator<IndexedRaftLogEntry>, A
     }
 
     final JournalRecord journalRecord = journalReader.next();
-    final RaftLogEntry entry = deserialize(journalRecord.data());
+    final RaftLogEntry entry = serializer.readRaftLogEntry(journalRecord.data());
 
     nextIndex = journalRecord.index() + 1;
     return new IndexedRaftLogEntryImpl(entry.term(), entry.entry(), journalRecord);
@@ -65,11 +66,7 @@ public class RaftLogReader implements java.util.Iterator<IndexedRaftLogEntry>, A
     return nextIndex;
   }
 
-  public long reset(final long index) {
-    if (nextIndex == index) {
-      return nextIndex;
-    }
-
+  public long seek(final long index) {
     long boundedIndex = index;
 
     if (mode == Mode.COMMITS) {
@@ -86,50 +83,24 @@ public class RaftLogReader implements java.util.Iterator<IndexedRaftLogEntry>, A
     if (mode == Mode.ALL) {
       nextIndex = journalReader.seekToLast();
     } else {
-      reset(log.getCommitIndex());
+      seek(log.getCommitIndex());
     }
 
     return nextIndex;
   }
 
   public long seekToAsqn(final long asqn) {
-    nextIndex = journalReader.seekToAsqn(asqn);
-
-    if (nextIndex > log.getCommitIndex() && !log.isEmpty()) {
-      throw new UnsupportedOperationException("Cannot seek to an ASQN that is not yet committed");
+    if (mode == Mode.COMMITS) {
+      nextIndex = journalReader.seekToAsqn(asqn, log.getCommitIndex());
+    } else {
+      nextIndex = journalReader.seekToAsqn(asqn);
     }
-
     return nextIndex;
   }
 
   @Override
   public void close() {
     journalReader.close();
-  }
-
-  /**
-   * Deserializes given DirectBuffer to Object using Kryo instance in pool.
-   *
-   * @param buffer input with serialized bytes
-   * @param <T> deserialized Object type
-   * @return deserialized Object
-   */
-  private <T> T deserialize(final DirectBuffer buffer) {
-    final ByteBuffer byteBufferView;
-
-    if (buffer.byteArray() != null) {
-      byteBufferView =
-          ByteBuffer.wrap(buffer.byteArray(), buffer.wrapAdjustment(), buffer.capacity());
-    } else {
-      byteBufferView =
-          buffer
-              .byteBuffer()
-              .asReadOnlyBuffer()
-              .position(buffer.wrapAdjustment())
-              .limit(buffer.wrapAdjustment() + buffer.capacity());
-    }
-
-    return log.getSerializer().deserialize(byteBufferView);
   }
 
   /** Raft log reader mode. */

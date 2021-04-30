@@ -9,6 +9,7 @@ package io.zeebe.engine.processing.timer;
 
 import io.zeebe.engine.processing.common.CatchEventBehavior;
 import io.zeebe.engine.processing.common.EventHandle;
+import io.zeebe.engine.processing.common.EventTriggerBehavior;
 import io.zeebe.engine.processing.common.ExpressionProcessor;
 import io.zeebe.engine.processing.common.Failure;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableCatchEvent;
@@ -36,6 +37,8 @@ import io.zeebe.protocol.record.intent.TimerIntent;
 import io.zeebe.util.Either;
 import io.zeebe.util.buffer.BufferUtil;
 import java.util.function.Consumer;
+import org.agrona.DirectBuffer;
+import org.agrona.concurrent.UnsafeBuffer;
 
 public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRecord> {
 
@@ -43,6 +46,7 @@ public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRe
       "Expected to trigger timer with key '%d', but no such timer was found";
   private static final String NO_ACTIVE_TIMER_MESSAGE =
       "Expected to trigger a timer with key '%d', but the timer is not active anymore";
+  private static final DirectBuffer NO_VARIABLES = new UnsafeBuffer();
 
   private final CatchEventBehavior catchEventBehavior;
   private final ProcessState processState;
@@ -58,6 +62,7 @@ public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRe
   public TriggerTimerProcessor(
       final MutableZeebeState zeebeState,
       final CatchEventBehavior catchEventBehavior,
+      final EventTriggerBehavior eventTriggerBehavior,
       final ExpressionProcessor expressionProcessor,
       final Writers writers) {
     this.catchEventBehavior = catchEventBehavior;
@@ -70,7 +75,13 @@ public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRe
     timerInstanceState = zeebeState.getTimerState();
     keyGenerator = zeebeState.getKeyGenerator();
     eventScopeInstanceState = zeebeState.getEventScopeInstanceState();
-    eventHandle = new EventHandle(keyGenerator, zeebeState.getEventScopeInstanceState(), writers);
+    eventHandle =
+        new EventHandle(
+            keyGenerator,
+            zeebeState.getEventScopeInstanceState(),
+            writers,
+            processState,
+            eventTriggerBehavior);
   }
 
   @Override
@@ -100,8 +111,8 @@ public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRe
 
       stateWriter.appendFollowUpEvent(record.getKey(), TimerIntent.TRIGGERED, timer);
       final long processInstanceKey = keyGenerator.nextKey();
-      eventHandle.activateStartEvent(
-          processDefinitionKey, processInstanceKey, timer.getTargetElementIdBuffer());
+      eventHandle.activateProcessInstanceForStartEvent(
+          processDefinitionKey, processInstanceKey, timer.getTargetElementIdBuffer(), NO_VARIABLES);
     } else {
       final var elementInstance = elementInstanceState.getInstance(elementInstanceKey);
       if (!eventHandle.canTriggerElement(elementInstance)) {
@@ -114,7 +125,7 @@ public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRe
     }
 
     if (shouldReschedule(timer)) {
-      rescheduleTimer(timer, catchEvent, streamWriter);
+      rescheduleTimer(timer, catchEvent, streamWriter, sideEffects);
     }
   }
 
@@ -134,7 +145,10 @@ public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRe
   }
 
   private void rescheduleTimer(
-      final TimerRecord record, final ExecutableCatchEvent event, final TypedCommandWriter writer) {
+      final TimerRecord record,
+      final ExecutableCatchEvent event,
+      final TypedCommandWriter writer,
+      final Consumer<SideEffectProducer> sideEffects) {
     final Either<Failure, Timer> timer =
         event.getTimerFactory().apply(expressionProcessor, record.getElementInstanceKey());
     if (timer.isLeft()) {
@@ -159,6 +173,7 @@ public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRe
         record.getProcessDefinitionKey(),
         event.getId(),
         repeatingInterval,
-        writer);
+        writer,
+        sideEffects::accept);
   }
 }

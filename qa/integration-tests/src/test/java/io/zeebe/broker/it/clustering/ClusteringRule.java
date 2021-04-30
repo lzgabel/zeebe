@@ -25,6 +25,7 @@ import io.atomix.cluster.protocol.SwimMembershipProtocol;
 import io.atomix.core.Atomix;
 import io.atomix.raft.partition.RaftPartition;
 import io.atomix.utils.net.Address;
+import io.netty.util.NetUtil;
 import io.zeebe.broker.Broker;
 import io.zeebe.broker.PartitionListener;
 import io.zeebe.broker.SpringBrokerBridge;
@@ -32,6 +33,7 @@ import io.zeebe.broker.clustering.atomix.AtomixFactory;
 import io.zeebe.broker.system.configuration.BrokerCfg;
 import io.zeebe.broker.system.configuration.NetworkCfg;
 import io.zeebe.broker.system.configuration.SocketBindingCfg;
+import io.zeebe.broker.system.management.PartitionStatus;
 import io.zeebe.client.ZeebeClient;
 import io.zeebe.client.ZeebeClientBuilder;
 import io.zeebe.client.api.response.BrokerInfo;
@@ -44,7 +46,8 @@ import io.zeebe.gateway.impl.configuration.ClusterCfg;
 import io.zeebe.gateway.impl.configuration.GatewayCfg;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.protocol.impl.record.value.processinstance.ProcessInstanceCreationRecord;
-import io.zeebe.snapshots.broker.impl.FileBasedSnapshotMetadata;
+import io.zeebe.snapshots.SnapshotId;
+import io.zeebe.snapshots.impl.FileBasedSnapshotMetadata;
 import io.zeebe.test.util.AutoCloseableRule;
 import io.zeebe.test.util.record.RecordingExporterTestWatcher;
 import io.zeebe.test.util.socket.SocketUtil;
@@ -203,7 +206,7 @@ public final class ClusteringRule extends ExternalResource {
             .map(BrokerCfg::getNetwork)
             .map(NetworkCfg::getInternalApi)
             .map(SocketBindingCfg::getAddress)
-            .map(io.zeebe.util.SocketUtil::toHostAndPortString)
+            .map(NetUtil::toSocketAddressString)
             .toArray(String[]::new);
 
     for (int nodeId = 0; nodeId < clusterSize; nodeId++) {
@@ -235,7 +238,15 @@ public final class ClusteringRule extends ExternalResource {
   @Override
   protected void after() {
     LOG.debug("Closing ClusteringRule...");
-    brokers.values().parallelStream().forEach(Broker::close);
+    brokers.values().parallelStream()
+        .forEach(
+            b -> {
+              try {
+                b.close();
+              } catch (final Exception e) {
+                LOG.error("Failed to close broker: ", e);
+              }
+            });
     brokers.clear();
     brokerCfgs.clear();
     logstreams.clear();
@@ -305,7 +316,7 @@ public final class ClusteringRule extends ExternalResource {
       // https://github.com/zeebe-io/zeebe/issues/2012
 
       setInitialContactPoints(
-              io.zeebe.util.SocketUtil.toHostAndPortString(
+              NetUtil.toSocketAddressString(
                   getBrokerCfg(0).getNetwork().getInternalApi().getAddress()))
           .accept(brokerCfg);
     }
@@ -330,8 +341,7 @@ public final class ClusteringRule extends ExternalResource {
 
   private Gateway createGateway() {
     final String contactPoint =
-        io.zeebe.util.SocketUtil.toHostAndPortString(
-            getBrokerCfg(0).getNetwork().getInternalApi().getAddress());
+        NetUtil.toSocketAddressString(getBrokerCfg(0).getNetwork().getInternalApi().getAddress());
 
     final GatewayCfg gatewayCfg = new GatewayCfg();
     gatewayCfg.getCluster().setContactPoint(contactPoint).setClusterName(clusterName);
@@ -375,8 +385,7 @@ public final class ClusteringRule extends ExternalResource {
 
   private ZeebeClient createClient() {
     final String contactPoint =
-        io.zeebe.util.SocketUtil.toHostAndPortString(
-            gateway.getGatewayCfg().getNetwork().toSocketAddress());
+        NetUtil.toSocketAddressString(gateway.getGatewayCfg().getNetwork().toSocketAddress());
     final ZeebeClientBuilder zeebeClientBuilder =
         ZeebeClient.newClientBuilder().gatewayAddress(contactPoint);
 
@@ -703,12 +712,7 @@ public final class ClusteringRule extends ExternalResource {
     return Paths.get(dataDir).resolve(RAFT_PARTITION_PATH);
   }
 
-  public File getSnapshotsDirectory(final Broker broker) {
-    final String dataDir = broker.getConfig().getData().getDirectory();
-    return new File(dataDir, RAFT_PARTITION_PATH + "/snapshots");
-  }
-
-  public FileBasedSnapshotMetadata waitForSnapshotAtBroker(final Broker broker) {
+  public SnapshotId waitForSnapshotAtBroker(final Broker broker) {
     return waitForNewSnapshotAtBroker(broker, null);
   }
 
@@ -718,18 +722,15 @@ public final class ClusteringRule extends ExternalResource {
    * then this returns as soon as a new snapshot has been committed.
    *
    * @param broker the broker to check on
-   * @param previousSnapshot the previous expected snapshot
-   * @return the new snapshot metadata
+   * @param previousSnapshot the id of the previous expected snapshot
+   * @return the id of the new snapshot
    */
-  FileBasedSnapshotMetadata waitForNewSnapshotAtBroker(
-      final Broker broker, final FileBasedSnapshotMetadata previousSnapshot) {
-    final File snapshotsDir = getSnapshotsDirectory(broker);
-
+  SnapshotId waitForNewSnapshotAtBroker(final Broker broker, final SnapshotId previousSnapshot) {
     return Awaitility.await()
         .pollInterval(Duration.ofMillis(100))
         .atMost(Duration.ofMinutes(1))
         .until(
-            () -> findSnapshot(snapshotsDir),
+            () -> getSnapshot(broker, 1),
             latestSnapshot ->
                 latestSnapshot.isPresent()
                     && (previousSnapshot == null
@@ -740,14 +741,23 @@ public final class ClusteringRule extends ExternalResource {
                     "Snapshot expected, but reference to snapshot is corrupted"));
   }
 
-  private Optional<FileBasedSnapshotMetadata> findSnapshot(final File snapshotsDir) {
-    final var files = snapshotsDir.listFiles();
-    if (files == null || files.length != 1) {
-      return Optional.empty();
-    }
+  private Optional<SnapshotId> getSnapshot(final Broker broker, final int partitionId) {
 
-    final var snapshotPath = files[0].toPath();
-    return FileBasedSnapshotMetadata.ofPath(snapshotPath);
+    final var partitions = broker.getBrokerAdminService().getPartitionStatus();
+    final var partitionStatus = partitions.get(partitionId);
+
+    return Optional.ofNullable(partitionStatus)
+        .map(PartitionStatus::getSnapshotId)
+        .flatMap(FileBasedSnapshotMetadata::ofFileName);
+  }
+
+  public Optional<SnapshotId> getSnapshot(final int brokerId) {
+    final var broker = getBroker(brokerId);
+    return getSnapshot(broker, 1);
+  }
+
+  public Optional<SnapshotId> getSnapshot(final Broker broker) {
+    return getSnapshot(broker, 1);
   }
 
   LogStream getLogStream(final int partitionId) {

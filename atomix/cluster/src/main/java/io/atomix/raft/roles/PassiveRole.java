@@ -36,13 +36,13 @@ import io.atomix.raft.storage.log.IndexedRaftLogEntry;
 import io.atomix.raft.storage.log.PersistedRaftRecord;
 import io.atomix.raft.storage.log.RaftLog;
 import io.atomix.raft.storage.log.RaftLogReader;
-import io.atomix.storage.StorageException;
 import io.atomix.utils.concurrent.ThreadContext;
-import io.zeebe.journal.StorageException.InvalidChecksum;
-import io.zeebe.journal.StorageException.InvalidIndex;
-import io.zeebe.snapshots.raft.PersistedSnapshot;
-import io.zeebe.snapshots.raft.PersistedSnapshotListener;
-import io.zeebe.snapshots.raft.ReceivedSnapshot;
+import io.zeebe.journal.JournalException;
+import io.zeebe.journal.JournalException.InvalidChecksum;
+import io.zeebe.journal.JournalException.InvalidIndex;
+import io.zeebe.snapshots.PersistedSnapshot;
+import io.zeebe.snapshots.PersistedSnapshotListener;
+import io.zeebe.snapshots.ReceivedSnapshot;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -95,8 +95,11 @@ public class PassiveRole extends InactiveRole {
 
   /** Truncates uncommitted entries from the log. */
   private void truncateUncommittedEntries() {
-    if (role() == RaftServer.Role.PASSIVE) {
-      raft.getLog().truncate(raft.getCommitIndex());
+    if (role() == RaftServer.Role.PASSIVE && raft.getLog().getLastIndex() > raft.getCommitIndex()) {
+      raft.getLog().deleteAfter(raft.getCommitIndex());
+
+      raft.getLog().flush();
+      raft.setLastWrittenIndex(raft.getCommitIndex());
     }
 
     // to fix the edge case where we might have been stopped
@@ -465,7 +468,7 @@ public class PassiveRole extends InactiveRole {
     // If the previous log index is less than the last written entry index, look up the entry.
     if (request.prevLogIndex() < lastEntryIndex) {
       // Reset the reader to the previous log index.
-      reader.reset(request.prevLogIndex());
+      reader.seek(request.prevLogIndex());
 
       // The previous entry should exist in the log if we've gotten this far.
       if (!reader.hasNext()) {
@@ -522,15 +525,15 @@ public class PassiveRole extends InactiveRole {
       }
 
       // Iterate through entries and append them.
-      for (int i = 0; i < request.entries().size(); ++i) {
+      for (final PersistedRaftRecord entry : request.entries()) {
         final long index = ++lastLogIndex;
-        final PersistedRaftRecord entry = request.entries().get(i);
 
         // Get the last entry written to the log by the writer.
         final IndexedRaftLogEntry lastEntry = raft.getLog().getLastEntry();
 
         final boolean failedToAppend = tryToAppend(future, reader, entry, index, lastEntry);
         if (failedToAppend) {
+          flush(lastLogIndex - 1, request.prevLogIndex());
           return;
         }
 
@@ -553,12 +556,17 @@ public class PassiveRole extends InactiveRole {
     }
 
     // Make sure all entries are flushed before ack to ensure we have persisted what we acknowledge
-    if (raft.getLog().shouldFlushExplicitly()) {
-      raft.getLog().flush();
-    }
+    flush(lastLogIndex, request.prevLogIndex());
 
     // Return a successful append response.
     succeedAppend(lastLogIndex, future);
+  }
+
+  private void flush(final long lastWrittenIndex, final long previousEntryIndex) {
+    if (raft.getLog().shouldFlushExplicitly() && lastWrittenIndex > previousEntryIndex) {
+      raft.getLog().flush();
+      raft.setLastWrittenIndex(lastWrittenIndex);
+    }
   }
 
   private boolean tryToAppend(
@@ -580,7 +588,10 @@ public class PassiveRole extends InactiveRole {
         // If the last entry term doesn't match the leader's term for the same entry, truncate
         // the log and append the leader's entry.
         if (lastEntry.term() != entry.term()) {
-          raft.getLog().truncate(index - 1);
+          raft.getLog().deleteAfter(index - 1);
+          raft.getLog().flush();
+          raft.setLastWrittenIndex(index - 1);
+
           failedToAppend = !appendEntry(index, entry, future);
         }
       } else { // Otherwise, this entry is being appended at the end of the log.
@@ -614,7 +625,7 @@ public class PassiveRole extends InactiveRole {
       final PersistedRaftRecord entry,
       final long index) {
     // Reset the reader to the current entry index.
-    reader.reset(index);
+    reader.seek(index);
 
     // If the reader does not have any next entry, that indicates an inconsistency between
     // the reader and writer.
@@ -629,17 +640,18 @@ public class PassiveRole extends InactiveRole {
     // truncate
     // the log and append the leader's entry.
     if (existingEntry.term() != entry.term()) {
-      raft.getLog().truncate(index - 1);
-      if (!appendEntry(index, entry, future)) {
-        return false;
-      }
+      raft.getLog().deleteAfter(index - 1);
+      raft.getLog().flush();
+      raft.setLastWrittenIndex(index - 1);
+
+      return appendEntry(index, entry, future);
     }
     return true;
   }
 
   /**
    * Attempts to append an entry, returning {@code false} if the append fails due to an {@link
-   * StorageException.OutOfDiskSpace} exception.
+   * JournalException.OutOfDiskSpace} exception.
    */
   private boolean appendEntry(
       final long index,
@@ -651,11 +663,7 @@ public class PassiveRole extends InactiveRole {
 
       log.trace("Appended {}", indexed);
       raft.getReplicationMetrics().setAppendIndex(indexed.index());
-    } catch (final StorageException.TooLarge e) {
-      log.warn(
-          "Entry size exceeds maximum allowed bytes. Ensure Raft storage configuration is consistent on all nodes!");
-      return false;
-    } catch (final StorageException.OutOfDiskSpace e) {
+    } catch (final JournalException.OutOfDiskSpace e) {
       log.trace("Append failed: ", e);
       raft.getLogCompactor().compact();
       failAppend(index - 1, future);

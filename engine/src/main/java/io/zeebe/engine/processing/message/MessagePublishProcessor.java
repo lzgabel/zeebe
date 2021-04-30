@@ -10,6 +10,7 @@ package io.zeebe.engine.processing.message;
 import static io.zeebe.util.buffer.BufferUtil.bufferAsString;
 
 import io.zeebe.engine.processing.common.EventHandle;
+import io.zeebe.engine.processing.common.EventTriggerBehavior;
 import io.zeebe.engine.processing.message.command.SubscriptionCommandSender;
 import io.zeebe.engine.processing.streamprocessor.TypedRecord;
 import io.zeebe.engine.processing.streamprocessor.TypedRecordProcessor;
@@ -19,16 +20,14 @@ import io.zeebe.engine.processing.streamprocessor.writers.TypedResponseWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.Writers;
 import io.zeebe.engine.state.KeyGenerator;
+import io.zeebe.engine.state.immutable.EventScopeInstanceState;
 import io.zeebe.engine.state.immutable.MessageStartEventSubscriptionState;
 import io.zeebe.engine.state.immutable.MessageState;
 import io.zeebe.engine.state.immutable.MessageSubscriptionState;
-import io.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
-import io.zeebe.engine.state.mutable.MutableMessageState;
-import io.zeebe.engine.state.mutable.MutableMessageSubscriptionState;
+import io.zeebe.engine.state.immutable.ProcessState;
 import io.zeebe.protocol.impl.record.value.message.MessageRecord;
 import io.zeebe.protocol.record.RejectionType;
 import io.zeebe.protocol.record.intent.MessageIntent;
-import io.zeebe.protocol.record.intent.MessageStartEventSubscriptionIntent;
 import io.zeebe.protocol.record.intent.MessageSubscriptionIntent;
 import java.util.function.Consumer;
 
@@ -52,21 +51,24 @@ public final class MessagePublishProcessor implements TypedRecordProcessor<Messa
   private long messageKey;
 
   public MessagePublishProcessor(
-      final MutableMessageState messageState,
-      final MutableMessageSubscriptionState subscriptionState,
+      final MessageState messageState,
+      final MessageSubscriptionState subscriptionState,
       final MessageStartEventSubscriptionState startEventSubscriptionState,
-      final MutableEventScopeInstanceState eventScopeInstanceState,
+      final EventScopeInstanceState eventScopeInstanceState,
       final SubscriptionCommandSender commandSender,
       final KeyGenerator keyGenerator,
-      final Writers writers) {
+      final Writers writers,
+      final ProcessState processState,
+      final EventTriggerBehavior eventTriggerBehavior) {
     this.messageState = messageState;
     this.subscriptionState = subscriptionState;
     this.startEventSubscriptionState = startEventSubscriptionState;
     this.commandSender = commandSender;
     this.keyGenerator = keyGenerator;
     stateWriter = writers.state();
-
-    eventHandle = new EventHandle(keyGenerator, eventScopeInstanceState, writers);
+    eventHandle =
+        new EventHandle(
+            keyGenerator, eventScopeInstanceState, writers, processState, eventTriggerBehavior);
   }
 
   @Override
@@ -93,14 +95,13 @@ public final class MessagePublishProcessor implements TypedRecordProcessor<Messa
       responseWriter.writeRejectionOnCommand(
           command, RejectionType.ALREADY_EXISTS, rejectionReason);
     } else {
-      handleNewMessage(command, responseWriter, streamWriter, sideEffect);
+      handleNewMessage(command, responseWriter, sideEffect);
     }
   }
 
   private void handleNewMessage(
       final TypedRecord<MessageRecord> command,
       final TypedResponseWriter responseWriter,
-      final TypedStreamWriter streamWriter,
       final Consumer<SideEffectProducer> sideEffect) {
     messageKey = keyGenerator.nextKey();
 
@@ -112,7 +113,7 @@ public final class MessagePublishProcessor implements TypedRecordProcessor<Messa
         messageKey, MessageIntent.PUBLISHED, command.getValue(), command);
 
     correlateToSubscriptions(messageKey, messageRecord);
-    correlateToMessageStartEvents(messageRecord, streamWriter);
+    correlateToMessageStartEvents(messageRecord);
 
     sideEffect.accept(this::sendCorrelateCommand);
 
@@ -151,8 +152,7 @@ public final class MessagePublishProcessor implements TypedRecordProcessor<Messa
         });
   }
 
-  private void correlateToMessageStartEvents(
-      final MessageRecord messageRecord, final TypedStreamWriter streamWriter) {
+  private void correlateToMessageStartEvents(final MessageRecord messageRecord) {
 
     startEventSubscriptionState.visitSubscriptionsByMessageName(
         messageRecord.getNameBuffer(),
@@ -169,22 +169,11 @@ public final class MessagePublishProcessor implements TypedRecordProcessor<Messa
 
             correlatingSubscriptions.add(subscription);
 
-            final var processInstanceKey = keyGenerator.nextKey();
-
-            subscription
-                .setProcessInstanceKey(processInstanceKey)
-                .setCorrelationKey(correlationKeyBuffer)
-                .setMessageKey(messageKey)
-                .setVariables(messageRecord.getVariablesBuffer());
-
-            // TODO (saig0): the subscription should have a key (#2805)
-            stateWriter.appendFollowUpEvent(
-                -1L, MessageStartEventSubscriptionIntent.CORRELATED, subscription);
-
-            eventHandle.activateStartEvent(
+            eventHandle.triggerMessageStartEvent(
                 subscription.getProcessDefinitionKey(),
-                processInstanceKey,
-                subscription.getStartEventIdBuffer());
+                subscription.getStartEventIdBuffer(),
+                messageKey,
+                messageRecord);
           }
         });
   }

@@ -9,7 +9,6 @@ package io.zeebe.logstreams.util;
 
 import static org.mockito.Mockito.spy;
 
-import io.atomix.raft.partition.impl.RaftNamespaces;
 import io.atomix.raft.storage.RaftStorage;
 import io.atomix.raft.storage.log.IndexedRaftLogEntry;
 import io.atomix.raft.storage.log.RaftLog;
@@ -157,13 +156,13 @@ public final class AtomixLogStorageRule extends ExternalResource
   }
 
   public CompletableFuture<Void> compact(final long index) {
-    raftLog.compact(index);
+    raftLog.deleteUntil(index);
     return CompletableFuture.completedFuture(null);
   }
 
   @Override
-  public RaftLogReader create(final long index, final Mode mode) {
-    return raftLog.openReader(index, mode);
+  public RaftLogReader create(final Mode mode) {
+    return raftLog.openReader(mode);
   }
 
   public void setPositionListener(final LongConsumer positionListener) {
@@ -237,10 +236,7 @@ public final class AtomixLogStorageRule extends ExternalResource
   }
 
   private RaftStorage.Builder buildDefaultStorage() {
-    return RaftStorage.builder()
-        .withFlushExplicitly(true)
-        .withNamespace(RaftNamespaces.RAFT_STORAGE)
-        .withJournalIndexDensity(1);
+    return RaftStorage.builder().withFlushExplicitly(true).withJournalIndexDensity(1);
   }
 
   private static final class NoopListener implements AppendListener {

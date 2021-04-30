@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"github.com/camunda-cloud/zeebe/clients/go/pkg/pb"
 	"github.com/spf13/cobra"
+	"net"
 	"sort"
 	"strings"
 )
@@ -47,9 +48,11 @@ func (s StatusResponseWrapper) human() (string, error) {
 
 	sort.Sort(ByNodeID(resp.Brokers))
 
-	for _, broker := range resp.Brokers {
-		stringBuilder.WriteString(fmt.Sprintf("  Broker %d - %s:%d\n", broker.NodeId, broker.Host, broker.Port))
-
+	for b, broker := range resp.Brokers {
+		stringBuilder.WriteString(fmt.Sprintf("  Broker %d - %s:%d\n",
+			broker.NodeId,
+			formatHost(broker.Host),
+			broker.Port))
 		version := "unavailable"
 		if broker.Version != "" {
 			version = broker.Version
@@ -58,13 +61,13 @@ func (s StatusResponseWrapper) human() (string, error) {
 		stringBuilder.WriteString(fmt.Sprintf("    Version: %s\n", version))
 
 		sort.Sort(ByPartitionID(broker.Partitions))
-		for i, partition := range broker.Partitions {
+		for p, partition := range broker.Partitions {
 			stringBuilder.WriteString(fmt.Sprintf("    Partition %d : %s, %s",
 				partition.PartitionId,
 				roleToString(partition.Role),
 				healthToString(partition.Health)))
 
-			if i < len(broker.Partitions)-1 {
+			if p < len(broker.Partitions)-1 || b < len(broker.Partitions)-1 {
 				stringBuilder.WriteRune('\n')
 			}
 		}
@@ -135,4 +138,16 @@ func healthToString(health pb.Partition_PartitionBrokerHealth) string {
 	default:
 		return unknownState
 	}
+}
+
+func formatHost(host string) string {
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) > 0 {
+		return host
+	}
+	ip := net.ParseIP(host)
+	if ip.To4() != nil {
+		return ip.String()
+	}
+	return fmt.Sprintf("[%s]", ip.String())
 }

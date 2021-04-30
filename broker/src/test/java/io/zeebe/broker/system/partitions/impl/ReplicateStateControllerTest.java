@@ -14,10 +14,10 @@ import io.zeebe.broker.system.partitions.SnapshotReplication;
 import io.zeebe.broker.system.partitions.TestIndexedRaftLogEntry;
 import io.zeebe.db.impl.rocksdb.ZeebeRocksDbFactory;
 import io.zeebe.logstreams.util.RocksDBWrapper;
-import io.zeebe.snapshots.broker.ConstructableSnapshotStore;
-import io.zeebe.snapshots.broker.impl.FileBasedSnapshotStoreFactory;
-import io.zeebe.snapshots.raft.ReceivableSnapshotStore;
-import io.zeebe.snapshots.raft.SnapshotChunk;
+import io.zeebe.snapshots.ConstructableSnapshotStore;
+import io.zeebe.snapshots.ReceivableSnapshotStore;
+import io.zeebe.snapshots.SnapshotChunk;
+import io.zeebe.snapshots.impl.FileBasedSnapshotStoreFactory;
 import io.zeebe.test.util.AutoCloseableRule;
 import io.zeebe.util.sched.testing.ActorSchedulerRule;
 import java.io.IOException;
@@ -28,7 +28,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
-import java.util.zip.CRC32;
+import java.util.zip.CRC32C;
+import org.agrona.concurrent.UnsafeBuffer;
 import org.awaitility.Awaitility;
 import org.junit.Before;
 import org.junit.Rule;
@@ -71,7 +72,10 @@ public final class ReplicateStateControllerTest {
             senderFactory.getReceivableSnapshotStore(1),
             senderRoot.resolve("runtime"),
             replicator,
-            l -> Optional.of(new TestIndexedRaftLogEntry(l, 1, new ApplicationEntry(1, 10, null))),
+            l ->
+                Optional.of(
+                    new TestIndexedRaftLogEntry(
+                        l, 1, new ApplicationEntry(1, 10, new UnsafeBuffer()))),
             db -> Long.MAX_VALUE);
     senderStore.addSnapshotListener(replicatorSnapshotController);
 
@@ -83,14 +87,15 @@ public final class ReplicateStateControllerTest {
             receiverStore,
             receiverRoot.resolve("runtime"),
             replicator,
-            l -> Optional.of(new TestIndexedRaftLogEntry(l, 1, new ApplicationEntry(1, 10, null))),
+            l ->
+                Optional.of(
+                    new TestIndexedRaftLogEntry(
+                        l, 1, new ApplicationEntry(1, 10, new UnsafeBuffer()))),
             db -> Long.MAX_VALUE);
     receiverStore.addSnapshotListener(receiverSnapshotController);
 
     autoCloseableRule.manage(replicatorSnapshotController);
     autoCloseableRule.manage(receiverSnapshotController);
-    autoCloseableRule.manage(senderStore);
-    autoCloseableRule.manage(receiverStore);
 
     final RocksDBWrapper wrapper = new RocksDBWrapper();
     wrapper.wrap(replicatorSnapshotController.openDb());
@@ -136,7 +141,7 @@ public final class ReplicateStateControllerTest {
 
     replicatedChunks.forEach(
         chunk -> {
-          final CRC32 crc32 = new CRC32();
+          final CRC32C crc32 = new CRC32C();
           crc32.update(chunk.getContent());
           assertThat(chunk.getChecksum()).isEqualTo(crc32.getValue());
         });

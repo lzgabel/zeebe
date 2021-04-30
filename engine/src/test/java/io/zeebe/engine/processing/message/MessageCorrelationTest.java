@@ -321,7 +321,7 @@ public final class MessageCorrelationTest {
         .publish();
 
     // then
-    final Record<ProcessInstanceRecordValue> catchEventOccurred1 =
+    final Record<ProcessInstanceRecordValue> catchEvent1Completed =
         RecordingExporter.processInstanceRecords()
             .withProcessInstanceKey(processInstanceKey1)
             .withElementType(BpmnElementType.INTERMEDIATE_CATCH_EVENT)
@@ -329,10 +329,10 @@ public final class MessageCorrelationTest {
             .getFirst();
     final Map<String, String> variables1 =
         ProcessInstances.getCurrentVariables(
-            processInstanceKey1, catchEventOccurred1.getPosition());
+            processInstanceKey1, catchEvent1Completed.getPosition());
     assertThat(variables1).containsOnly(entry("key", "\"order-123\""), entry("nr", "1"));
 
-    final Record<ProcessInstanceRecordValue> catchEventOccurred2 =
+    final Record<ProcessInstanceRecordValue> catchEvent2Completed =
         RecordingExporter.processInstanceRecords()
             .withProcessInstanceKey(processInstanceKey2)
             .withElementType(BpmnElementType.INTERMEDIATE_CATCH_EVENT)
@@ -340,7 +340,7 @@ public final class MessageCorrelationTest {
             .getFirst();
     final Map<String, String> variables2 =
         ProcessInstances.getCurrentVariables(
-            processInstanceKey2, catchEventOccurred2.getPosition());
+            processInstanceKey2, catchEvent2Completed.getPosition());
     assertThat(variables2).containsOnly(entry("key", "\"order-456\""), entry("nr", "2"));
   }
 
@@ -750,9 +750,10 @@ public final class MessageCorrelationTest {
         .filteredOn(r -> r.getValue().getElementId().equals("receive-message"))
         .extracting(Record::getIntent)
         .containsExactly(
+            ProcessInstanceIntent.ACTIVATE_ELEMENT,
             ProcessInstanceIntent.ELEMENT_ACTIVATING,
             ProcessInstanceIntent.ELEMENT_ACTIVATED,
-            ProcessInstanceIntent.EVENT_OCCURRED,
+            ProcessInstanceIntent.COMPLETE_ELEMENT,
             ProcessInstanceIntent.ELEMENT_COMPLETING,
             ProcessInstanceIntent.ELEMENT_COMPLETED);
   }
@@ -773,13 +774,13 @@ public final class MessageCorrelationTest {
     assertThat(events)
         .extracting(r -> tuple(r.getValue().getElementId(), r.getIntent()))
         .containsSequence(
-            tuple("task", ProcessInstanceIntent.ELEMENT_ACTIVATING),
             tuple("task", ProcessInstanceIntent.ELEMENT_ACTIVATED),
-            tuple("task", ProcessInstanceIntent.EVENT_OCCURRED),
+            tuple("task", ProcessInstanceIntent.TERMINATE_ELEMENT),
             tuple("task", ProcessInstanceIntent.ELEMENT_TERMINATING),
             tuple("task", ProcessInstanceIntent.ELEMENT_TERMINATED),
             tuple("msg1", ProcessInstanceIntent.ELEMENT_ACTIVATING),
             tuple("msg1", ProcessInstanceIntent.ELEMENT_ACTIVATED),
+            tuple("msg1", ProcessInstanceIntent.COMPLETE_ELEMENT),
             tuple("msg1", ProcessInstanceIntent.ELEMENT_COMPLETING),
             tuple("msg1", ProcessInstanceIntent.ELEMENT_COMPLETED));
   }
@@ -799,7 +800,9 @@ public final class MessageCorrelationTest {
             .endEvent("taskEnd")
             .done();
     engine.deployment().withXmlResource(process).deploy();
-    engine.processInstance().ofBpmnProcessId(PROCESS_ID).withVariable("key", "123").create();
+
+    final var processInstanceKey =
+        engine.processInstance().ofBpmnProcessId(PROCESS_ID).withVariable("key", "123").create();
 
     // when
     final PublishMessageClient messageClient =
@@ -819,7 +822,11 @@ public final class MessageCorrelationTest {
                 .count())
         .isEqualTo(3);
 
-    assertThat(RecordingExporter.variableRecords().withName("foo").limit(3))
+    assertThat(
+            RecordingExporter.variableRecords()
+                .withName("foo")
+                .withScopeKey(processInstanceKey)
+                .limit(3))
         .extracting(r -> r.getValue().getValue())
         .containsExactly("0", "1", "2");
   }

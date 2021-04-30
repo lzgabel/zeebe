@@ -10,7 +10,9 @@ package io.zeebe.engine.processing;
 import static io.zeebe.protocol.record.intent.DeploymentIntent.CREATE;
 
 import io.zeebe.el.ExpressionLanguageFactory;
+import io.zeebe.engine.processing.bpmn.behavior.BpmnEventPublicationBehavior;
 import io.zeebe.engine.processing.common.CatchEventBehavior;
+import io.zeebe.engine.processing.common.EventTriggerBehavior;
 import io.zeebe.engine.processing.common.ExpressionProcessor;
 import io.zeebe.engine.processing.deployment.DeploymentCreateProcessor;
 import io.zeebe.engine.processing.deployment.DeploymentResponder;
@@ -70,7 +72,15 @@ public final class EngineProcessors {
             expressionProcessor,
             subscriptionCommandSender,
             writers.state(),
+            timerChecker,
             partitionsCount);
+
+    final var eventTriggerBehavior =
+        new EventTriggerBehavior(
+            zeebeState.getKeyGenerator(), catchEventBehavior, writers, zeebeState);
+
+    final var eventPublicationBehavior =
+        new BpmnEventPublicationBehavior(zeebeState, eventTriggerBehavior, writers);
 
     addDeploymentRelatedProcessorAndServices(
         catchEventBehavior,
@@ -84,7 +94,12 @@ public final class EngineProcessors {
         actor,
         deploymentDistributor,
         zeebeState.getKeyGenerator());
-    addMessageProcessors(subscriptionCommandSender, zeebeState, typedRecordProcessors, writers);
+    addMessageProcessors(
+        eventTriggerBehavior,
+        subscriptionCommandSender,
+        zeebeState,
+        typedRecordProcessors,
+        writers);
 
     final TypedRecordProcessor<ProcessInstanceRecord> bpmnStreamProcessor =
         addProcessProcessors(
@@ -93,11 +108,17 @@ public final class EngineProcessors {
             typedRecordProcessors,
             subscriptionCommandSender,
             catchEventBehavior,
+            eventTriggerBehavior,
             writers,
             timerChecker);
 
-    addJobProcessors(
-        zeebeState, typedRecordProcessors, onJobsAvailableCallback, maxFragmentSize, writers);
+    JobEventProcessors.addJobProcessors(
+        typedRecordProcessors,
+        zeebeState,
+        onJobsAvailableCallback,
+        eventPublicationBehavior,
+        maxFragmentSize,
+        writers);
 
     addIncidentProcessors(zeebeState, bpmnStreamProcessor, typedRecordProcessors, writers);
 
@@ -110,6 +131,7 @@ public final class EngineProcessors {
       final TypedRecordProcessors typedRecordProcessors,
       final SubscriptionCommandSender subscriptionCommandSender,
       final CatchEventBehavior catchEventBehavior,
+      final EventTriggerBehavior eventTriggerBehavior,
       final Writers writers,
       final DueDateTimerChecker timerChecker) {
     return ProcessEventProcessors.addProcessProcessors(
@@ -119,6 +141,7 @@ public final class EngineProcessors {
         subscriptionCommandSender,
         catchEventBehavior,
         timerChecker,
+        eventTriggerBehavior,
         writers);
   }
 
@@ -180,22 +203,17 @@ public final class EngineProcessors {
         typedRecordProcessors, zeebeState, bpmnStreamProcessor, writers);
   }
 
-  private static void addJobProcessors(
-      final MutableZeebeState zeebeState,
-      final TypedRecordProcessors typedRecordProcessors,
-      final Consumer<String> onJobsAvailableCallback,
-      final int maxFragmentSize,
-      final Writers writers) {
-    JobEventProcessors.addJobProcessors(
-        typedRecordProcessors, zeebeState, onJobsAvailableCallback, maxFragmentSize, writers);
-  }
-
   private static void addMessageProcessors(
+      final EventTriggerBehavior eventTriggerBehavior,
       final SubscriptionCommandSender subscriptionCommandSender,
       final MutableZeebeState zeebeState,
       final TypedRecordProcessors typedRecordProcessors,
       final Writers writers) {
     MessageEventProcessors.addMessageProcessors(
-        typedRecordProcessors, zeebeState, subscriptionCommandSender, writers);
+        eventTriggerBehavior,
+        typedRecordProcessors,
+        zeebeState,
+        subscriptionCommandSender,
+        writers);
   }
 }

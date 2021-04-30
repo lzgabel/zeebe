@@ -38,10 +38,7 @@ public class IntermediateCatchEventProcessor
 
   @Override
   public void onActivate(
-      final ExecutableCatchEventElement element, final BpmnElementContext context) {
-
-    final var activating = stateTransitionBehavior.transitionToActivating(context);
-
+      final ExecutableCatchEventElement element, final BpmnElementContext activating) {
     variableMappingBehavior
         .applyInputMappings(activating, element)
         .flatMap(ok -> eventSubscriptionBehavior.subscribeToEvents(element, activating))
@@ -52,16 +49,15 @@ public class IntermediateCatchEventProcessor
 
   @Override
   public void onComplete(
-      final ExecutableCatchEventElement element, final BpmnElementContext context) {
-
-    final var completing = stateTransitionBehavior.transitionToCompleting(context);
-
+      final ExecutableCatchEventElement element, final BpmnElementContext completing) {
     variableMappingBehavior
         .applyOutputMappings(completing, element)
         .ifRightOrLeft(
             ok -> {
               eventSubscriptionBehavior.unsubscribeFromEvents(completing);
-              final var completed = stateTransitionBehavior.transitionToCompleted(completing);
+              final var completed =
+                  stateTransitionBehavior.transitionToCompletedWithParentNotification(
+                      element, completing);
               stateTransitionBehavior.takeOutgoingSequenceFlows(element, completed);
             },
             failure -> incidentBehavior.createIncident(failure, completing));
@@ -69,21 +65,11 @@ public class IntermediateCatchEventProcessor
 
   @Override
   public void onTerminate(
-      final ExecutableCatchEventElement element, final BpmnElementContext context) {
-
-    final var terminating = stateTransitionBehavior.transitionToTerminating(context);
-
+      final ExecutableCatchEventElement element, final BpmnElementContext terminating) {
     eventSubscriptionBehavior.unsubscribeFromEvents(terminating);
     incidentBehavior.resolveIncidents(terminating);
 
     final var terminated = stateTransitionBehavior.transitionToTerminated(terminating);
     stateTransitionBehavior.onElementTerminated(element, terminated);
-  }
-
-  @Override
-  public void onEventOccurred(
-      final ExecutableCatchEventElement element, final BpmnElementContext context) {
-    throw new UnsupportedOperationException(
-        "supported commands: activate, complete, and terminate.");
   }
 }

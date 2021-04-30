@@ -18,12 +18,6 @@ package io.zeebe.client;
 import java.time.Duration;
 
 public final class ClientProperties {
-  /**
-   * @see ZeebeClientBuilder#brokerContactPoint(String)
-   * @deprecated Use {@link #GATEWAY_ADDRESS}. It's deprecated since 0.25.0, and will be removed in
-   *     0.26.0
-   */
-  @Deprecated public static final String BROKER_CONTACTPOINT = "zeebe.client.broker.contactPoint";
 
   /** @see ZeebeClientBuilder#gatewayAddress(String) */
   public static final String GATEWAY_ADDRESS = "zeebe.client.gateway.address";
@@ -57,4 +51,21 @@ public final class ClientProperties {
 
   /** @see io.zeebe.client.ZeebeClientBuilder#keepAlive(Duration) */
   public static final String KEEP_ALIVE = "zeebe.client.keepalive";
+
+  /** @see ZeebeClientCloudBuilderStep1#withClusterId(java.lang.String) */
+  public static final String CLOUD_CLUSTER_ID = "zeebe.client.cloud.clusterId";
+
+  /**
+   * @see ZeebeClientCloudBuilderStep1.ZeebeClientCloudBuilderStep2#withClientId(java.lang.String)
+   */
+  public static final String CLOUD_CLIENT_ID = "zeebe.client.cloud.clientId";
+
+  /**
+   * @see
+   *     ZeebeClientCloudBuilderStep1.ZeebeClientCloudBuilderStep2.ZeebeClientCloudBuilderStep3#withClientSecret(
+   *     java.lang.String)
+   */
+  public static final String CLOUD_CLIENT_SECRET = "zeebe.client.cloud.secret";
+
+  private ClientProperties() {}
 }

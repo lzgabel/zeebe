@@ -24,9 +24,9 @@ import io.zeebe.broker.system.partitions.impl.StateControllerImpl;
 import io.zeebe.db.impl.rocksdb.ZeebeRocksDbFactory;
 import io.zeebe.engine.processing.streamprocessor.StreamProcessor;
 import io.zeebe.logstreams.log.LogStream;
-import io.zeebe.snapshots.broker.ConstructableSnapshotStore;
-import io.zeebe.snapshots.broker.impl.FileBasedSnapshotStoreFactory;
-import io.zeebe.snapshots.raft.PersistedSnapshot;
+import io.zeebe.snapshots.ConstructableSnapshotStore;
+import io.zeebe.snapshots.PersistedSnapshot;
+import io.zeebe.snapshots.impl.FileBasedSnapshotStoreFactory;
 import io.zeebe.test.util.AutoCloseableRule;
 import io.zeebe.util.sched.ActorCondition;
 import io.zeebe.util.sched.ActorScheduler;
@@ -38,6 +38,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -81,12 +82,12 @@ public final class AsyncSnapshotingTest {
             new NoneSnapshotReplication(),
             l ->
                 Optional.of(
-                    new TestIndexedRaftLogEntry(l + 100, 1, new ApplicationEntry(1, 10, null))),
+                    new TestIndexedRaftLogEntry(
+                        l + 100, 1, new ApplicationEntry(1, 10, new UnsafeBuffer()))),
             db -> Long.MAX_VALUE);
 
     snapshotController.openDb();
     autoCloseableRule.manage(snapshotController);
-    autoCloseableRule.manage(persistedSnapshotStore);
     snapshotController = spy(snapshotController);
 
     logStream = mock(LogStream.class);

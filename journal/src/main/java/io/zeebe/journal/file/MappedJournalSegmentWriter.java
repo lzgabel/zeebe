@@ -16,10 +16,10 @@
  */
 package io.zeebe.journal.file;
 
+import io.zeebe.journal.JournalException.InvalidChecksum;
+import io.zeebe.journal.JournalException.InvalidIndex;
 import io.zeebe.journal.JournalRecord;
-import io.zeebe.journal.StorageException;
-import io.zeebe.journal.StorageException.InvalidChecksum;
-import io.zeebe.journal.StorageException.InvalidIndex;
+import io.zeebe.journal.file.record.CorruptedLogException;
 import io.zeebe.journal.file.record.JournalRecordReaderUtil;
 import io.zeebe.journal.file.record.JournalRecordSerializer;
 import io.zeebe.journal.file.record.PersistedJournalRecord;
@@ -43,24 +43,24 @@ class MappedJournalSegmentWriter {
   private JournalRecord lastEntry;
   private boolean isOpen = true;
   private final JournalRecordReaderUtil recordUtil;
-  private final int maxEntrySize;
   private final ChecksumGenerator checksumGenerator = new ChecksumGenerator();
   private final JournalRecordSerializer serializer = new SBESerializer();
   private final MutableDirectBuffer writeBuffer = new UnsafeBuffer();
+  private final int descriptorLength;
 
   MappedJournalSegmentWriter(
       final MappedByteBuffer buffer,
       final JournalSegment segment,
-      final int maxEntrySize,
-      final JournalIndex index) {
+      final JournalIndex index,
+      final long lastWrittenIndex) {
     this.segment = segment;
-    this.maxEntrySize = maxEntrySize;
+    descriptorLength = segment.descriptor().length();
     recordUtil = new JournalRecordReaderUtil(serializer);
     this.index = index;
     firstIndex = segment.index();
     this.buffer = buffer;
     writeBuffer.wrap(buffer);
-    reset(0);
+    reset(0, lastWrittenIndex);
   }
 
   public long getLastIndex() {
@@ -90,7 +90,6 @@ class MappedJournalSegmentWriter {
     final int metadataLength = serializer.getMetadataLength();
 
     final RecordData indexedRecord = new RecordData(recordIndex, asqn, data);
-    checkCanWrite(indexedRecord);
 
     final int recordLength;
     try {
@@ -128,7 +127,6 @@ class MappedJournalSegmentWriter {
     final int metadataLength = serializer.getMetadataLength();
 
     final RecordData indexedRecord = new RecordData(record.index(), record.asqn(), record.data());
-    checkCanWrite(indexedRecord);
 
     final int recordLength;
     try {
@@ -182,27 +180,6 @@ class MappedJournalSegmentWriter {
     return recordLength;
   }
 
-  private void checkCanWrite(final RecordData indexedRecord) {
-    final var recordOffset = serializer.getMetadataLength();
-
-    final int estimatedRecordLength =
-        indexedRecord
-            .data()
-            .capacity(); // approximate as Kryo cannot pre-calculate the size without serializing
-    // the entry.
-    if (estimatedRecordLength > maxEntrySize) {
-      throw new StorageException.TooLarge(
-          "Entry size "
-              + estimatedRecordLength
-              + " exceeds maximum allowed bytes ("
-              + maxEntrySize
-              + ")");
-    }
-    if (buffer.position() + recordOffset + estimatedRecordLength > buffer.limit()) {
-      throw new BufferOverflowException();
-    }
-  }
-
   private void invalidateNextEntry(final int position) {
     if (position >= buffer.capacity()) {
       return;
@@ -212,26 +189,49 @@ class MappedJournalSegmentWriter {
   }
 
   private void reset(final long index) {
+    reset(index, -1);
+  }
+
+  private void reset(final long index, final long lastWrittenIndex) {
     long nextIndex = firstIndex;
 
     // Clear the buffer indexes.
-    buffer.position(JournalSegmentDescriptor.BYTES);
+    buffer.position(descriptorLength);
     buffer.mark();
+    int position = buffer.position();
     try {
-      while ((index == 0 || nextIndex <= index) && FrameUtil.readVersion(buffer).isPresent()) {
-        final var nextEntry = recordUtil.read(buffer, nextIndex);
-        if (nextEntry == null) {
-          break;
-        }
-        lastEntry = nextEntry;
+      while ((index == 0 || nextIndex <= index) && FrameUtil.hasValidVersion(buffer)) {
+        // read version so that buffer's position is advanced
+        FrameUtil.readVersion(buffer);
+        lastEntry = recordUtil.read(buffer, nextIndex);
         nextIndex++;
+        this.index.index(lastEntry, position);
         buffer.mark();
+        position = buffer.position();
       }
     } catch (final BufferUnderflowException e) {
       // Reached end of the segment
+    } catch (final CorruptedLogException e) {
+      handleChecksumMismatch(e, nextIndex, lastWrittenIndex, position);
     } finally {
       buffer.reset();
     }
+  }
+
+  private void handleChecksumMismatch(
+      final CorruptedLogException e,
+      final long nextIndex,
+      final long lastWrittenIndex,
+      final int position) {
+    // entry wasn't acked (likely a partial write): it's safe to delete it
+    if (nextIndex > lastWrittenIndex) {
+      FrameUtil.markAsIgnored(buffer, position);
+      buffer.position(position);
+      buffer.mark();
+      return;
+    }
+
+    throw e;
   }
 
   public void truncate(final long index) {
@@ -247,8 +247,8 @@ class MappedJournalSegmentWriter {
     this.index.deleteAfter(index);
 
     if (index < segment.index()) {
-      buffer.position(JournalSegmentDescriptor.BYTES);
-      invalidateNextEntry(JournalSegmentDescriptor.BYTES);
+      buffer.position(descriptorLength);
+      invalidateNextEntry(descriptorLength);
     } else {
       reset(index);
       invalidateNextEntry(buffer.position());

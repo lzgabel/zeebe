@@ -26,7 +26,7 @@ import io.zeebe.broker.system.configuration.DataCfg;
 import io.zeebe.broker.system.configuration.MembershipCfg;
 import io.zeebe.broker.system.configuration.NetworkCfg;
 import io.zeebe.logstreams.impl.log.ZeebeEntryValidator;
-import io.zeebe.snapshots.raft.ReceivableSnapshotStoreFactory;
+import io.zeebe.snapshots.ReceivableSnapshotStoreFactory;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -116,9 +116,7 @@ public final class AtomixFactory {
             .withFreeDiskSpace(dataCfg.getFreeDiskSpaceReplicationWatermark())
             .withJournalIndexDensity(dataCfg.getLogIndexDensity());
 
-    // by default, the Atomix max entry size is 1 MB
     final int maxMessageSize = (int) networkCfg.getMaxMessageSizeInBytes();
-    partitionGroupBuilder.withMaxEntrySize(maxMessageSize);
 
     final var segmentSize = dataCfg.getLogSegmentSizeInBytes();
     if (segmentSize < maxMessageSize) {
@@ -151,11 +149,7 @@ public final class AtomixFactory {
     final List<Node> nodes = new ArrayList<>();
     initialContactPoints.forEach(
         contactAddress -> {
-          final String[] address = contactAddress.split(":");
-          final int memberPort = Integer.parseInt(address[1]);
-
-          final Node node =
-              Node.builder().withAddress(Address.from(address[0], memberPort)).build();
+          final Node node = Node.builder().withAddress(Address.from(contactAddress)).build();
           LOG.debug("Member {} will contact node: {}", localMemberId, node.address());
           nodes.add(node);
         });

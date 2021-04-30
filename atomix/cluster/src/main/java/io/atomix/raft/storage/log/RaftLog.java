@@ -16,34 +16,34 @@
  */
 package io.atomix.raft.storage.log;
 
-import io.atomix.raft.partition.impl.RaftNamespaces;
 import io.atomix.raft.storage.log.RaftLogReader.Mode;
 import io.atomix.raft.storage.log.entry.ApplicationEntry;
+import io.atomix.raft.storage.log.entry.ConfigurationEntry;
+import io.atomix.raft.storage.log.entry.InitialEntry;
 import io.atomix.raft.storage.log.entry.RaftLogEntry;
-import io.atomix.utils.serializer.Namespace;
+import io.atomix.raft.storage.serializer.RaftEntrySBESerializer;
+import io.atomix.raft.storage.serializer.RaftEntrySerializer;
 import io.zeebe.journal.Journal;
 import io.zeebe.journal.JournalRecord;
-import io.zeebe.journal.file.SegmentedJournal;
-import io.zeebe.journal.file.SegmentedJournalBuilder;
 import java.io.Closeable;
-import java.io.File;
-import java.util.Objects;
 import org.agrona.CloseHelper;
+import org.agrona.ExpandableArrayBuffer;
+import org.agrona.MutableDirectBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
 
 /** Raft log. */
-public class RaftLog implements Closeable {
+public final class RaftLog implements Closeable {
   private final Journal journal;
-  private final Namespace serializer;
+  private final RaftEntrySerializer serializer = new RaftEntrySBESerializer();
   private final boolean flushExplicitly;
 
   private IndexedRaftLogEntry lastAppendedEntry;
   private volatile long commitIndex;
 
-  protected RaftLog(
-      final Journal journal, final Namespace serializer, final boolean flushExplicitly) {
+  private final MutableDirectBuffer writeBuffer = new ExpandableArrayBuffer(4 * 1024);
+
+  RaftLog(final Journal journal, final boolean flushExplicitly) {
     this.journal = journal;
-    this.serializer = serializer;
     this.flushExplicitly = flushExplicitly;
   }
 
@@ -52,18 +52,27 @@ public class RaftLog implements Closeable {
    *
    * @return A new Raft log builder.
    */
-  public static Builder builder() {
-    return new Builder();
+  public static RaftLogBuilder builder() {
+    return new RaftLogBuilder();
   }
 
-  public RaftLogReader openReader(final long index) {
-    return openReader(index, Mode.ALL);
+  /**
+   * Opens the reader with {@link Mode} ALL.
+   *
+   * @return the reader
+   */
+  public RaftLogReader openReader() {
+    return openReader(Mode.ALL);
   }
 
-  public RaftLogReader openReader(final long index, final Mode mode) {
+  /**
+   * Opens the reader with given {@link Mode}.
+   *
+   * @param mode the mode of the reader
+   * @return the reader
+   */
+  public RaftLogReader openReader(final Mode mode) {
     final RaftLogReader reader = new RaftLogReader(this, journal.openReader(), mode);
-    reader.reset(index);
-
     return reader;
   }
 
@@ -78,7 +87,7 @@ public class RaftLog implements Closeable {
    *
    * @param index The index up to which to compact the journal.
    */
-  public void compact(final long index) {
+  public void deleteUntil(final long index) {
     journal.deleteUntil(index);
   }
 
@@ -121,7 +130,8 @@ public class RaftLog implements Closeable {
   }
 
   private void readLastEntry() {
-    try (final var reader = openReader(journal.getLastIndex())) {
+    try (final var reader = openReader()) {
+      reader.seekToLast();
       if (reader.hasNext()) {
         lastAppendedEntry = reader.next();
       }
@@ -132,16 +142,28 @@ public class RaftLog implements Closeable {
     return journal.isEmpty();
   }
 
-  @SuppressWarnings("unchecked")
   public IndexedRaftLogEntry append(final RaftLogEntry entry) {
-    final byte[] serializedEntry = serializer.serialize(entry);
     final JournalRecord journalRecord;
 
     if (entry.isApplicationEntry()) {
       final ApplicationEntry asqnEntry = entry.getApplicationEntry();
-      journalRecord = journal.append(asqnEntry.lowestPosition(), new UnsafeBuffer(serializedEntry));
+      final int serializedLength =
+          serializer.writeApplicationEntry(entry.term(), asqnEntry, writeBuffer, 0);
+      journalRecord =
+          journal.append(
+              asqnEntry.lowestPosition(), new UnsafeBuffer(writeBuffer, 0, serializedLength));
+    } else if (entry.isInitialEntry()) {
+      final InitialEntry initialEntry = entry.getInitialEntry();
+      final int serializedLength =
+          serializer.writeInitialEntry(entry.term(), initialEntry, writeBuffer, 0);
+      journalRecord = journal.append(new UnsafeBuffer(writeBuffer, 0, serializedLength));
+    } else if (entry.isConfigurationEntry()) {
+      final ConfigurationEntry configurationEntry = entry.getConfigurationEntry();
+      final int serializedLength =
+          serializer.writeConfigurationEntry(entry.term(), configurationEntry, writeBuffer, 0);
+      journalRecord = journal.append(new UnsafeBuffer(writeBuffer, 0, serializedLength));
     } else {
-      journalRecord = journal.append(new UnsafeBuffer(serializedEntry));
+      throw new IllegalArgumentException("Unexpected entry type " + entry);
     }
 
     lastAppendedEntry = new IndexedRaftLogEntryImpl(entry.term(), entry.entry(), journalRecord);
@@ -151,7 +173,7 @@ public class RaftLog implements Closeable {
   public IndexedRaftLogEntry append(final PersistedRaftRecord entry) {
     journal.append(entry);
 
-    final RaftLogEntry raftEntry = serializer.deserialize(entry.data().byteArray());
+    final RaftLogEntry raftEntry = serializer.readRaftLogEntry(entry.data());
     lastAppendedEntry = new IndexedRaftLogEntryImpl(entry.term(), raftEntry.entry(), entry);
     return lastAppendedEntry;
   }
@@ -161,7 +183,13 @@ public class RaftLog implements Closeable {
     lastAppendedEntry = null;
   }
 
-  public void truncate(final long index) {
+  public void deleteAfter(final long index) {
+    if (index < commitIndex) {
+      throw new IllegalStateException(
+          String.format(
+              "Expected to delete index after %d, but it is lower than the commit index %d. Deleting committed entries can lead to inconsistencies and is prohibited.",
+              index, commitIndex));
+    }
     journal.deleteAfter(index);
     lastAppendedEntry = null;
   }
@@ -170,10 +198,6 @@ public class RaftLog implements Closeable {
     if (flushExplicitly) {
       journal.flush();
     }
-  }
-
-  public Namespace getSerializer() {
-    return serializer;
   }
 
   @Override
@@ -190,139 +214,10 @@ public class RaftLog implements Closeable {
         + serializer
         + ", flushExplicitly="
         + flushExplicitly
-        + ", lastWrittenEntry="
+        + ", lastAppendedEntry="
         + lastAppendedEntry
         + ", commitIndex="
         + commitIndex
         + '}';
-  }
-
-  public static class Builder implements io.atomix.utils.Builder<RaftLog> {
-
-    private final SegmentedJournalBuilder journalBuilder = SegmentedJournal.builder();
-    private boolean flushExplicitly = true;
-    private Namespace namespace = RaftNamespaces.RAFT_STORAGE;
-
-    protected Builder() {}
-
-    /**
-     * Sets the storage name.
-     *
-     * @param name The storage name.
-     * @return The storage builder.
-     */
-    public Builder withName(final String name) {
-      journalBuilder.withName(name);
-      return this;
-    }
-
-    /**
-     * Sets the log directory, returning the builder for method chaining.
-     *
-     * <p>The log will write segment files into the provided directory.
-     *
-     * @param directory The log directory.
-     * @return The storage builder.
-     * @throws NullPointerException If the {@code directory} is {@code null}
-     */
-    public Builder withDirectory(final String directory) {
-      journalBuilder.withDirectory(directory);
-      return this;
-    }
-
-    /**
-     * Sets the log directory, returning the builder for method chaining.
-     *
-     * <p>The log will write segment files into the provided directory.
-     *
-     * @param directory The log directory.
-     * @return The storage builder.
-     * @throws NullPointerException If the {@code directory} is {@code null}
-     */
-    public Builder withDirectory(final File directory) {
-      journalBuilder.withDirectory(directory);
-      return this;
-    }
-
-    /**
-     * Sets the log serialization namespace, returning the builder for method chaining.
-     *
-     * @param namespace The journal namespace.
-     * @return The journal builder.
-     */
-    public Builder withNamespace(final Namespace namespace) {
-      this.namespace = Objects.requireNonNull(namespace);
-      return this;
-    }
-
-    /**
-     * Sets the maximum segment size in bytes, returning the builder for method chaining.
-     *
-     * <p>The maximum segment size dictates when logs should roll over to new segments. As entries
-     * are written to a segment of the log, once the size of the segment surpasses the configured
-     * maximum segment size, the log will create a new segment and append new entries to that
-     * segment.
-     *
-     * <p>By default, the maximum segment size is {@code 1024 * 1024 * 32}.
-     *
-     * @param maxSegmentSize The maximum segment size in bytes.
-     * @return The storage builder.
-     * @throws IllegalArgumentException If the {@code maxSegmentSize} is not positive
-     */
-    public Builder withMaxSegmentSize(final int maxSegmentSize) {
-      journalBuilder.withMaxSegmentSize(maxSegmentSize);
-      return this;
-    }
-
-    /**
-     * Sets the maximum entry size in bytes, returning the builder for method chaining.
-     *
-     * @param maxEntrySize the maximum entry size in bytes
-     * @return the storage builder
-     * @throws IllegalArgumentException if the {@code maxEntrySize} is not positive
-     */
-    public Builder withMaxEntrySize(final int maxEntrySize) {
-      journalBuilder.withMaxEntrySize(maxEntrySize);
-      return this;
-    }
-
-    /**
-     * Sets the minimum free disk space to leave when allocating a new segment
-     *
-     * @param freeDiskSpace free disk space in bytes
-     * @return the storage builder
-     * @throws IllegalArgumentException if the {@code freeDiskSpace} is not positive
-     */
-    public Builder withFreeDiskSpace(final long freeDiskSpace) {
-      journalBuilder.withFreeDiskSpace(freeDiskSpace);
-      return this;
-    }
-
-    /**
-     * Sets whether or not to flush buffered I/O explicitly at various points, returning the builder
-     * for chaining.
-     *
-     * <p>Enabling this ensures that entries are flushed on followers before acknowledging a write,
-     * and are flushed on the leader before marking an entry as committed. This guarantees the
-     * correctness of various Raft properties.
-     *
-     * @param flushExplicitly whether to flush explicitly or not
-     * @return this builder for chaining
-     */
-    public Builder withFlushExplicitly(final boolean flushExplicitly) {
-      this.flushExplicitly = flushExplicitly;
-      return this;
-    }
-
-    public Builder withJournalIndexDensity(final int journalIndexDensity) {
-      journalBuilder.withJournalIndexDensity(journalIndexDensity);
-      return this;
-    }
-
-    @Override
-    public RaftLog build() {
-      final Journal journal = journalBuilder.build();
-      return new RaftLog(journal, namespace, flushExplicitly);
-    }
   }
 }

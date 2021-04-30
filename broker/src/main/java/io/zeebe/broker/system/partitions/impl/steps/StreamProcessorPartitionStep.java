@@ -63,7 +63,6 @@ public class StreamProcessorPartitionStep implements PartitionStep {
   }
 
   private StreamProcessor createStreamProcessor(final PartitionContext state) {
-
     return StreamProcessor.builder()
         .logStream(state.getLogStream())
         .actorScheduler(state.getScheduler())
@@ -71,8 +70,6 @@ public class StreamProcessorPartitionStep implements PartitionStep {
         .eventApplierFactory(EventAppliers::new)
         .nodeId(state.getNodeId())
         .commandResponseWriter(state.getCommandApiService().newCommandResponseWriter())
-        .detectReprocessingInconsistency(
-            state.getBrokerCfg().getExperimental().isDetectReprocessingInconsistency())
         .onProcessedListener(
             state.getCommandApiService().getOnProcessedListener(state.getPartitionId()))
         .streamProcessorFactory(

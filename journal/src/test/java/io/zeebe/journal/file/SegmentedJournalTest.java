@@ -259,6 +259,25 @@ class SegmentedJournalTest {
   }
 
   @Test
+  void shouldNotCompactTheLastSegmentWhenNonExistingHigherIndex() {
+    final int entryPerSegment = 2;
+    final SegmentedJournal journal = openJournal(entryPerSegment);
+    final JournalReader reader = journal.openReader();
+
+    // when
+    long lastIndex = -1;
+    for (int i = 0; i < entryPerSegment * 2; i++) {
+      lastIndex = journal.append(i + 1, data).index();
+    }
+    assertThat(reader.hasNext()).isTrue();
+    journal.deleteUntil(lastIndex + 1);
+
+    // then
+    assertThat(journal.getFirstIndex()).isEqualTo(lastIndex - 1);
+    assertThat(reader.next().index()).isEqualTo(lastIndex - 1);
+  }
+
+  @Test
   void shouldReturnCorrectFirstIndexAfterCompaction() {
     final int entryPerSegment = 2;
     final SegmentedJournal journal = openJournal(2);
@@ -312,6 +331,36 @@ class SegmentedJournalTest {
     assertThat(reader.hasNext()).isFalse();
   }
 
+  @Test
+  void shouldUpdateIndexMappingsAfterRestart() {
+    // given
+    final int entriesPerSegment = 10;
+    long asqn = 1;
+    SegmentedJournal journal = openJournal(entriesPerSegment);
+    for (int i = 0; i < 2 * journalIndexDensity; i++) {
+      journal.append(asqn++, data);
+    }
+    final var indexBeforeClose = journal.getJournalIndex();
+
+    // when
+    journal.close();
+    journal = openJournal(entriesPerSegment);
+
+    // then
+    final var firstIndexedPosition = journalIndexDensity;
+    final var secondIndexedPosition = 2 * journalIndexDensity;
+    final JournalIndex indexAfterRestart = journal.getJournalIndex();
+
+    assertThat(indexAfterRestart.lookup(firstIndexedPosition).index())
+        .isEqualTo(firstIndexedPosition);
+    assertThat(indexAfterRestart.lookup(secondIndexedPosition).index())
+        .isEqualTo(secondIndexedPosition);
+    assertThat(indexAfterRestart.lookup(firstIndexedPosition).position())
+        .isEqualTo(indexBeforeClose.lookup(firstIndexedPosition).position());
+    assertThat(indexAfterRestart.lookup(secondIndexedPosition).position())
+        .isEqualTo(indexBeforeClose.lookup(secondIndexedPosition).position());
+  }
+
   private SegmentedJournal openJournal(final float entriesPerSegment) {
     return openJournal(entriesPerSegment, entrySize);
   }
@@ -319,8 +368,8 @@ class SegmentedJournalTest {
   private SegmentedJournal openJournal(final float entriesPerSegment, final int entrySize) {
     return SegmentedJournal.builder()
         .withDirectory(directory.resolve("data").toFile())
-        .withMaxSegmentSize((int) (entrySize * entriesPerSegment) + JournalSegmentDescriptor.BYTES)
-        .withMaxEntrySize(entrySize)
+        .withMaxSegmentSize(
+            (int) (entrySize * entriesPerSegment) + JournalSegmentDescriptor.getEncodingLength())
         .withJournalIndexDensity(journalIndexDensity)
         .build();
   }

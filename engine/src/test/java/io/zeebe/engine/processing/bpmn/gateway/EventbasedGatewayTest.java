@@ -131,15 +131,14 @@ public final class EventbasedGatewayTest {
             RecordingExporter.processInstanceRecords()
                 .withProcessInstanceKey(processInstanceKey)
                 .skipUntil(
-                    r ->
-                        r.getIntent() == ProcessInstanceIntent.ELEMENT_ACTIVATED
-                            && r.getValue().getBpmnElementType()
-                                == BpmnElementType.EVENT_BASED_GATEWAY)
+                    r -> r.getValue().getBpmnElementType() == BpmnElementType.EVENT_BASED_GATEWAY)
                 .limitToProcessInstanceCompleted())
         .extracting(r -> tuple(r.getValue().getElementId(), r.getIntent()))
         .containsSequence(
+            tuple("gateway", ProcessInstanceIntent.ACTIVATE_ELEMENT),
+            tuple("gateway", ProcessInstanceIntent.ELEMENT_ACTIVATING),
             tuple("gateway", ProcessInstanceIntent.ELEMENT_ACTIVATED),
-            tuple("gateway", ProcessInstanceIntent.EVENT_OCCURRED),
+            tuple("gateway", ProcessInstanceIntent.COMPLETE_ELEMENT),
             tuple("gateway", ProcessInstanceIntent.ELEMENT_COMPLETING),
             tuple("gateway", ProcessInstanceIntent.ELEMENT_COMPLETED),
             tuple("timer-1", ProcessInstanceIntent.ELEMENT_ACTIVATING),
@@ -257,7 +256,7 @@ public final class EventbasedGatewayTest {
 
     // then
     final List<String> timers =
-        RecordingExporter.timerRecords(TimerIntent.CREATE)
+        RecordingExporter.timerRecords(TimerIntent.CREATED)
             .withProcessInstanceKey(processInstanceKey)
             .limit(2)
             .map(r -> r.getValue().getTargetElementId())

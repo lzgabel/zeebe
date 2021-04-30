@@ -29,7 +29,7 @@ public class TestDataGenerator {
       final RandomProcessGenerator generator =
           new RandomProcessGenerator(processSeed, null, null, null);
 
-      final BpmnModelInstance bpmnModelInstance = generator.buildProcess();
+      final List<BpmnModelInstance> bpmnModelInstances = generator.buildProcesses();
 
       final Set<ExecutionPath> paths = new HashSet<>();
       for (int pathIndex = 0; pathIndex < pathsPerProcess; pathIndex++) {
@@ -40,7 +40,7 @@ public class TestDataGenerator {
         final boolean isDifferentPath = paths.add(path);
 
         if (isDifferentPath) {
-          records.add(new TestDataRecord(processSeed, pathSeed, bpmnModelInstance, path));
+          records.add(new TestDataRecord(processSeed, pathSeed, bpmnModelInstances, path));
         }
       }
     }
@@ -53,37 +53,47 @@ public class TestDataGenerator {
     final RandomProcessGenerator generator =
         new RandomProcessGenerator(processSeed, null, null, null);
 
-    final BpmnModelInstance bpmnModelInstance = generator.buildProcess();
+    final List<BpmnModelInstance> bpmnModelInstances = generator.buildProcesses();
 
     final ExecutionPath path = generator.findRandomExecutionPath(executionPathSeed);
 
-    return new TestDataRecord(processSeed, executionPathSeed, bpmnModelInstance, path);
+    return new TestDataRecord(processSeed, executionPathSeed, bpmnModelInstances, path);
   }
 
   public static final class TestDataRecord {
     private final long processSeed;
     private final long executionPathSeed;
 
-    private final BpmnModelInstance bpmnModel;
+    private final List<BpmnModelInstance> bpmnModels;
     private final ExecutionPath executionPath;
+
+    private ScheduledExecutionStep currentStep;
 
     private TestDataRecord(
         final long processSeed,
         final long executionPathSeed,
-        final BpmnModelInstance bpmnModel,
+        final List<BpmnModelInstance> bpmnModels,
         final ExecutionPath executionPath) {
       this.processSeed = processSeed;
       this.executionPathSeed = executionPathSeed;
-      this.bpmnModel = bpmnModel;
+      this.bpmnModels = bpmnModels;
       this.executionPath = executionPath;
     }
 
-    public BpmnModelInstance getBpmnModel() {
-      return bpmnModel;
+    public List<BpmnModelInstance> getBpmnModels() {
+      return bpmnModels;
     }
 
     public ExecutionPath getExecutionPath() {
       return executionPath;
+    }
+
+    public ScheduledExecutionStep getCurrentStep() {
+      return currentStep;
+    }
+
+    public void setCurrentStep(final ScheduledExecutionStep currentStep) {
+      this.currentStep = currentStep;
     }
 
     @Override

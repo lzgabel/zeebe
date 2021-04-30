@@ -11,9 +11,11 @@ import io.zeebe.engine.metrics.ProcessEngineMetrics;
 import io.zeebe.engine.processing.bpmn.BpmnElementContainerProcessor;
 import io.zeebe.engine.processing.bpmn.ProcessInstanceStateTransitionGuard;
 import io.zeebe.engine.processing.common.CatchEventBehavior;
+import io.zeebe.engine.processing.common.EventTriggerBehavior;
 import io.zeebe.engine.processing.common.ExpressionProcessor;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
 import io.zeebe.engine.processing.streamprocessor.sideeffect.SideEffects;
+import io.zeebe.engine.processing.streamprocessor.writers.StateWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedCommandWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedResponseWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
@@ -32,11 +34,12 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
   private final BpmnIncidentBehavior incidentBehavior;
   private final BpmnStateBehavior stateBehavior;
   private final BpmnStateTransitionBehavior stateTransitionBehavior;
-  private final BpmnDeferredRecordsBehavior deferredRecordsBehavior;
   private final ProcessInstanceStateTransitionGuard stateTransitionGuard;
   private final TypedStreamWriter streamWriter;
   private final BpmnProcessResultSenderBehavior processResultSenderBehavior;
   private final BpmnBufferedMessageStartEventBehavior bufferedMessageStartEventBehavior;
+  private final BpmnJobBehavior jobBehavior;
+  private final StateWriter stateWriter;
 
   public BpmnBehaviorsImpl(
       final ExpressionProcessor expressionBehavior,
@@ -46,11 +49,12 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
       final MutableZeebeState zeebeState,
       final CatchEventBehavior catchEventBehavior,
       final VariableBehavior variableBehavior,
+      final EventTriggerBehavior eventTriggerBehavior,
       final Function<BpmnElementType, BpmnElementContainerProcessor<ExecutableFlowElement>>
           processorLookup,
       final Writers writers) {
 
-    final var stateWriter = writers.state();
+    stateWriter = writers.state();
     final var commandWriter = writers.command();
     this.streamWriter = streamWriter;
     this.expressionBehavior = expressionBehavior;
@@ -65,25 +69,28 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
             zeebeState.getKeyGenerator(),
             stateBehavior,
             new ProcessEngineMetrics(zeebeState.getPartitionId()),
-            stateTransitionGuard,
             processorLookup,
             writers,
             zeebeState.getElementInstanceState());
     eventSubscriptionBehavior =
         new BpmnEventSubscriptionBehavior(
             stateBehavior,
-            stateTransitionBehavior,
             catchEventBehavior,
+            eventTriggerBehavior,
             stateWriter,
             commandWriter,
             sideEffects,
             zeebeState);
-    incidentBehavior = new BpmnIncidentBehavior(zeebeState, streamWriter);
-    deferredRecordsBehavior = new BpmnDeferredRecordsBehavior(zeebeState);
-    eventPublicationBehavior = new BpmnEventPublicationBehavior(zeebeState, streamWriter, writers);
+    incidentBehavior =
+        new BpmnIncidentBehavior(zeebeState, zeebeState.getKeyGenerator(), stateWriter);
+    eventPublicationBehavior =
+        new BpmnEventPublicationBehavior(zeebeState, eventTriggerBehavior, writers);
     processResultSenderBehavior = new BpmnProcessResultSenderBehavior(zeebeState, responseWriter);
     bufferedMessageStartEventBehavior =
-        new BpmnBufferedMessageStartEventBehavior(zeebeState, writers);
+        new BpmnBufferedMessageStartEventBehavior(
+            zeebeState, zeebeState.getKeyGenerator(), eventTriggerBehavior, writers);
+    jobBehavior =
+        new BpmnJobBehavior(zeebeState.getKeyGenerator(), zeebeState.getJobState(), writers);
   }
 
   @Override
@@ -127,11 +134,6 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
   }
 
   @Override
-  public BpmnDeferredRecordsBehavior deferredRecordsBehavior() {
-    return deferredRecordsBehavior;
-  }
-
-  @Override
   public ProcessInstanceStateTransitionGuard stateTransitionGuard() {
     return stateTransitionGuard;
   }
@@ -144,5 +146,10 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
   @Override
   public BpmnBufferedMessageStartEventBehavior bufferedMessageStartEventBehavior() {
     return bufferedMessageStartEventBehavior;
+  }
+
+  @Override
+  public BpmnJobBehavior jobBehavior() {
+    return jobBehavior;
   }
 }

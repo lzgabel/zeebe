@@ -8,7 +8,6 @@
 package io.zeebe.engine.state.appliers;
 
 import io.zeebe.engine.state.TypedEventApplier;
-import io.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
 import io.zeebe.engine.state.mutable.MutableProcessMessageSubscriptionState;
 import io.zeebe.engine.state.mutable.MutableVariableState;
 import io.zeebe.protocol.impl.record.value.message.ProcessMessageSubscriptionRecord;
@@ -19,31 +18,22 @@ public final class ProcessMessageSubscriptionCorrelatedApplier
         ProcessMessageSubscriptionIntent, ProcessMessageSubscriptionRecord> {
 
   private final MutableProcessMessageSubscriptionState subscriptionState;
-  private final MutableEventScopeInstanceState eventScopeInstanceState;
   private final MutableVariableState variableState;
 
   public ProcessMessageSubscriptionCorrelatedApplier(
       final MutableProcessMessageSubscriptionState subscriptionState,
-      final MutableEventScopeInstanceState eventScopeInstanceState,
       final MutableVariableState variableState) {
     this.subscriptionState = subscriptionState;
-    this.eventScopeInstanceState = eventScopeInstanceState;
     this.variableState = variableState;
   }
 
   @Override
   public void applyState(final long key, final ProcessMessageSubscriptionRecord value) {
-
     if (value.isInterrupting()) {
       subscriptionState.remove(value.getElementInstanceKey(), value.getMessageNameBuffer());
     }
 
     final var eventScopeKey = value.getElementInstanceKey();
-    // use the element instance key as the unique key of the event
-    final var eventKey = value.getElementInstanceKey();
-    eventScopeInstanceState.triggerEvent(
-        eventScopeKey, eventKey, value.getElementIdBuffer(), value.getVariablesBuffer());
-
     if (value.getVariablesBuffer().capacity() > 0) {
       variableState.setTemporaryVariables(eventScopeKey, value.getVariablesBuffer());
     }

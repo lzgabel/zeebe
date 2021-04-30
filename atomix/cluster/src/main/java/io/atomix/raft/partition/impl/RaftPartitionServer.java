@@ -30,17 +30,17 @@ import io.atomix.raft.partition.RaftPartitionGroupConfig;
 import io.atomix.raft.partition.RaftStorageConfig;
 import io.atomix.raft.roles.RaftRole;
 import io.atomix.raft.storage.RaftStorage;
+import io.atomix.raft.storage.StorageException;
 import io.atomix.raft.storage.log.RaftLogReader;
 import io.atomix.raft.storage.log.RaftLogReader.Mode;
 import io.atomix.raft.zeebe.ZeebeLogAppender;
-import io.atomix.storage.StorageException;
 import io.atomix.utils.Managed;
 import io.atomix.utils.concurrent.Futures;
 import io.atomix.utils.logging.ContextualLoggerFactory;
 import io.atomix.utils.logging.LoggerContext;
 import io.atomix.utils.serializer.Serializer;
-import io.zeebe.snapshots.raft.PersistedSnapshotStore;
-import io.zeebe.snapshots.raft.ReceivableSnapshotStore;
+import io.zeebe.snapshots.PersistedSnapshotStore;
+import io.zeebe.snapshots.ReceivableSnapshotStore;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -192,8 +192,8 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer> {
     server.getContext().getLogCompactor().setCompactableIndex(index);
   }
 
-  public RaftLogReader openReader(final long index, final Mode mode) {
-    return server.getContext().getLog().openReader(index, mode);
+  public RaftLogReader openReader(final Mode mode) {
+    return server.getContext().getLog().openReader(mode);
   }
 
   public void addRoleChangeListener(final RaftRoleChangeListener listener) {
@@ -283,10 +283,8 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer> {
         .withPrefix(partition.name())
         .withDirectory(partition.dataDirectory())
         .withMaxSegmentSize((int) storageConfig.getSegmentSize().bytes())
-        .withMaxEntrySize((int) storageConfig.getMaxEntrySize().bytes())
         .withFlushExplicitly(storageConfig.shouldFlushExplicitly())
         .withFreeDiskSpace(storageConfig.getFreeDiskSpace())
-        .withNamespace(RaftNamespaces.RAFT_STORAGE)
         .withSnapshotStore(persistedSnapshotStore)
         .withJournalIndexDensity(storageConfig.getJournalIndexDensity())
         .build();

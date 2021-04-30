@@ -24,7 +24,7 @@ import io.atomix.raft.storage.log.IndexedRaftLogEntry;
 import io.atomix.raft.storage.log.RaftLog;
 import io.atomix.raft.storage.log.RaftLogReader;
 import io.atomix.raft.storage.log.RaftLogReader.Mode;
-import io.zeebe.snapshots.raft.SnapshotChunkReader;
+import io.zeebe.snapshots.SnapshotChunkReader;
 import java.nio.ByteBuffer;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.slf4j.LoggerFactory;
@@ -95,7 +95,8 @@ public final class RaftMemberContext {
   }
 
   private void openReaderAtEndOfLog(final RaftLog log, final Mode all) {
-    reader = log.openReader(log.getLastIndex(), all);
+    reader = log.openReader(all);
+    reader.seekToLast();
     if (reader.hasNext()) {
       currentEntry = reader.next();
     }
@@ -437,7 +438,7 @@ public final class RaftMemberContext {
   }
 
   public void reset(final long index) {
-    final var nextIndex = reader.reset(index - 1);
+    final var nextIndex = reader.seek(index - 1);
     if (nextIndex == index - 1) {
       currentEntry = reader.next();
     } else {

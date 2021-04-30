@@ -19,14 +19,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.zeebe.journal.Journal;
+import io.zeebe.journal.JournalException.InvalidChecksum;
+import io.zeebe.journal.JournalException.InvalidIndex;
 import io.zeebe.journal.JournalReader;
 import io.zeebe.journal.JournalRecord;
-import io.zeebe.journal.StorageException.InvalidChecksum;
-import io.zeebe.journal.StorageException.InvalidIndex;
+import io.zeebe.journal.file.record.CorruptedLogException;
+import io.zeebe.journal.file.record.PersistedJournalRecord;
+import io.zeebe.journal.file.record.RecordData;
+import io.zeebe.journal.file.record.RecordMetadata;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 import org.agrona.DirectBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.jupiter.api.BeforeEach;
@@ -295,6 +301,66 @@ class JournalTest {
   }
 
   @Test
+  void shouldNotReadTruncatedEntriesWhenReaderPastTruncateIndex() {
+    // given
+    final var reader = journal.openReader();
+    assertThat(journal.getLastIndex()).isEqualTo(0);
+    journal.append(1, data);
+    journal.append(2, data);
+    journal.append(3, data);
+    reader.next();
+    reader.next();
+    assertThat(reader.hasNext()).isTrue();
+
+    // when
+    journal.deleteAfter(1);
+
+    // then
+    assertThat(journal.getLastIndex()).isEqualTo(1);
+    assertThat(reader.hasNext()).isFalse();
+  }
+
+  @Test
+  void shouldNotReadTruncatedEntriesWhenReaderAtTruncateIndex() {
+    // given
+    final var reader = journal.openReader();
+    assertThat(journal.getLastIndex()).isEqualTo(0);
+    journal.append(1, data);
+    journal.append(2, data);
+    journal.append(3, data);
+    reader.next();
+    reader.next();
+    assertThat(reader.hasNext()).isTrue();
+
+    // when
+    journal.deleteAfter(2);
+
+    // then
+    assertThat(journal.getLastIndex()).isEqualTo(2);
+    assertThat(reader.hasNext()).isFalse();
+  }
+
+  @Test
+  void shouldNotReadTruncatedEntriesWhenReaderBeforeTruncateIndex() {
+    // given
+    final var reader = journal.openReader();
+    assertThat(journal.getLastIndex()).isEqualTo(0);
+    journal.append(1, data);
+    journal.append(2, data);
+    journal.append(3, data);
+    reader.next();
+    assertThat(reader.hasNext()).isTrue();
+
+    // when
+    journal.deleteAfter(2);
+
+    // then
+    assertThat(journal.getLastIndex()).isEqualTo(2);
+    reader.next();
+    assertThat(reader.hasNext()).isFalse();
+  }
+
+  @Test
   void shouldAppendJournalRecord() {
     // given
     final var receiverJournal =
@@ -415,7 +481,7 @@ class JournalTest {
   @Test
   void shouldReadReopenedJournal() throws Exception {
     // given
-    final var appendedRecord = journal.append(data);
+    final var appendedRecord = copyRecord(journal.append(data));
     journal.close();
 
     // when
@@ -431,7 +497,7 @@ class JournalTest {
   @Test
   void shouldWriteToReopenedJournalAtNextIndex() throws Exception {
     // given
-    final var firstRecord = journal.append(data);
+    final var firstRecord = copyRecord(journal.append(data));
     journal.close();
 
     // when
@@ -478,14 +544,15 @@ class JournalTest {
   public void shouldInvalidateAllEntries() throws Exception {
     // given
     data.wrap("000".getBytes(StandardCharsets.UTF_8));
-    final var firstRecord = journal.append(data);
+    final var firstRecord = copyRecord(journal.append(data));
+
     journal.append(data);
     journal.append(data);
 
     // when
     journal.deleteAfter(firstRecord.index());
     data.wrap("111".getBytes(StandardCharsets.UTF_8));
-    final var secondRecord = journal.append(data);
+    final var secondRecord = copyRecord(journal.append(data));
 
     journal.close();
     journal = openJournal();
@@ -497,10 +564,72 @@ class JournalTest {
     assertThat(reader.hasNext()).isFalse();
   }
 
+  @Test
+  public void shouldDetectCorruptedEntry() throws Exception {
+    // given
+    data.wrap("000".getBytes(StandardCharsets.UTF_8));
+    journal.append(data);
+    final var secondRecord = copyRecord(journal.append(data));
+    assertThat(directory.toFile().listFiles()).hasSize(1);
+    assertThat(directory.toFile().listFiles()[0].listFiles()).hasSize(1);
+    final File log = directory.toFile().listFiles()[0].listFiles()[0];
+
+    // when
+    journal.close();
+    assertThat(LogCorrupter.corruptRecord(log, secondRecord.index())).isTrue();
+
+    // then
+    assertThatThrownBy(
+            () -> journal = openJournal(b -> b.withLastWrittenIndex(secondRecord.index())))
+        .isInstanceOf(CorruptedLogException.class);
+  }
+
+  @Test
+  public void shouldDeletePartiallyWrittenEntry() throws Exception {
+    // given
+    data.wrap("000".getBytes(StandardCharsets.UTF_8));
+    final var firstRecord = copyRecord(journal.append(data));
+    final var secondRecord = copyRecord(journal.append(data));
+    assertThat(directory.toFile().listFiles()).hasSize(1);
+    assertThat(directory.toFile().listFiles()[0].listFiles()).hasSize(1);
+    final File log = directory.toFile().listFiles()[0].listFiles()[0];
+
+    // when
+    journal.close();
+    assertThat(LogCorrupter.corruptRecord(log, secondRecord.index())).isTrue();
+    journal = openJournal(b -> b.withLastWrittenIndex(firstRecord.index()));
+    data.wrap("111".getBytes(StandardCharsets.UTF_8));
+    final var lastRecord = journal.append(data);
+    final var reader = journal.openReader();
+
+    // then
+    assertThat(reader.next()).isEqualTo(firstRecord);
+    assertThat(reader.next()).isEqualTo(lastRecord);
+  }
+
+  private PersistedJournalRecord copyRecord(final JournalRecord record) {
+    final DirectBuffer data = record.data();
+    final byte[] buffer = new byte[data.capacity()];
+    data.getBytes(0, buffer);
+
+    final UnsafeBuffer copiedData = new UnsafeBuffer(buffer);
+    final RecordData copiedRecord = new RecordData(record.index(), record.asqn(), copiedData);
+
+    return new PersistedJournalRecord(
+        new RecordMetadata(record.checksum(), copiedRecord.data().capacity()), copiedRecord);
+  }
+
   private SegmentedJournal openJournal() {
-    return SegmentedJournal.builder()
-        .withDirectory(directory.resolve("data").toFile())
-        .withJournalIndexDensity(5)
-        .build();
+    return openJournal(b -> {});
+  }
+
+  private SegmentedJournal openJournal(final Consumer<SegmentedJournalBuilder> option) {
+    final var builder =
+        SegmentedJournal.builder()
+            .withDirectory(directory.resolve("data").toFile())
+            .withJournalIndexDensity(5);
+    option.accept(builder);
+
+    return builder.build();
   }
 }

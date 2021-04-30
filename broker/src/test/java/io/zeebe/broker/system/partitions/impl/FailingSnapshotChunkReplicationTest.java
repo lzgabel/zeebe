@@ -13,11 +13,11 @@ import io.atomix.raft.storage.log.entry.ApplicationEntry;
 import io.zeebe.broker.system.partitions.SnapshotReplication;
 import io.zeebe.broker.system.partitions.TestIndexedRaftLogEntry;
 import io.zeebe.db.impl.rocksdb.ZeebeRocksDbFactory;
-import io.zeebe.snapshots.broker.ConstructableSnapshotStore;
-import io.zeebe.snapshots.broker.impl.FileBasedSnapshotStoreFactory;
-import io.zeebe.snapshots.raft.ReceivableSnapshotStore;
-import io.zeebe.snapshots.raft.SnapshotChunk;
-import io.zeebe.snapshots.raft.TransientSnapshot;
+import io.zeebe.snapshots.ConstructableSnapshotStore;
+import io.zeebe.snapshots.ReceivableSnapshotStore;
+import io.zeebe.snapshots.SnapshotChunk;
+import io.zeebe.snapshots.TransientSnapshot;
+import io.zeebe.snapshots.impl.FileBasedSnapshotStoreFactory;
 import io.zeebe.test.util.AutoCloseableRule;
 import io.zeebe.util.sched.testing.ActorSchedulerRule;
 import java.io.IOException;
@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -61,7 +62,10 @@ public final class FailingSnapshotChunkReplicationTest {
             senderFactory.getReceivableSnapshotStore(1),
             senderRoot.resolve("runtime"),
             replicator,
-            l -> Optional.of(new TestIndexedRaftLogEntry(l, 1, new ApplicationEntry(1, 10, null))),
+            l ->
+                Optional.of(
+                    new TestIndexedRaftLogEntry(
+                        l, 1, new ApplicationEntry(1, 10, new UnsafeBuffer()))),
             db -> Long.MAX_VALUE);
     senderStore.addSnapshotListener(replicatorSnapshotController);
 
@@ -73,14 +77,15 @@ public final class FailingSnapshotChunkReplicationTest {
             receiverFactory.getReceivableSnapshotStore(1),
             receiverRoot.resolve("runtime"),
             replicator,
-            l -> Optional.of(new TestIndexedRaftLogEntry(l, 1, new ApplicationEntry(1, 10, null))),
+            l ->
+                Optional.of(
+                    new TestIndexedRaftLogEntry(
+                        l, 1, new ApplicationEntry(1, 10, new UnsafeBuffer()))),
             db -> Long.MAX_VALUE);
     receiverStore.addSnapshotListener(receiverSnapshotController);
 
     autoCloseableRule.manage(replicatorSnapshotController);
-    autoCloseableRule.manage(senderStore);
     autoCloseableRule.manage(receiverSnapshotController);
-    autoCloseableRule.manage(receiverStore);
     replicatorSnapshotController.openDb();
   }
 

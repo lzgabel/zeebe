@@ -14,12 +14,12 @@ import io.atomix.raft.storage.log.entry.ApplicationEntry;
 import io.zeebe.broker.system.partitions.TestIndexedRaftLogEntry;
 import io.zeebe.db.impl.rocksdb.ZeebeRocksDbFactory;
 import io.zeebe.logstreams.util.RocksDBWrapper;
-import io.zeebe.snapshots.broker.ConstructableSnapshotStore;
-import io.zeebe.snapshots.broker.impl.FileBasedSnapshotMetadata;
-import io.zeebe.snapshots.broker.impl.FileBasedSnapshotStoreFactory;
-import io.zeebe.snapshots.raft.PersistableSnapshot;
-import io.zeebe.snapshots.raft.PersistedSnapshot;
-import io.zeebe.snapshots.raft.TransientSnapshot;
+import io.zeebe.snapshots.ConstructableSnapshotStore;
+import io.zeebe.snapshots.PersistableSnapshot;
+import io.zeebe.snapshots.PersistedSnapshot;
+import io.zeebe.snapshots.TransientSnapshot;
+import io.zeebe.snapshots.impl.FileBasedSnapshotMetadata;
+import io.zeebe.snapshots.impl.FileBasedSnapshotStoreFactory;
 import io.zeebe.test.util.AutoCloseableRule;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.testing.ActorSchedulerRule;
@@ -30,6 +30,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.Optional;
 import org.agrona.collections.MutableLong;
+import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -62,11 +63,13 @@ public final class StateControllerImplTest {
             factory.getReceivableSnapshotStore(1),
             rootDirectory.resolve("runtime"),
             new NoneSnapshotReplication(),
-            l -> Optional.of(new TestIndexedRaftLogEntry(l, 1, new ApplicationEntry(1, 10, null))),
+            l ->
+                Optional.of(
+                    new TestIndexedRaftLogEntry(
+                        l, 1, new ApplicationEntry(1, 10, new UnsafeBuffer()))),
             db -> exporterPosition.get());
 
     autoCloseableRule.manage(snapshotController);
-    autoCloseableRule.manage(store);
   }
 
   @Test

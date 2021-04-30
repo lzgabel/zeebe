@@ -9,7 +9,6 @@ package io.zeebe.engine.processing.bpmn.gateway;
 
 import io.zeebe.engine.processing.bpmn.BpmnElementContext;
 import io.zeebe.engine.processing.bpmn.BpmnElementProcessor;
-import io.zeebe.engine.processing.bpmn.BpmnProcessingException;
 import io.zeebe.engine.processing.bpmn.behavior.BpmnBehaviors;
 import io.zeebe.engine.processing.bpmn.behavior.BpmnStateTransitionBehavior;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableFlowNode;
@@ -35,7 +34,8 @@ public final class ParallelGatewayProcessor implements BpmnElementProcessor<Exec
     // incoming sequence flows are taken
     final var activated = stateTransitionBehavior.transitionToActivated(context);
     final var completing = stateTransitionBehavior.transitionToCompleting(activated);
-    final var completed = stateTransitionBehavior.transitionToCompleted(completing);
+    final var completed =
+        stateTransitionBehavior.transitionToCompletedWithParentNotification(element, completing);
     // fork the process processing by taking all outgoing sequence flows of the parallel gateway
     stateTransitionBehavior.takeOutgoingSequenceFlows(element, completed);
   }
@@ -52,12 +52,5 @@ public final class ParallelGatewayProcessor implements BpmnElementProcessor<Exec
   public void onTerminate(final ExecutableFlowNode element, final BpmnElementContext context) {
     final var terminated = stateTransitionBehavior.transitionToTerminated(context);
     stateTransitionBehavior.onElementTerminated(element, terminated);
-  }
-
-  @Override
-  public void onEventOccurred(final ExecutableFlowNode element, final BpmnElementContext context) {
-    throw new BpmnProcessingException(
-        context,
-        "Expected to handle occurred event on a parallel gateway, but events should not occur on a parallel gateway.");
   }
 }

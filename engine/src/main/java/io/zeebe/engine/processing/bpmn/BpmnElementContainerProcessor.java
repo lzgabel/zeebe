@@ -7,7 +7,9 @@
  */
 package io.zeebe.engine.processing.bpmn;
 
+import io.zeebe.engine.processing.common.Failure;
 import io.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
+import io.zeebe.util.Either;
 
 /**
  * The business logic of an BPMN element container (e.g. a sub-process).
@@ -22,14 +24,43 @@ public interface BpmnElementContainerProcessor<T extends ExecutableFlowElement>
     extends BpmnElementProcessor<T> {
 
   /**
-   * A child element is completed. Leave the element container if it has no more active child
-   * elements.
+   * A child element is on activating (but not yet activated). Perform additional logic for the new
+   * child element, like setting variables.
    *
    * @param element the instance of the BPMN element container
    * @param flowScopeContext process instance-related data of the element container
-   * @param childContext process instance-related data of the child element that is completed
+   * @param childContext process instance-related data of the child element that is on activating
+   * @return either a failure (Left) or any success value (Right)
    */
-  void onChildCompleted(
+  default Either<Failure, ?> onChildActivating(
+      final T element,
+      final BpmnElementContext flowScopeContext,
+      final BpmnElementContext childContext) {
+    return Either.right(null); // im always right
+  }
+
+  /**
+   * The execution path of a child element is about to be completed.
+   *
+   * @param element the instance of the BPMN element container
+   * @param flowScopeContext process instance-related data of the element container
+   * @param childContext process instance-related data of the child element that is completed. At
+   *     this point in time the element is still present in the state
+   */
+  void beforeExecutionPathCompleted(
+      final T element,
+      final BpmnElementContext flowScopeContext,
+      final BpmnElementContext childContext);
+
+  /**
+   * The execution path of a child element has completed.
+   *
+   * @param element the instance of the BPMN element container
+   * @param flowScopeContext process instance-related data of the element container
+   * @param childContext process instance-related data of the child element that is completed. At
+   *     this point in time the element has already been removed from the state.
+   */
+  void afterExecutionPathCompleted(
       final T element,
       final BpmnElementContext flowScopeContext,
       final BpmnElementContext childContext);

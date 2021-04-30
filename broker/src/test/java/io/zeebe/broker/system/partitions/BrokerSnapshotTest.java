@@ -13,14 +13,15 @@ import io.atomix.primitive.partition.PartitionId;
 import io.atomix.raft.partition.RaftPartition;
 import io.atomix.raft.storage.log.RaftLogReader;
 import io.atomix.raft.storage.log.RaftLogReader.Mode;
+import io.netty.util.NetUtil;
 import io.zeebe.broker.clustering.atomix.AtomixFactory;
 import io.zeebe.broker.system.management.BrokerAdminService;
 import io.zeebe.broker.system.management.PartitionStatus;
 import io.zeebe.broker.test.EmbeddedBrokerRule;
 import io.zeebe.client.ZeebeClient;
 import io.zeebe.client.ZeebeClientBuilder;
-import io.zeebe.snapshots.broker.SnapshotId;
-import io.zeebe.snapshots.broker.impl.FileBasedSnapshotMetadata;
+import io.zeebe.snapshots.SnapshotId;
+import io.zeebe.snapshots.impl.FileBasedSnapshotMetadata;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import org.agrona.CloseHelper;
@@ -49,11 +50,10 @@ public class BrokerSnapshotTest {
                 .getPartitionService()
                 .getPartitionGroup(AtomixFactory.GROUP_NAME)
                 .getPartition(PartitionId.from(AtomixFactory.GROUP_NAME, PARTITION_ID));
-    journalReader = raftPartition.getServer().openReader(1, Mode.COMMITS);
+    journalReader = raftPartition.getServer().openReader(Mode.COMMITS);
     brokerAdminService = brokerRule.getBroker().getBrokerAdminService();
 
-    final String contactPoint =
-        io.zeebe.util.SocketUtil.toHostAndPortString(brokerRule.getGatewayAddress());
+    final String contactPoint = NetUtil.toSocketAddressString(brokerRule.getGatewayAddress());
     final ZeebeClientBuilder zeebeClientBuilder =
         ZeebeClient.newClientBuilder().usePlaintext().gatewayAddress(contactPoint);
     client = zeebeClientBuilder.build();
