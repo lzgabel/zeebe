@@ -46,9 +46,9 @@ pipeline {
         SONARCLOUD_TOKEN = credentials('zeebe-sonarcloud-token')
     }
 
-    // triggers {
-        // cron(cronTrigger)
-    // }
+    triggers {
+        cron(cronTrigger)
+    }
 
     options {
         buildDiscarder(logRotator(daysToKeepStr: daysToKeep, numToKeepStr: numToKeep))
@@ -100,7 +100,7 @@ pipeline {
                     // to simplify building the Docker image, we copy the distribution to a fixed
                     // filename that doesn't include the version
                     runMavenContainerCommand('cp dist/target/camunda-cloud-zeebe-*.tar.gz camunda-cloud-zeebe.tar.gz')
-                    stash name: "zeebe-build", includes: "m2-repository/io/zeebe/*/${VERSION}/*"
+                    stash name: "zeebe-build", includes: "m2-repository/io/camunda/*/${VERSION}/*"
                     stash name: "zeebe-distro", includes: "camunda-cloud-zeebe.tar.gz"
                 }
             }
@@ -132,6 +132,7 @@ pipeline {
             when { not { expression { params.SKIP_VERIFY } } }
             parallel {
                 stage('Analyse') {
+                    when { expression { return false } } // disable SonarCloud until new artifact id is linked to project
                     steps {
                         timeout(time: longTimeoutMinutes, unit: 'MINUTES') {
                             runMavenContainerCommand('.ci/scripts/distribution/analyse-java.sh')
@@ -329,7 +330,7 @@ pipeline {
                 TAG = "${env.VERSION}-${env.GIT_COMMIT}"
                 DOCKER_GCR = credentials("zeebe-gcr-serviceaccount-json")
                 ZEEBE_AUTHORIZATION_SERVER_URL = 'https://login.cloud.ultrawombat.com/oauth/token'
-                ZEEBE_CLIENT_ID = 'ELL8eP0qDkl6dxXVps0t51x2VkCkWf~p'
+                ZEEBE_CLIENT_ID = '6WIMz9KT7076gBWmfV7QJK0zGNotmF04'
                 QA_RUN_VARIABLES = "{\"zeebeImage\": \"${env.IMAGE}:${env.TAG}\", \"generationTemplate\": \"${params.GENERATION_TEMPLATE}\", " +
                                     "\"channel\": \"Internal Dev\", \"branch\": \"${env.BRANCH_NAME}\", \"build\": \"${currentBuild.absoluteUrl}\", " +
                                     "\"businessKey\": \"${currentBuild.absoluteUrl}\", \"processId\": \"qa-protocol\"}"
@@ -543,9 +544,9 @@ def checkCodeCoverage() {
         execPattern: '**/*.exec',
         classPattern: '**/target/classes',
         sourcePattern: '**/src/main/java,**/generated-sources/protobuf/java,**/generated-sources/assertj-assertions,**/generated-sources/sbe',
-        exclusionPattern: '**/io/zeebe/gateway/protocol/**,'
+        exclusionPattern: '**/io/camunda/zeebe/gateway/protocol/**,'
             + '**/*Encoder.class,**/*Decoder.class,**/MetaAttribute.class,'
-            + '**/io/zeebe/protocol/record/**/*Assert.class,**/io/zeebe/protocol/record/Assertions.class,', // classes from generated resources
+            + '**/io/camunda/zeebe/protocol/record/**/*Assert.class,**/io/camunda/zeebe/protocol/record/Assertions.class,', // classes from generated resources
         runAlways: true
     )
     zip zipFile: "test-coverage-reports.zip", archive: true, glob: '**/target/site/jacoco/**'
