@@ -74,7 +74,7 @@ public class ElasticsearchClient {
     this.log = log;
     client = createClient();
     this.bulkRequest = bulkRequest;
-    formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
+    formatter = DateTimeFormatter.ofPattern("yyyy-MM").withZone(ZoneOffset.UTC);
   }
 
   public void close() throws IOException {
