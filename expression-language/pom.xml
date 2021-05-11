@@ -5,7 +5,7 @@
   <parent>
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-root</artifactId>
-    <version>1.1.0-SNAPSHOT</version>
+    <version>xhzy-1.0.0-SNAPSHOT</version>
   </parent>
 
   <groupId>io.camunda</groupId>
@@ -79,6 +79,7 @@
       <plugin>
         <groupId>net.alchim31.maven</groupId>
         <artifactId>scala-maven-plugin</artifactId>
+        <version>3.3.3</version>
       </plugin>
 
       <!-- Javadoc generation fails under Java 11 -->

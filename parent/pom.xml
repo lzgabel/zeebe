@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <name>Zeebe Parent</name>
   <artifactId>zeebe-parent</artifactId>
-  <version>1.1.0-SNAPSHOT</version>
+  <version>xhzy-1.0.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <inceptionYear>2017</inceptionYear>
   <url>http://zeebe.io/</url>
@@ -11,7 +11,7 @@
   <parent>
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-bom</artifactId>
-    <version>1.1.0-SNAPSHOT</version>
+    <version>xhzy-1.0.0-SNAPSHOT</version>
     <relativePath>../bom</relativePath>
   </parent>
 
@@ -47,7 +47,7 @@
     <version.docker-java-api>3.2.8</version.docker-java-api>
     <version.elasticsearch>7.12.1</version.elasticsearch>
     <version.error-prone>2.6.0</version.error-prone>
-    <version.grpc>1.37.0</version.grpc>
+    <version.grpc>1.34.1</version.grpc>
     <version.gson>2.8.6</version.gson>
     <version.guava>30.1.1-jre</version.guava>
     <version.hamcrest>2.2</version.hamcrest>
