@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <name>Zeebe Parent</name>
   <artifactId>zeebe-parent</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <inceptionYear>2017</inceptionYear>
   <url>http://zeebe.io/</url>
@@ -11,7 +11,7 @@
   <parent>
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-bom</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.1.0-SNAPSHOT</version>
     <relativePath>../bom</relativePath>
   </parent>
 
@@ -38,7 +38,7 @@
     <version.agrona>1.10.0</version.agrona>
     <version.animal-sniffer>1.20</version.animal-sniffer>
     <version.assertj>3.19.0</version.assertj>
-    <version.awaitility>4.0.3</version.awaitility>
+    <version.awaitility>4.1.0</version.awaitility>
     <version.camunda>7.15.0</version.camunda>
     <version.commons-lang>3.12.0</version.commons-lang>
     <version.commons-logging>1.2</version.commons-logging>
@@ -73,7 +73,7 @@
     <version.protobuf>3.16.0</version.protobuf>
     <version.protobuf-common>2.1.0</version.protobuf-common>
     <version.micrometer>1.6.6</version.micrometer>
-    <version.rocksdbjni>6.19.3</version.rocksdbjni>
+    <version.rocksdbjni>6.20.3</version.rocksdbjni>
     <version.sbe>1.22.0</version.sbe>
     <version.scala-parser>1.1.2</version.scala-parser>
     <version.scala>2.13.5</version.scala>
@@ -131,7 +131,7 @@
     <extension.version.os-maven-plugin>1.7.0</extension.version.os-maven-plugin>
 
     <!-- version against which backwards compatibility is checked -->
-    <backwards.compat.version>0.26.0</backwards.compat.version>
+    <backwards.compat.version>1.0.0</backwards.compat.version>
     <ignored.changes.file>ignored-changes.xml</ignored.changes.file>
   </properties>
 
