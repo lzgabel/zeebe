@@ -6,7 +6,7 @@
   <parent>
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-parent</artifactId>
-    <version>1.0.1-SNAPSHOT</version>
+    <version>xhzy-1.0.0</version>
     <relativePath>../../parent</relativePath>
   </parent>
 
@@ -198,4 +198,15 @@
       </snapshots>
     </repository>
   </repositories>
+
+  <distributionManagement>
+    <repository>
+      <id>private-releases</id>
+      <url>http://116.62.222.54/repository/maven-releases</url>
+    </repository>
+    <snapshotRepository>
+      <id>private-snapshots</id>
+      <url>http://116.62.222.54/repository/maven-snapshots</url>
+    </snapshotRepository>
+  </distributionManagement>
 </project>

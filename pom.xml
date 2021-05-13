@@ -9,7 +9,7 @@
   <parent>
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-parent</artifactId>
-    <version>1.0.1-SNAPSHOT</version>
+    <version>xhzy-1.0.0</version>
     <relativePath>parent/</relativePath>
   </parent>
 
@@ -56,5 +56,16 @@
     <developerConnection>scm:git:https://${env.GITHUB_TOKEN_USR}:${env.GITHUB_TOKEN_PSW}@github.com/camunda-cloud/zeebe.git</developerConnection>
     <tag>1.0.0</tag>
   </scm>
+
+  <distributionManagement>
+    <repository>
+      <id>private-releases</id>
+      <url>http://116.62.222.54/repository/maven-releases</url>
+    </repository>
+    <snapshotRepository>
+      <id>private-snapshots</id>
+      <url>http://116.62.222.54/repository/maven-snapshots</url>
+    </snapshotRepository>
+  </distributionManagement>
 
 </project>

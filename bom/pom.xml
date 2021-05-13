@@ -4,7 +4,7 @@
   <name>Zeebe BOM</name>
   <groupId>io.camunda</groupId>
   <artifactId>zeebe-bom</artifactId>
-  <version>1.0.1-SNAPSHOT</version>
+  <version>xhzy-1.0.0</version>
   <packaging>pom</packaging>
   <inceptionYear>2017</inceptionYear>
   <url>http://zeebe.io/</url>
@@ -26,7 +26,7 @@
     </nexus.release.repository>
     <nexus.sonatype.url>https://s01.oss.sonatype.org</nexus.sonatype.url>
 
-    <version.netty>4.1.63.Final</version.netty>
+    <version.netty>4.1.58.Final</version.netty>
 
     <version.java>11</version.java>
     <plugin.version.javadoc>3.2.0</plugin.version.javadoc>
@@ -279,5 +279,16 @@
     <developerConnection>scm:git:git@github.com:zeebe-io/zeebe.git</developerConnection>
     <tag>1.0.0</tag>
   </scm>
+
+  <distributionManagement>
+    <repository>
+      <id>private-releases</id>
+      <url>http://116.62.222.54/repository/maven-releases</url>
+    </repository>
+    <snapshotRepository>
+      <id>private-snapshots</id>
+      <url>http://116.62.222.54/repository/maven-snapshots</url>
+    </snapshotRepository>
+  </distributionManagement>
 
 </project>
