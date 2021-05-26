@@ -1,6 +1,5 @@
 /*
- *
- * Copyright 2018 gRPC authors.
+ * Copyright © 2017 camunda services GmbH (info@camunda.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,10 +12,12 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
+package io.camunda.zeebe.journal.file;
 
-package grpc
+public class UnknownVersionException extends RuntimeException {
 
-// Version is the current grpc version.
-const Version = "1.38.0"
+  public UnknownVersionException(final String message) {
+    super(message);
+  }
+}
