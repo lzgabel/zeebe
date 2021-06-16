@@ -18,11 +18,7 @@ package io.camunda.zeebe.client.impl;
 import static io.camunda.zeebe.client.impl.BuilderUtils.appendProperty;
 import static io.camunda.zeebe.client.impl.command.ArgumentUtil.ensureNotNull;
 
-import io.camunda.zeebe.client.ClientProperties;
-import io.camunda.zeebe.client.CredentialsProvider;
-import io.camunda.zeebe.client.ZeebeClient;
-import io.camunda.zeebe.client.ZeebeClientBuilder;
-import io.camunda.zeebe.client.ZeebeClientCloudBuilderStep1;
+import io.camunda.zeebe.client.*;
 import io.camunda.zeebe.client.ZeebeClientCloudBuilderStep1.ZeebeClientCloudBuilderStep2;
 import io.camunda.zeebe.client.ZeebeClientCloudBuilderStep1.ZeebeClientCloudBuilderStep2.ZeebeClientCloudBuilderStep3;
 import io.camunda.zeebe.client.ZeebeClientCloudBuilderStep1.ZeebeClientCloudBuilderStep2.ZeebeClientCloudBuilderStep3.ZeebeClientCloudBuilderStep4;
@@ -122,6 +118,12 @@ public class ZeebeClientCloudBuilderImpl
   }
 
   @Override
+  public ZeebeClientCloudBuilderStep4 namespace(final String namespase) {
+    innerBuilder.namespace(namespase);
+    return this;
+  }
+
+  @Override
   public ZeebeClientCloudBuilderStep4 defaultJobTimeout(final Duration timeout) {
     innerBuilder.defaultJobTimeout(timeout);
     return this;
@@ -179,6 +181,11 @@ public class ZeebeClientCloudBuilderImpl
   @Override
   public ZeebeClientCloudBuilderStep4 withJsonMapper(final JsonMapper jsonMapper) {
     innerBuilder.withJsonMapper(jsonMapper);
+    return this;
+  }
+
+  @Override
+  public ZeebeClientBuilder namespace(String namespace) {
     return this;
   }
 
