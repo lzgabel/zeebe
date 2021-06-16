@@ -33,15 +33,17 @@ import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.DeployProcessRequest;
 import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.ProcessRequestObject;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.camunda.zeebe.model.bpmn.instance.ExtensionElements;
+import io.camunda.zeebe.model.bpmn.instance.Process;
+import io.camunda.zeebe.model.bpmn.instance.ServiceTask;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskDefinition;
 import io.grpc.stub.StreamObserver;
-import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
+
+import java.io.*;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
@@ -50,14 +52,17 @@ public final class DeployProcessCommandImpl
 
   private final DeployProcessRequest.Builder requestBuilder = DeployProcessRequest.newBuilder();
   private final GatewayStub asyncStub;
+  private final String namespace;
   private final Predicate<Throwable> retryPredicate;
   private Duration requestTimeout;
 
   public DeployProcessCommandImpl(
       final GatewayStub asyncStub,
       final Duration requestTimeout,
+      final String namespace,
       final Predicate<Throwable> retryPredicate) {
     this.asyncStub = asyncStub;
+    this.namespace = namespace;
     this.requestTimeout = requestTimeout;
     this.retryPredicate = retryPredicate;
   }
@@ -65,11 +70,26 @@ public final class DeployProcessCommandImpl
   @Override
   public DeployProcessCommandBuilderStep2 addResourceBytes(
       final byte[] resource, final String resourceName) {
-
+      ByteString definition = ByteString.copyFrom(resource);
+      if (namespace != null && namespace.length() > 0) {
+          BpmnModelInstance instance = Bpmn.readModelFromStream(new ByteArrayInputStream(resource));
+          Collection<Process> processes = instance.getModelElementsByType(Process.class);
+          Process process = processes.iterator().next();
+          Collection<ServiceTask> serviceTasks = instance.getModelElementsByType(ServiceTask.class);
+          serviceTasks.stream().forEach(serviceTask -> {
+              ExtensionElements extensionElements = serviceTask.getExtensionElements();
+              Collection<ZeebeTaskDefinition> taskDefinitions = extensionElements.getChildElementsByType(ZeebeTaskDefinition.class);
+              ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
+              taskDefinition.setType(namespace + "." + taskDefinition.getType());
+          });
+          process.setId(namespace + "." + process.getId());
+          process.setName(namespace + "." + process.getName());
+          definition = ByteString.copyFrom(Bpmn.convertToString(instance).getBytes());
+      }
     requestBuilder.addProcesses(
         ProcessRequestObject.newBuilder()
             .setName(resourceName)
-            .setDefinition(ByteString.copyFrom(resource)));
+            .setDefinition(definition));
 
     return this;
   }
