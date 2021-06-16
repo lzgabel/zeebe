@@ -111,6 +111,11 @@ public class ZeebeClientCloudBuilderImpl
   }
 
   @Override
+  public ZeebeClientBuilder namespace(final String namespase) {
+    return innerBuilder.namespace(namespase);
+  }
+
+  @Override
   public ZeebeClientBuilder defaultJobTimeout(final Duration timeout) {
     return innerBuilder.defaultJobTimeout(timeout);
   }

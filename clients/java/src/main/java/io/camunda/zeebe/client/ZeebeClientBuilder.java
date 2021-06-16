@@ -92,6 +92,8 @@ public interface ZeebeClientBuilder {
 
   ZeebeClientBuilder withJsonMapper(JsonMapper jsonMapper);
 
+  ZeebeClientBuilder namespace(String namespace);
+
   /** @return a new {@link ZeebeClient} with the provided configuration options. */
   ZeebeClient build();
 }

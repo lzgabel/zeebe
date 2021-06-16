@@ -31,6 +31,7 @@ import io.camunda.zeebe.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilder
 import io.camunda.zeebe.gateway.protocol.GatewayGrpc.GatewayStub;
 import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.ActivateJobsRequest;
 import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.ActivateJobsRequest.Builder;
+
 import java.io.Closeable;
 import java.time.Duration;
 import java.util.Arrays;
@@ -51,6 +52,7 @@ public final class JobWorkerBuilderImpl
   private final List<Closeable> closeables;
   private final Predicate<Throwable> retryPredicate;
   private String jobType;
+  private String namespace;
   private JobHandler handler;
   private long timeout;
   private String workerName;
@@ -76,6 +78,8 @@ public final class JobWorkerBuilderImpl
 
     timeout = configuration.getDefaultJobTimeout().toMillis();
     workerName = configuration.getDefaultJobWorkerName();
+    namespace = configuration.getNamespace() == null ||
+            configuration.getNamespace().length() == 0 ? "" : configuration.getNamespace() + ".";
     maxJobsActive = configuration.getDefaultJobWorkerMaxJobsActive();
     pollInterval = configuration.getDefaultJobPollInterval();
     requestTimeout = configuration.getDefaultRequestTimeout();
@@ -157,7 +161,7 @@ public final class JobWorkerBuilderImpl
 
     final Builder requestBuilder =
         ActivateJobsRequest.newBuilder()
-            .setType(jobType)
+            .setType(namespace + jobType)
             .setTimeout(timeout)
             .setWorker(workerName)
             .setMaxJobsToActivate(maxJobsActive)

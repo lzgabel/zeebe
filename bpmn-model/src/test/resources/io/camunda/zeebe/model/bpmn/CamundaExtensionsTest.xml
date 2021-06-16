@@ -13,7 +13,7 @@
       camunda:taskPriority="13"
       camunda:historyTimeToLive="5"
       camunda:isStartableInTasklist="false"
-      camunda:versionTag="vxhzy-1.0.0">
+      camunda:versionTag="vxhzy-1.0.3-SNAPSHOT">
     <extensionElements>
       <camunda:executionListener event="start" class="org.camunda.test.Test"/>
     </extensionElements>
