@@ -163,7 +163,7 @@
         - skipUTs will skip unit tests
         - skipChecks will non-test checks, such as licensing, checkstyle, backwards compat, etc.
       -->
-    <skipTests>false</skipTests>
+    <skipTests>true</skipTests>
     <skipUTs>${skipTests}</skipUTs>
     <skipITs>${skipTests}</skipITs>
     <jacoco.skip>${skipUTs}</jacoco.skip>
@@ -175,7 +175,7 @@
       that way, you can use skipChecks, but you can also still use checkstyle.skip if you only want
       to disable checkstyle
       -->
-    <skipChecks>false</skipChecks>
+    <skipChecks>true</skipChecks>
     <checkstyle.skip>${skipChecks}</checkstyle.skip>
     <revapi.skip>${skipChecks}</revapi.skip>
     <license.skip>${skipChecks}</license.skip>

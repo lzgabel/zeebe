@@ -102,6 +102,8 @@ public interface ZeebeClientBuilder {
 
   ZeebeClientBuilder withJsonMapper(JsonMapper jsonMapper);
 
+  ZeebeClientBuilder namespace(String namespace);
+
   /**
    * Overrides the authority used with TLS virtual hosting. Specifically, to override hostname
    * verification in the TLS handshake. It does not change what host is actually connected to.
