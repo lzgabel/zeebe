@@ -33,6 +33,9 @@ public interface ZeebeClientConfiguration {
   /** @see ZeebeClientBuilder#defaultJobWorkerName(String) */
   String getDefaultJobWorkerName();
 
+  /** @see ZeebeClientBuilder#namespace(String) */
+  String getNamespace();
+
   /** @see ZeebeClientBuilder#defaultJobTimeout(Duration) */
   Duration getDefaultJobTimeout();
 

@@ -42,6 +42,7 @@ public final class CreateProcessInstanceCommandImpl
 
   private final GatewayStub asyncStub;
   private final Builder builder;
+  private final String namespace;
   private final Predicate<Throwable> retryPredicate;
   private final JsonMapper jsonMapper;
   private Duration requestTimeout;
@@ -50,9 +51,11 @@ public final class CreateProcessInstanceCommandImpl
       final GatewayStub asyncStub,
       final JsonMapper jsonMapper,
       final Duration requestTimeout,
+      final String namespace,
       final Predicate<Throwable> retryPredicate) {
     this.asyncStub = asyncStub;
     this.requestTimeout = requestTimeout;
+    this.namespace = namespace;
     this.retryPredicate = retryPredicate;
     this.jsonMapper = jsonMapper;
     builder = CreateProcessInstanceRequest.newBuilder();
@@ -89,7 +92,7 @@ public final class CreateProcessInstanceCommandImpl
 
   @Override
   public CreateProcessInstanceCommandStep2 bpmnProcessId(final String id) {
-    builder.setBpmnProcessId(id);
+    builder.setBpmnProcessId(namespace == null || namespace.length() == 0 ? id : namespace + "." + id);
     return this;
   }
 

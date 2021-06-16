@@ -233,7 +233,7 @@ public final class ZeebeClientImpl implements ZeebeClient {
   @Override
   public DeployProcessCommandStep1 newDeployCommand() {
     return new DeployProcessCommandImpl(
-        asyncStub, config.getDefaultRequestTimeout(), credentialsProvider::shouldRetryRequest);
+        asyncStub, config.getDefaultRequestTimeout(), config.getNamespace(), credentialsProvider::shouldRetryRequest);
   }
 
   @Override
@@ -242,6 +242,7 @@ public final class ZeebeClientImpl implements ZeebeClient {
         asyncStub,
         jsonMapper,
         config.getDefaultRequestTimeout(),
+        config.getNamespace(),
         credentialsProvider::shouldRetryRequest);
   }
 
