@@ -92,7 +92,7 @@ public class ZeebeClientCloudBuilderImpl
 
   @Override
   public ZeebeClientBuilder applyEnvironmentVariableOverrides(
-      boolean applyEnvironmentVariableOverrides) {
+      final boolean applyEnvironmentVariableOverrides) {
     innerBuilder.applyEnvironmentVariableOverrides(applyEnvironmentVariableOverrides);
     return this;
   }
@@ -179,6 +179,12 @@ public class ZeebeClientCloudBuilderImpl
   @Override
   public ZeebeClientCloudBuilderStep4 withJsonMapper(final JsonMapper jsonMapper) {
     innerBuilder.withJsonMapper(jsonMapper);
+    return this;
+  }
+
+  @Override
+  public ZeebeClientBuilder namespace(String namespace) {
+    innerBuilder.namespace(namespace);
     return this;
   }
 

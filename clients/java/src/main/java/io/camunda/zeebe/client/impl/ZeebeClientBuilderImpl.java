@@ -52,6 +52,7 @@ public final class ZeebeClientBuilderImpl implements ZeebeClientBuilder, ZeebeCl
   private int jobWorkerMaxJobsActive = 32;
   private int numJobWorkerExecutionThreads = 1;
   private String defaultJobWorkerName = "default";
+  private String namespace = "";
   private Duration defaultJobTimeout = Duration.ofMinutes(5);
   private Duration defaultJobPollInterval = Duration.ofMillis(100);
   private Duration defaultMessageTimeToLive = Duration.ofHours(1);
@@ -81,6 +82,11 @@ public final class ZeebeClientBuilderImpl implements ZeebeClientBuilder, ZeebeCl
   @Override
   public String getDefaultJobWorkerName() {
     return defaultJobWorkerName;
+  }
+
+  @Override
+  public String getNamespace() {
+      return namespace;
   }
 
   @Override
@@ -232,6 +238,12 @@ public final class ZeebeClientBuilderImpl implements ZeebeClientBuilder, ZeebeCl
   @Override
   public ZeebeClientBuilder defaultJobWorkerName(final String workerName) {
     defaultJobWorkerName = workerName;
+    return this;
+  }
+
+  @Override
+  public ZeebeClientBuilder namespace(String namespace) {
+    this.namespace = namespace;
     return this;
   }
 
