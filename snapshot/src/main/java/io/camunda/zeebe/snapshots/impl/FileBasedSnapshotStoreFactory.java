@@ -11,11 +11,12 @@ import io.camunda.zeebe.snapshots.ConstructableSnapshotStore;
 import io.camunda.zeebe.snapshots.PersistedSnapshotStore;
 import io.camunda.zeebe.snapshots.ReceivableSnapshotStore;
 import io.camunda.zeebe.snapshots.ReceivableSnapshotStoreFactory;
-import io.camunda.zeebe.snapshots.SnapshotStoreSupplier;
+import io.camunda.zeebe.util.FileUtil;
 import io.camunda.zeebe.util.sched.ActorScheduler;
 import io.camunda.zeebe.util.sched.SchedulingHints;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
-import org.agrona.IoUtil;
 import org.agrona.collections.Int2ObjectHashMap;
 
 /**
@@ -28,8 +29,7 @@ import org.agrona.collections.Int2ObjectHashMap;
  * <p>The metadata extraction is done by parsing the directory name using '%d-%d-%d-%d', where in
  * order we expect: index, term, processed position and exported position.
  */
-public final class FileBasedSnapshotStoreFactory
-    implements SnapshotStoreSupplier, ReceivableSnapshotStoreFactory {
+public final class FileBasedSnapshotStoreFactory implements ReceivableSnapshotStoreFactory {
   public static final String SNAPSHOTS_DIRECTORY = "snapshots";
   public static final String PENDING_DIRECTORY = "pending";
 
@@ -49,8 +49,12 @@ public final class FileBasedSnapshotStoreFactory
     final var snapshotDirectory = root.resolve(SNAPSHOTS_DIRECTORY);
     final var pendingDirectory = root.resolve(PENDING_DIRECTORY);
 
-    IoUtil.ensureDirectoryExists(snapshotDirectory.toFile(), "Snapshot directory");
-    IoUtil.ensureDirectoryExists(pendingDirectory.toFile(), "Pending snapshot directory");
+    try {
+      FileUtil.ensureDirectoryExists(snapshotDirectory);
+      FileUtil.ensureDirectoryExists(pendingDirectory);
+    } catch (final IOException e) {
+      throw new UncheckedIOException("Failed to create snapshot directories", e);
+    }
 
     return partitionSnapshotStores.computeIfAbsent(
         partitionId,
@@ -70,17 +74,14 @@ public final class FileBasedSnapshotStoreFactory
     return snapshotStore;
   }
 
-  @Override
   public ConstructableSnapshotStore getConstructableSnapshotStore(final int partitionId) {
     return partitionSnapshotStores.get(partitionId);
   }
 
-  @Override
   public ReceivableSnapshotStore getReceivableSnapshotStore(final int partitionId) {
     return partitionSnapshotStores.get(partitionId);
   }
 
-  @Override
   public PersistedSnapshotStore getPersistedSnapshotStore(final int partitionId) {
     return partitionSnapshotStores.get(partitionId);
   }

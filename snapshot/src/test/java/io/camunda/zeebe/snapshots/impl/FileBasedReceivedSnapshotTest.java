@@ -9,6 +9,7 @@ package io.camunda.zeebe.snapshots.impl;
 
 import static java.nio.file.StandardOpenOption.CREATE_NEW;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.camunda.zeebe.snapshots.PersistedSnapshot;
 import io.camunda.zeebe.snapshots.PersistedSnapshotListener;
@@ -27,13 +28,14 @@ import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import org.agrona.IoUtil;
+import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 public class FileBasedReceivedSnapshotTest {
+
   private static final String SNAPSHOT_DIRECTORY = "snapshots";
   private static final String PENDING_DIRECTORY = "pending";
   private static final int PARTITION_ID = 1;
@@ -78,7 +80,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldStoreReceivedSnapshotInPendingDirectory() throws IOException {
+  public void shouldStoreReceivedSnapshotInPendingDirectory() {
     // given
     final var persistedSnapshot = takePersistedSnapshot(1L);
 
@@ -96,7 +98,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldReceiveChunk() throws Exception {
+  public void shouldReceiveChunk() {
     // given
     final var persistedSnapshot = takePersistedSnapshot(1L);
     final var receivedSnapshot =
@@ -120,7 +122,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldRemovePreviousSnapshotOnCommit() throws Exception {
+  public void shouldRemovePreviousSnapshotOnCommit() {
     // given
     final PersistedSnapshot firstPersistedSnapshot = takePersistedSnapshot(1L);
     receiveSnapshot(firstPersistedSnapshot).persist().join();
@@ -140,7 +142,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldNotRemovePendingSnapshotOnCommittingSnapshotWhenHigher() throws Exception {
+  public void shouldNotRemovePendingSnapshotOnCommittingSnapshotWhenHigher() {
     // given
     final var olderPersistedSnapshot = takePersistedSnapshot(1L);
     final ReceivedSnapshot olderReceivedSnapshot = receiveSnapshot(olderPersistedSnapshot);
@@ -159,7 +161,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldDeletePartialSnapshotOnInvalidChecksumPersist() throws Exception {
+  public void shouldDeletePartialSnapshotOnInvalidChecksumPersist() {
     // given
     final var persistedSnapshot = (FileBasedSnapshot) takePersistedSnapshot(1L);
     final var corruptedSnapshot =
@@ -181,7 +183,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldNotifyListenersOnNewSnapshot() throws Exception {
+  public void shouldNotifyListenersOnNewSnapshot() {
     // given
     final AtomicReference<PersistedSnapshot> snapshotRef = new AtomicReference<>();
     final PersistedSnapshotListener listener = snapshotRef::set;
@@ -198,7 +200,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldNotNotifyListenersOnNewSnapshotWhenRemoved() throws Exception {
+  public void shouldNotNotifyListenersOnNewSnapshotWhenRemoved() {
     // given
     final AtomicReference<PersistedSnapshot> snapshotRef = new AtomicReference<>();
     final PersistedSnapshotListener listener = snapshotRef::set;
@@ -216,7 +218,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldNotWriteChunkIfItHasTheWrongSnapshotChecksum() throws Exception {
+  public void shouldNotWriteChunkIfItHasTheWrongSnapshotChecksum() {
     // given
     final var persistedSnapshot = takePersistedSnapshot(1L);
 
@@ -242,7 +244,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldNotWriteChunkWithInvalidChunkChecksum() throws Exception {
+  public void shouldNotWriteChunkWithInvalidChunkChecksum() {
     // given
     final var persistedSnapshot = takePersistedSnapshot(1L);
 
@@ -267,7 +269,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldNotWriteChunkWithWrongTotalChunkCount() throws Exception {
+  public void shouldNotWriteChunkWithWrongTotalChunkCount() {
     // given
     final var persistedSnapshot = takePersistedSnapshot(1L);
 
@@ -281,7 +283,8 @@ public class FileBasedReceivedSnapshotTest {
 
       final var corruptedChunk =
           SnapshotChunkWrapper.withTotalCount(snapshotChunkReader.next(), 55);
-      receivedSnapshot.apply(corruptedChunk).join();
+      Assertions.assertThatThrownBy(() -> receivedSnapshot.apply(corruptedChunk).join())
+          .hasCauseInstanceOf(SnapshotWriteException.class);
     }
 
     // then
@@ -293,7 +296,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   @Test
-  public void shouldNotWriteChunkOnInvalidId() throws Exception {
+  public void shouldNotWriteChunkOnInvalidId() {
     // given
     final var persistedSnapshot = takePersistedSnapshot(1L);
 
@@ -307,7 +310,8 @@ public class FileBasedReceivedSnapshotTest {
 
       final SnapshotChunk corruptedChunk =
           SnapshotChunkWrapper.withSnapshotId(snapshotChunkReader.next(), "id");
-      receivedSnapshot.apply(corruptedChunk).join();
+      final var future = receivedSnapshot.apply(corruptedChunk);
+      assertThatThrownBy(future::get).hasCauseInstanceOf(SnapshotWriteException.class);
     }
 
     // then
@@ -318,8 +322,7 @@ public class FileBasedReceivedSnapshotTest {
             receivedSnapshot.getPath().resolve(firstChunk.getChunkName()));
   }
 
-  private ReceivedSnapshot receiveSnapshot(final PersistedSnapshot persistedSnapshot)
-      throws IOException {
+  private ReceivedSnapshot receiveSnapshot(final PersistedSnapshot persistedSnapshot) {
     final var receivedSnapshot =
         receiverSnapshotStore.newReceivedSnapshot(persistedSnapshot.getId());
 
@@ -355,7 +358,7 @@ public class FileBasedReceivedSnapshotTest {
   }
 
   private FileBasedSnapshotStore createStore(
-      final int nodeId, final Path snapshotDir, final Path pendingDir) {
+      final int nodeId, final Path snapshotDir, final Path pendingDir) throws IOException {
     final var store =
         new FileBasedSnapshotStore(
             nodeId,
@@ -364,8 +367,8 @@ public class FileBasedReceivedSnapshotTest {
             snapshotDir,
             pendingDir);
 
-    IoUtil.ensureDirectoryExists(snapshotDir.toFile(), "snapshots directory");
-    IoUtil.ensureDirectoryExists(pendingDir.toFile(), "pending directory");
+    FileUtil.ensureDirectoryExists(snapshotDir);
+    FileUtil.ensureDirectoryExists(pendingDir);
     scheduler.submitActor(store);
 
     return store;

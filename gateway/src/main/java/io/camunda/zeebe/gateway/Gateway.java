@@ -7,7 +7,9 @@
  */
 package io.camunda.zeebe.gateway;
 
-import io.atomix.cluster.AtomixCluster;
+import io.atomix.cluster.ClusterMembershipService;
+import io.atomix.cluster.messaging.ClusterEventService;
+import io.atomix.cluster.messaging.MessagingService;
 import io.camunda.zeebe.gateway.impl.broker.BrokerClient;
 import io.camunda.zeebe.gateway.impl.broker.BrokerClientImpl;
 import io.camunda.zeebe.gateway.impl.configuration.GatewayCfg;
@@ -17,7 +19,7 @@ import io.camunda.zeebe.gateway.impl.job.ActivateJobsHandler;
 import io.camunda.zeebe.gateway.impl.job.LongPollingActivateJobsHandler;
 import io.camunda.zeebe.gateway.impl.job.RoundRobinActivateJobsHandler;
 import io.camunda.zeebe.util.VersionUtil;
-import io.camunda.zeebe.util.sched.ActorScheduler;
+import io.camunda.zeebe.util.sched.ActorSchedulingService;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.ServerInterceptors;
@@ -40,41 +42,42 @@ public final class Gateway {
   private final Function<GatewayCfg, ServerBuilder> serverBuilderFactory;
   private final Function<GatewayCfg, BrokerClient> brokerClientFactory;
   private final GatewayCfg gatewayCfg;
-  private final ActorScheduler actorScheduler;
+  private final ActorSchedulingService actorSchedulingService;
 
   private Server server;
   private BrokerClient brokerClient;
 
-  @SuppressWarnings("squid:S3077")
   private volatile Status status = Status.INITIAL;
 
   public Gateway(
       final GatewayCfg gatewayCfg,
-      final AtomixCluster atomixCluster,
-      final ActorScheduler actorScheduler) {
+      final MessagingService messagingService,
+      final ClusterMembershipService membershipService,
+      final ClusterEventService eventService,
+      final ActorSchedulingService actorSchedulingService) {
     this(
         gatewayCfg,
-        cfg -> new BrokerClientImpl(cfg, atomixCluster),
+        cfg -> new BrokerClientImpl(cfg, messagingService, membershipService, eventService),
         DEFAULT_SERVER_BUILDER_FACTORY,
-        actorScheduler);
+        actorSchedulingService);
   }
 
   public Gateway(
       final GatewayCfg gatewayCfg,
       final Function<GatewayCfg, BrokerClient> brokerClientFactory,
-      final ActorScheduler actorScheduler) {
-    this(gatewayCfg, brokerClientFactory, DEFAULT_SERVER_BUILDER_FACTORY, actorScheduler);
+      final ActorSchedulingService actorSchedulingService) {
+    this(gatewayCfg, brokerClientFactory, DEFAULT_SERVER_BUILDER_FACTORY, actorSchedulingService);
   }
 
   public Gateway(
       final GatewayCfg gatewayCfg,
       final Function<GatewayCfg, BrokerClient> brokerClientFactory,
       final Function<GatewayCfg, ServerBuilder> serverBuilderFactory,
-      final ActorScheduler actorScheduler) {
+      final ActorSchedulingService actorSchedulingService) {
     this.gatewayCfg = gatewayCfg;
     this.brokerClientFactory = brokerClientFactory;
     this.serverBuilderFactory = serverBuilderFactory;
-    this.actorScheduler = actorScheduler;
+    this.actorSchedulingService = actorSchedulingService;
   }
 
   public GatewayCfg getGatewayCfg() {
@@ -102,7 +105,7 @@ public final class Gateway {
     if (gatewayCfg.getLongPolling().isEnabled()) {
       final LongPollingActivateJobsHandler longPollingHandler =
           buildLongPollingHandler(brokerClient);
-      actorScheduler.submitActor(longPollingHandler);
+      actorSchedulingService.submitActor(longPollingHandler);
       activateJobsHandler = longPollingHandler;
     } else {
       activateJobsHandler = new RoundRobinActivateJobsHandler(brokerClient);

@@ -15,6 +15,7 @@ import io.camunda.zeebe.engine.state.EventApplier;
 import io.camunda.zeebe.engine.state.ZeebeDbState;
 import io.camunda.zeebe.engine.state.mutable.MutableZeebeState;
 import io.camunda.zeebe.logstreams.impl.Loggers;
+import io.camunda.zeebe.logstreams.log.LogRecordAwaiter;
 import io.camunda.zeebe.logstreams.log.LogStream;
 import io.camunda.zeebe.logstreams.log.LogStreamBatchWriter;
 import io.camunda.zeebe.logstreams.log.LogStreamReader;
@@ -23,8 +24,7 @@ import io.camunda.zeebe.util.health.FailureListener;
 import io.camunda.zeebe.util.health.HealthMonitorable;
 import io.camunda.zeebe.util.health.HealthStatus;
 import io.camunda.zeebe.util.sched.Actor;
-import io.camunda.zeebe.util.sched.ActorCondition;
-import io.camunda.zeebe.util.sched.ActorScheduler;
+import io.camunda.zeebe.util.sched.ActorSchedulingService;
 import io.camunda.zeebe.util.sched.clock.ActorClock;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
 import io.camunda.zeebe.util.sched.future.CompletableActorFuture;
@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import org.slf4j.Logger;
 
-public class StreamProcessor extends Actor implements HealthMonitorable {
+public class StreamProcessor extends Actor implements HealthMonitorable, LogRecordAwaiter {
 
   public static final long UNSET_POSITION = -1L;
   public static final Duration HEALTH_CHECK_TICK_DURATION = Duration.ofSeconds(5);
@@ -44,7 +44,7 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
   private static final String ERROR_MESSAGE_RECOVER_FROM_SNAPSHOT_FAILED =
       "Expected to find event with the snapshot position %s in log stream, but nothing was found. Failed to recover '%s'.";
   private static final Logger LOG = Loggers.LOGSTREAMS_LOGGER;
-  private final ActorScheduler actorScheduler;
+  private final ActorSchedulingService actorSchedulingService;
   private final AtomicBoolean isOpened = new AtomicBoolean(false);
   private final List<StreamProcessorLifecycleAware> lifecycleAwareListeners;
   private final Function<MutableZeebeState, EventApplier> eventApplierFactory;
@@ -60,7 +60,6 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
   private final TypedRecordProcessorFactory typedRecordProcessorFactory;
   private final String actorName;
   private LogStreamReader logStreamReader;
-  private ActorCondition onCommitPositionUpdatedCondition;
   private long snapshotPosition = -1L;
   private ProcessingStateMachine processingStateMachine;
 
@@ -70,11 +69,11 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
   private CompletableActorFuture<Void> closeFuture = CompletableActorFuture.completed(null);
   private volatile long lastTickTime;
   private boolean shouldProcess = true;
-  /** Recover future is completed after reprocessing is done. */
+  /** Recover future is completed after replay is done. */
   private ActorFuture<Long> recoverFuture;
 
   protected StreamProcessor(final StreamProcessorBuilder processorBuilder) {
-    actorScheduler = processorBuilder.getActorScheduler();
+    actorSchedulingService = processorBuilder.getActorSchedulingService();
     lifecycleAwareListeners = processorBuilder.getLifecycleListeners();
 
     typedRecordProcessorFactory = processorBuilder.getTypedRecordProcessorFactory();
@@ -120,16 +119,13 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
           new ProcessingStateMachine(processingContext, this::shouldProcessNext);
 
       healthCheckTick();
-      openFuture.complete(null);
 
-      final ReProcessingStateMachine reProcessingStateMachine =
-          new ReProcessingStateMachine(processingContext);
+      final ReplayStateMachine replayStateMachine = new ReplayStateMachine(processingContext);
 
-      // disable writing to the log stream but for reprocessing checks
+      // disable writing to the log stream
       processingContext.disableLogStreamWriter();
-      processingContext.enableReprocessingStreamWriter();
 
-      recoverFuture = reProcessingStateMachine.startRecover(snapshotPosition);
+      recoverFuture = replayStateMachine.startRecover(snapshotPosition);
 
       actor.runOnCompletion(
           recoverFuture,
@@ -195,11 +191,7 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
 
   private void tearDown() {
     processingContext.getLogStreamReader().close();
-
-    if (onCommitPositionUpdatedCondition != null) {
-      logStream.removeOnCommitPositionUpdatedCondition(onCommitPositionUpdatedCondition);
-      onCommitPositionUpdatedCondition = null;
-    }
+    logStream.removeRecordAvailableListener(this);
   }
 
   private void healthCheckTick() {
@@ -239,7 +231,7 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
     if (isOpened.compareAndSet(false, true)) {
       shouldProcess = !pauseOnStart;
       openFuture = new CompletableActorFuture<>();
-      actorScheduler.submitActor(this);
+      actorSchedulingService.submitActor(this);
     }
     return openFuture;
   }
@@ -291,10 +283,7 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
     // enable writing records to the stream
     processingContext.enableLogStreamWriter();
 
-    onCommitPositionUpdatedCondition =
-        actor.onCondition(
-            getName() + "-on-commit-position-updated", processingStateMachine::readNextEvent);
-    logStream.registerOnCommitPositionUpdatedCondition(onCommitPositionUpdatedCondition);
+    logStream.registerRecordAvailableListener(this);
 
     // start reading
     lifecycleAwareListeners.forEach(l -> l.onRecovered(processingContext));
@@ -302,6 +291,8 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
     if (!shouldProcess) {
       setStateToPausedAndNotifyListeners();
     }
+
+    openFuture.complete(null);
   }
 
   private void onFailure(final Throwable throwable) {
@@ -344,7 +335,7 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
       return HealthStatus.UNHEALTHY;
     }
 
-    if (!processingStateMachine.isMakingProgress()) {
+    if (processingStateMachine == null || !processingStateMachine.isMakingProgress()) {
       return HealthStatus.UNHEALTHY;
     }
 
@@ -403,6 +394,11 @@ public class StreamProcessor extends Actor implements HealthMonitorable {
                     LOG.debug("Resumed processing for partition {}", partitionId);
                   }
                 }));
+  }
+
+  @Override
+  public void onRecordAvailable() {
+    actor.run(processingStateMachine::readNextEvent);
   }
 
   public enum Phase {

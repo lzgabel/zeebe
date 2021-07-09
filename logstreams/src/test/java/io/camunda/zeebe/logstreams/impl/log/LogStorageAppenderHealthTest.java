@@ -45,7 +45,7 @@ public final class LogStorageAppenderHealthTest {
 
     dispatcher =
         Dispatchers.create("0")
-            .actorScheduler(schedulerRule.get())
+            .actorSchedulingService(schedulerRule.get())
             .bufferSize((int) ByteValue.ofMegabytes(100 * MAX_FRAGMENT_SIZE))
             .maxFragmentLength(MAX_FRAGMENT_SIZE)
             .build();
@@ -53,7 +53,7 @@ public final class LogStorageAppenderHealthTest {
 
     appender =
         new LogStorageAppender(
-            "appender", PARTITION_ID, failingLogStorage, subscription, MAX_FRAGMENT_SIZE, l -> {});
+            "appender", PARTITION_ID, failingLogStorage, subscription, MAX_FRAGMENT_SIZE, () -> {});
     writer = new LogStreamWriterImpl(PARTITION_ID, dispatcher);
   }
 
