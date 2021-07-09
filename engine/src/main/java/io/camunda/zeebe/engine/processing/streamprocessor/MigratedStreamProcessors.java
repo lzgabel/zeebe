@@ -51,6 +51,9 @@ public final class MigratedStreamProcessors {
     MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.SUB_PROCESS);
     MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.EVENT_SUB_PROCESS);
     MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.SEQUENCE_FLOW);
+    MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.BUSINESS_RULE_TASK);
+    MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.SCRIPT_TASK);
+    MIGRATED_BPMN_PROCESSORS.add(BpmnElementType.SEND_TASK);
 
     MIGRATED_VALUE_TYPES.put(ValueType.JOB, MIGRATED);
     MIGRATED_VALUE_TYPES.put(ValueType.JOB_BATCH, MIGRATED);
@@ -73,15 +76,6 @@ public final class MigratedStreamProcessors {
   }
 
   private MigratedStreamProcessors() {}
-
-  public static boolean isMigrated(final TypedRecord<?> record) {
-    final var valueType = record.getValueType();
-    return MIGRATED_VALUE_TYPES.getOrDefault(valueType, NOT_MIGRATED).apply(record);
-  }
-
-  public static boolean isMigrated(final ValueType valueType) {
-    return MIGRATED_VALUE_TYPES.get(valueType) == MIGRATED;
-  }
 
   public static boolean isMigrated(final BpmnElementType bpmnElementType) {
     return MIGRATED_BPMN_PROCESSORS.contains(bpmnElementType);

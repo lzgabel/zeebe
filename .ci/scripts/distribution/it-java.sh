@@ -8,8 +8,11 @@ MAVEN_PARALLELISM=${MAVEN_PARALLELISM:-$LIMITS_CPU}
 SUREFIRE_FORK_COUNT=${SUREFIRE_FORK_COUNT:-}
 JUNIT_THREAD_COUNT=${JUNIT_THREAD_COUNT:-}
 MAVEN_PROPERTIES=(
+  -DskipUTs
+  -DskipChecks
   -DtestMavenId=2
-  -Dsurefire.rerunFailingTestsCount=7
+  -Dfailsafe.rerunFailingTestsCount=7
+  -Dflaky.test.reportDir=failsafe-reports
 )
 tmpfile=$(mktemp)
 
@@ -23,7 +26,9 @@ if [ ! -z "$JUNIT_THREAD_COUNT" ]; then
   MAVEN_PROPERTIES+=("-DjunitThreadCount=$JUNIT_THREAD_COUNT")
 fi
 
-mvn -o -B --fail-never -T${MAVEN_PARALLELISM} -s ${MAVEN_SETTINGS_XML} verify -P skip-unstable-ci,skip-random-tests,parallel-tests -pl qa/integration-tests,update-tests "${MAVEN_PROPERTIES[@]}" | tee ${tmpfile}
+mvn -o -B --fail-never -T${MAVEN_PARALLELISM} -s ${MAVEN_SETTINGS_XML} \
+  -P parallel-tests,extract-flaky-tests "${MAVEN_PROPERTIES[@]}" \
+  verify | tee ${tmpfile}
 status=${PIPESTATUS[0]}
 
 # delay checking the maven status after we've analysed flaky tests
