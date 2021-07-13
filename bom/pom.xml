@@ -277,7 +277,7 @@
     <url>https://github.com/zeebe-io/zeebe</url>
     <connection>scm:git:git@github.com:zeebe-io/zeebe.git</connection>
     <developerConnection>scm:git:git@github.com:zeebe-io/zeebe.git</developerConnection>
-    <tag>1.0.0</tag>
+    <tag>HEAD</tag>
   </scm>
 
   <distributionManagement>

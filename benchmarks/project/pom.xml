@@ -7,7 +7,7 @@
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-parent</artifactId>
     <version>xhzy-1.0.3-SNAPSHOT</version>
-    <relativePath>../../parent</relativePath>
+    <relativePath>../../parent/pom.xml</relativePath>
   </parent>
 
   <licenses>
@@ -198,15 +198,4 @@
       </snapshots>
     </repository>
   </repositories>
-
-  <distributionManagement>
-    <repository>
-      <id>private-releases</id>
-      <url>http://116.62.222.54/repository/maven-releases</url>
-    </repository>
-    <snapshotRepository>
-      <id>private-snapshots</id>
-      <url>http://116.62.222.54/repository/maven-snapshots</url>
-    </snapshotRepository>
-  </distributionManagement>
 </project>

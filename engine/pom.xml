@@ -151,6 +151,13 @@
       <artifactId>commons-lang3</artifactId>
     </dependency>
 
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-commons</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+
     <!-- TEMPORARY -->
 
     <dependency>
