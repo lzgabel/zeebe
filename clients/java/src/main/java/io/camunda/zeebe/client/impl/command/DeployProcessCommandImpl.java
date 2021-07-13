@@ -33,9 +33,11 @@ import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.DeployProcessRequest;
 import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.ProcessRequestObject;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.camunda.zeebe.model.bpmn.instance.CallActivity;
 import io.camunda.zeebe.model.bpmn.instance.ExtensionElements;
 import io.camunda.zeebe.model.bpmn.instance.Process;
 import io.camunda.zeebe.model.bpmn.instance.ServiceTask;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledElement;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskDefinition;
 import io.grpc.stub.StreamObserver;
 
@@ -81,6 +83,13 @@ public final class DeployProcessCommandImpl
               Collection<ZeebeTaskDefinition> taskDefinitions = extensionElements.getChildElementsByType(ZeebeTaskDefinition.class);
               ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
               taskDefinition.setType(namespace + "." + taskDefinition.getType());
+          });
+          Collection<CallActivity> callActivities = instance.getModelElementsByType(CallActivity.class);
+          callActivities.stream().forEach(callActivity -> {
+              ExtensionElements extensionElements = callActivity.getExtensionElements();
+              Collection<ZeebeCalledElement> zeebeCalledElements = extensionElements.getChildElementsByType(ZeebeCalledElement.class);
+              ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
+              zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
           });
           process.setId(namespace + "." + process.getId());
           process.setName(namespace + "." + process.getName());
