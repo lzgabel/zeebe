@@ -15,9 +15,6 @@
  */
 package io.camunda.zeebe.client.impl.command;
 
-import static io.camunda.zeebe.client.impl.command.ArgumentUtil.ensureNotNull;
-import static io.camunda.zeebe.client.impl.command.StreamUtil.readInputStream;
-
 import com.google.protobuf.ByteString;
 import io.camunda.zeebe.client.api.ZeebeFuture;
 import io.camunda.zeebe.client.api.command.ClientException;
@@ -33,10 +30,8 @@ import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.DeployProcessRequest;
 import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.ProcessRequestObject;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
-import io.camunda.zeebe.model.bpmn.instance.CallActivity;
-import io.camunda.zeebe.model.bpmn.instance.ExtensionElements;
 import io.camunda.zeebe.model.bpmn.instance.Process;
-import io.camunda.zeebe.model.bpmn.instance.ServiceTask;
+import io.camunda.zeebe.model.bpmn.instance.*;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledElement;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskDefinition;
 import io.grpc.stub.StreamObserver;
@@ -48,6 +43,9 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+
+import static io.camunda.zeebe.client.impl.command.ArgumentUtil.ensureNotNull;
+import static io.camunda.zeebe.client.impl.command.StreamUtil.readInputStream;
 
 public final class DeployProcessCommandImpl
     implements DeployProcessCommandStep1, DeployProcessCommandBuilderStep2 {
@@ -77,20 +75,22 @@ public final class DeployProcessCommandImpl
           BpmnModelInstance instance = Bpmn.readModelFromStream(new ByteArrayInputStream(resource));
           Collection<Process> processes = instance.getModelElementsByType(Process.class);
           Process process = processes.iterator().next();
-          Collection<ServiceTask> serviceTasks = instance.getModelElementsByType(ServiceTask.class);
-          serviceTasks.stream().forEach(serviceTask -> {
-              ExtensionElements extensionElements = serviceTask.getExtensionElements();
-              Collection<ZeebeTaskDefinition> taskDefinitions = extensionElements.getChildElementsByType(ZeebeTaskDefinition.class);
-              ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
-              taskDefinition.setType(namespace + "." + taskDefinition.getType());
-          });
-          Collection<CallActivity> callActivities = instance.getModelElementsByType(CallActivity.class);
-          callActivities.stream().forEach(callActivity -> {
-              ExtensionElements extensionElements = callActivity.getExtensionElements();
-              Collection<ZeebeCalledElement> zeebeCalledElements = extensionElements.getChildElementsByType(ZeebeCalledElement.class);
-              ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
-              zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
-          });
+
+          // ServiceTask
+          resolveNamespace(instance, namespace, ServiceTask.class);
+
+          // BusinessRuleTask
+          resolveNamespace(instance, namespace, BusinessRuleTask.class);
+
+          // ScriptTask
+          resolveNamespace(instance, namespace, ScriptTask.class);
+
+          // SendTask
+          resolveNamespace(instance, namespace, SendTask.class);
+
+          // CallActivity
+          resolveNamespace(instance, namespace, CallActivity.class);
+
           process.setId(namespace + "." + process.getId());
           process.setName(namespace + "." + process.getName());
           definition = ByteString.copyFrom(Bpmn.convertToString(instance).getBytes());
@@ -101,6 +101,25 @@ public final class DeployProcessCommandImpl
             .setDefinition(definition));
 
     return this;
+  }
+
+  private <T extends Activity> void resolveNamespace(BpmnModelInstance instance, String namespace, Class<T> type) {
+      Collection<T> tasks = instance.getModelElementsByType(type);
+      if (type == CallActivity.class) {
+          tasks.stream().forEach(task -> {
+              ExtensionElements extensionElements = task.getExtensionElements();
+              Collection<ZeebeCalledElement> zeebeCalledElements = extensionElements.getChildElementsByType(ZeebeCalledElement.class);
+              ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
+              zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
+          });
+      } else {
+          tasks.stream().forEach(task -> {
+              ExtensionElements extensionElements = task.getExtensionElements();
+              Collection<ZeebeTaskDefinition> taskDefinitions = extensionElements.getChildElementsByType(ZeebeTaskDefinition.class);
+              ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
+              taskDefinition.setType(namespace + "." + taskDefinition.getType());
+          });
+      }
   }
 
   @Override
