@@ -711,7 +711,12 @@ func (cc *ClientConn) switchBalancer(name string) {
 		return
 	}
 	if cc.balancerWrapper != nil {
+		// Don't hold cc.mu while closing the balancers. The balancers may call
+		// methods that require cc.mu (e.g. cc.NewSubConn()). Holding the mutex
+		// would cause a deadlock in that case.
+		cc.mu.Unlock()
 		cc.balancerWrapper.close()
+		cc.mu.Lock()
 	}
 
 	builder := balancer.Get(name)
@@ -1046,11 +1051,11 @@ func (cc *ClientConn) Close() error {
 
 	cc.blockingpicker.close()
 
-	if rWrapper != nil {
-		rWrapper.close()
-	}
 	if bWrapper != nil {
 		bWrapper.close()
+	}
+	if rWrapper != nil {
+		rWrapper.close()
 	}
 
 	for ac := range conns {
@@ -1198,7 +1203,7 @@ func (ac *addrConn) resetTransport() {
 		ac.mu.Lock()
 		if ac.state == connectivity.Shutdown {
 			ac.mu.Unlock()
-			newTr.Close()
+			newTr.Close(fmt.Errorf("reached connectivity state: SHUTDOWN"))
 			return
 		}
 		ac.curAddr = addr
@@ -1330,7 +1335,7 @@ func (ac *addrConn) createTransport(addr resolver.Address, copts transport.Conne
 	select {
 	case <-time.After(time.Until(connectDeadline)):
 		// We didn't get the preface in time.
-		newTr.Close()
+		newTr.Close(fmt.Errorf("failed to receive server preface within timeout"))
 		channelz.Warningf(logger, ac.channelzID, "grpc: addrConn.createTransport failed to connect to %v: didn't receive server preface in time. Reconnecting...", addr)
 		return nil, nil, errors.New("timed out waiting for server handshake")
 	case <-prefaceReceived:
@@ -1424,26 +1429,14 @@ func (ac *addrConn) resetConnectBackoff() {
 	ac.mu.Unlock()
 }
 
-// getReadyTransport returns the transport if ac's state is READY.
-// Otherwise it returns nil, false.
-// If ac's state is IDLE, it will trigger ac to connect.
-func (ac *addrConn) getReadyTransport() (transport.ClientTransport, bool) {
+// getReadyTransport returns the transport if ac's state is READY or nil if not.
+func (ac *addrConn) getReadyTransport() transport.ClientTransport {
 	ac.mu.Lock()
-	if ac.state == connectivity.Ready && ac.transport != nil {
-		t := ac.transport
-		ac.mu.Unlock()
-		return t, true
+	defer ac.mu.Unlock()
+	if ac.state == connectivity.Ready {
+		return ac.transport
 	}
-	var idle bool
-	if ac.state == connectivity.Idle {
-		idle = true
-	}
-	ac.mu.Unlock()
-	// Trigger idle ac to connect.
-	if idle {
-		ac.connect()
-	}
-	return nil, false
+	return nil
 }
 
 // tearDown starts to tear down the addrConn.
