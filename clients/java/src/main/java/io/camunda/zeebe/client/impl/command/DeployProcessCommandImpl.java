@@ -41,6 +41,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
@@ -110,14 +111,20 @@ public final class DeployProcessCommandImpl
               ExtensionElements extensionElements = task.getExtensionElements();
               Collection<ZeebeCalledElement> zeebeCalledElements = extensionElements.getChildElementsByType(ZeebeCalledElement.class);
               ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
-              zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
+              // If it is not a dynamic variable, add a namespace for business isolation.
+              if (Objects.nonNull(zeebeCalledElement.getProcessId()) && !zeebeCalledElement.getProcessId().startsWith("=")) {
+                  zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
+              }
           });
       } else {
           tasks.stream().forEach(task -> {
               ExtensionElements extensionElements = task.getExtensionElements();
               Collection<ZeebeTaskDefinition> taskDefinitions = extensionElements.getChildElementsByType(ZeebeTaskDefinition.class);
               ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
-              taskDefinition.setType(namespace + "." + taskDefinition.getType());
+              // If it is not a dynamic variable, add a namespace for business isolation.
+              if (Objects.nonNull(taskDefinition.getType()) && !taskDefinition.getType().startsWith("=")) {
+                  taskDefinition.setType(namespace + "." + taskDefinition.getType());
+              }
           });
       }
   }
