@@ -89,11 +89,14 @@ public final class DeployProcessCommandImpl
           // SendTask
           resolveNamespace(instance, namespace, SendTask.class);
 
+          // ManualTask
+          resolveNamespace(instance, namespace, ManualTask.class);
+
           // CallActivity
           resolveNamespace(instance, namespace, CallActivity.class);
 
-          process.setId(namespace + "." + process.getId());
-          process.setName(namespace + "." + process.getName());
+          process.setId(namespace + ":" + process.getId());
+          process.setName(namespace + ":" + process.getName());
           definition = ByteString.copyFrom(Bpmn.convertToString(instance).getBytes());
       }
     requestBuilder.addProcesses(
@@ -113,7 +116,7 @@ public final class DeployProcessCommandImpl
               ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
               // If it is not a dynamic variable, add a namespace for business isolation.
               if (Objects.nonNull(zeebeCalledElement.getProcessId()) && !zeebeCalledElement.getProcessId().startsWith("=")) {
-                  zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
+                  zeebeCalledElement.setProcessId(namespace + ":" + zeebeCalledElement.getProcessId());
               }
           });
       } else {
@@ -123,7 +126,7 @@ public final class DeployProcessCommandImpl
               ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
               // If it is not a dynamic variable, add a namespace for business isolation.
               if (Objects.nonNull(taskDefinition.getType()) && !taskDefinition.getType().startsWith("=")) {
-                  taskDefinition.setType(namespace + "." + taskDefinition.getType());
+                  taskDefinition.setType(namespace + ":" + taskDefinition.getType());
               }
           });
       }

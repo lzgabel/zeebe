@@ -190,7 +190,7 @@
   <parent>
     <artifactId>zeebe-atomix-parent</artifactId>
     <groupId>io.camunda</groupId>
-    <version>xhzy-1.0.3-SNAPSHOT</version>
+    <version>xhzy-1.2.0</version>
   </parent>
 
 
