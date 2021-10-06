@@ -31,6 +31,7 @@ import io.atomix.raft.RaftRoleChangeListener;
 import io.atomix.raft.RaftServer;
 import io.atomix.raft.RaftServer.Role;
 import io.atomix.raft.RaftThreadContextFactory;
+import io.atomix.raft.SnapshotReplicationListener;
 import io.atomix.raft.cluster.RaftMember;
 import io.atomix.raft.cluster.RaftMember.Type;
 import io.atomix.raft.cluster.impl.DefaultRaftMember;
@@ -79,6 +80,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
+import org.slf4j.MDC;
 
 /**
  * Manages the volatile state and state transitions of a Raft server.
@@ -102,6 +104,8 @@ public class RaftContext implements AutoCloseable, HealthMonitorable {
   private final Set<Consumer<RaftMember>> electionListeners = new CopyOnWriteArraySet<>();
   private final Set<RaftCommitListener> commitListeners = new CopyOnWriteArraySet<>();
   private final Set<RaftCommittedEntryListener> committedEntryListeners =
+      new CopyOnWriteArraySet<>();
+  private final Set<SnapshotReplicationListener> snapshotReplicationListeners =
       new CopyOnWriteArraySet<>();
   private final Set<FailureListener> failureListeners = new CopyOnWriteArraySet<>();
   private final RaftRoleMetrics raftRoleMetrics;
@@ -127,9 +131,11 @@ public class RaftContext implements AutoCloseable, HealthMonitorable {
 
   private long lastHeartbeat;
   private final RaftPartitionConfig partitionConfig;
+  private final int partitionId;
 
   public RaftContext(
       final String name,
+      final int partitionId,
       final MemberId localMemberId,
       final ClusterMembershipService membershipService,
       final RaftServerProtocol protocol,
@@ -143,6 +149,10 @@ public class RaftContext implements AutoCloseable, HealthMonitorable {
     this.protocol = checkNotNull(protocol, "protocol cannot be null");
     this.storage = checkNotNull(storage, "storage cannot be null");
     random = randomFactory.get();
+    this.partitionId = partitionId;
+
+    raftRoleMetrics = new RaftRoleMetrics(name);
+
     log =
         ContextualLoggerFactory.getLogger(
             getClass(), LoggerContext.builder(RaftServer.class).addValue(name).build());
@@ -164,6 +174,8 @@ public class RaftContext implements AutoCloseable, HealthMonitorable {
     threadContext =
         threadContextFactory.createContext(
             namedThreads(baseThreadName, log), this::onUncaughtException);
+    // in order to set the partition id once in the raft thread
+    threadContext.execute(() -> MDC.put("partitionId", Integer.toString(partitionId)));
 
     // Open the metadata store.
     meta = storage.openMetaStore();
@@ -191,13 +203,12 @@ public class RaftContext implements AutoCloseable, HealthMonitorable {
     this.partitionConfig = partitionConfig;
     cluster = new RaftClusterContext(localMemberId, this);
 
-    // Register protocol listeners.
-    registerHandlers(protocol);
-
-    raftRoleMetrics = new RaftRoleMetrics(name);
     replicationMetrics = new RaftReplicationMetrics(name);
     replicationMetrics.setAppendIndex(raftLog.getLastIndex());
     lastHeartbeat = System.currentTimeMillis();
+
+    // Register protocol listeners.
+    registerHandlers(protocol);
     started = true;
   }
 
@@ -374,6 +385,16 @@ public class RaftContext implements AutoCloseable, HealthMonitorable {
   }
 
   /**
+   * Removes registered committedEntryListener
+   *
+   * @param raftCommittedEntryListener the listener to remove
+   */
+  public void removeCommittedEntryListener(
+      final RaftCommittedEntryListener raftCommittedEntryListener) {
+    committedEntryListeners.remove(raftCommittedEntryListener);
+  }
+
+  /**
    * Notifies all listeners of the latest entry.
    *
    * @param lastCommitIndex index of the most recently committed entry
@@ -423,6 +444,36 @@ public class RaftContext implements AutoCloseable, HealthMonitorable {
       replicationMetrics.setCommitIndex(commitIndex);
     }
     return previousCommitIndex;
+  }
+
+  /**
+   * Adds a new snapshot replication listener, which will be notified before and after a new
+   * snapshot is received from a leader. Note that it will be called on the Raft thread, and hence
+   * should not perform any heavy computation.
+   *
+   * @param snapshotReplicationListener the listener to add
+   */
+  public void addSnapshotReplicationListener(
+      final SnapshotReplicationListener snapshotReplicationListener) {
+    snapshotReplicationListeners.add(snapshotReplicationListener);
+  }
+
+  /**
+   * Removes registered snapshot replication listener
+   *
+   * @param snapshotReplicationListener the listener to remove
+   */
+  public void removeSnapshotReplicationListener(
+      final SnapshotReplicationListener snapshotReplicationListener) {
+    snapshotReplicationListeners.remove(snapshotReplicationListener);
+  }
+
+  public void notifySnapshotReplicationStarted() {
+    snapshotReplicationListeners.forEach(SnapshotReplicationListener::onSnapshotReplicationStarted);
+  }
+
+  public void notifySnapshotReplicationCompleted() {
+    snapshotReplicationListeners.forEach(l -> l.onSnapshotReplicationCompleted(term));
   }
 
   /**
@@ -1043,6 +1094,10 @@ public class RaftContext implements AutoCloseable, HealthMonitorable {
 
   public Duration getMaxQuorumResponseTimeout() {
     return partitionConfig.getMaxQuorumResponseTimeout();
+  }
+
+  public int getPartitionId() {
+    return partitionId;
   }
 
   /** Raft server state. */

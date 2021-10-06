@@ -7,19 +7,19 @@
  */
 package io.camunda.zeebe.broker.system.partitions.impl.steps;
 
-import io.camunda.zeebe.broker.system.partitions.PartitionBoostrapAndTransitionContextImpl;
+import io.atomix.raft.RaftServer.Role;
+import io.camunda.zeebe.broker.system.partitions.PartitionStartupAndTransitionContextImpl;
 import io.camunda.zeebe.broker.system.partitions.PartitionStep;
 import io.camunda.zeebe.engine.processing.streamprocessor.StreamProcessor;
+import io.camunda.zeebe.engine.processing.streamprocessor.StreamProcessorMode;
 import io.camunda.zeebe.engine.state.appliers.EventAppliers;
-import io.camunda.zeebe.engine.state.mutable.MutableZeebeState;
-import io.camunda.zeebe.util.sched.ActorControl;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
 import io.camunda.zeebe.util.sched.future.CompletableActorFuture;
 
 public class StreamProcessorPartitionStep implements PartitionStep {
 
   @Override
-  public ActorFuture<Void> open(final PartitionBoostrapAndTransitionContextImpl context) {
+  public ActorFuture<Void> open(final PartitionStartupAndTransitionContextImpl context) {
     final StreamProcessor streamProcessor = createStreamProcessor(context);
     final ActorFuture<Void> openFuture = streamProcessor.openAsync(!context.shouldProcess());
     final CompletableActorFuture<Void> future = new CompletableActorFuture<>();
@@ -50,7 +50,7 @@ public class StreamProcessorPartitionStep implements PartitionStep {
   }
 
   @Override
-  public ActorFuture<Void> close(final PartitionBoostrapAndTransitionContextImpl context) {
+  public ActorFuture<Void> close(final PartitionStartupAndTransitionContextImpl context) {
     context.getComponentHealthMonitor().removeComponent(context.getStreamProcessor().getName());
     final ActorFuture<Void> future = context.getStreamProcessor().closeAsync();
     context.setStreamProcessor(null);
@@ -63,7 +63,11 @@ public class StreamProcessorPartitionStep implements PartitionStep {
   }
 
   private StreamProcessor createStreamProcessor(
-      final PartitionBoostrapAndTransitionContextImpl state) {
+      final PartitionStartupAndTransitionContextImpl state) {
+    final StreamProcessorMode streamProcessorMode =
+        state.getCurrentRole() == Role.LEADER
+            ? StreamProcessorMode.PROCESSING
+            : StreamProcessorMode.REPLAY;
     return StreamProcessor.builder()
         .logStream(state.getLogStream())
         .actorSchedulingService(state.getActorSchedulingService())
@@ -71,15 +75,9 @@ public class StreamProcessorPartitionStep implements PartitionStep {
         .eventApplierFactory(EventAppliers::new)
         .nodeId(state.getNodeId())
         .commandResponseWriter(state.getCommandResponseWriter())
-        .onProcessedListener(state.getOnProcessedListener())
-        .streamProcessorFactory(
-            processingContext -> {
-              final ActorControl actor = processingContext.getActor();
-              final MutableZeebeState zeebeState = processingContext.getZeebeState();
-              return state
-                  .getTypedRecordProcessorsFactory()
-                  .createTypedStreamProcessor(actor, zeebeState, processingContext);
-            })
+        .listener(processedCommand -> state.getOnProcessedListener().accept(processedCommand))
+        .streamProcessorFactory(state.getStreamProcessorFactory())
+        .streamProcessorMode(streamProcessorMode)
         .build();
   }
 }

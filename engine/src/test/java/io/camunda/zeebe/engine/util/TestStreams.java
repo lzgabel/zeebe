@@ -17,9 +17,12 @@ import static org.mockito.Mockito.when;
 
 import io.camunda.zeebe.db.ZeebeDb;
 import io.camunda.zeebe.db.ZeebeDbFactory;
+import io.camunda.zeebe.engine.processing.streamprocessor.ReadonlyProcessingContext;
 import io.camunda.zeebe.engine.processing.streamprocessor.StreamProcessor;
+import io.camunda.zeebe.engine.processing.streamprocessor.StreamProcessorLifecycleAware;
+import io.camunda.zeebe.engine.processing.streamprocessor.StreamProcessorListener;
+import io.camunda.zeebe.engine.processing.streamprocessor.StreamProcessorMode;
 import io.camunda.zeebe.engine.processing.streamprocessor.TypedEventRegistry;
-import io.camunda.zeebe.engine.processing.streamprocessor.TypedRecord;
 import io.camunda.zeebe.engine.processing.streamprocessor.TypedRecordProcessorFactory;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.CommandResponseWriter;
 import io.camunda.zeebe.engine.state.EventApplier;
@@ -52,6 +55,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -73,12 +77,13 @@ public final class TestStreams {
   private final ActorScheduler actorScheduler;
 
   private final CommandResponseWriter mockCommandResponseWriter;
-  private final Consumer<TypedRecord<?>> mockOnProcessedListener;
+  private final StreamProcessorListener mockStreamProcessorListener;
   private final Map<String, LogContext> logContextMap = new HashMap<>();
   private final Map<String, ProcessorContext> streamContextMap = new HashMap<>();
   private boolean snapshotWasTaken = false;
 
   private Function<MutableZeebeState, EventApplier> eventApplierFactory = EventAppliers::new;
+  private StreamProcessorMode streamProcessorMode = StreamProcessorMode.PROCESSING;
 
   public TestStreams(
       final TemporaryFolder dataDirectory,
@@ -99,7 +104,7 @@ public final class TestStreams {
     when(mockCommandResponseWriter.valueWriter(any())).thenReturn(mockCommandResponseWriter);
 
     when(mockCommandResponseWriter.tryWriteResponse(anyInt(), anyLong())).thenReturn(true);
-    mockOnProcessedListener = mock(Consumer.class);
+    mockStreamProcessorListener = mock(StreamProcessorListener.class);
   }
 
   public void withEventApplierFactory(
@@ -107,12 +112,16 @@ public final class TestStreams {
     this.eventApplierFactory = eventApplierFactory;
   }
 
+  public void withStreamProcessorMode(final StreamProcessorMode streamProcessorMode) {
+    this.streamProcessorMode = streamProcessorMode;
+  }
+
   public CommandResponseWriter getMockedResponseWriter() {
     return mockCommandResponseWriter;
   }
 
-  public Consumer<TypedRecord<?>> getMockedOnProcessedListener() {
-    return mockOnProcessedListener;
+  public StreamProcessorListener getMockStreamProcessorListener() {
+    return mockStreamProcessorListener;
   }
 
   public SynchronousLogStream createLogStream(final String name) {
@@ -125,16 +134,16 @@ public final class TestStreams {
         name,
         partitionId,
         listLogStorage,
-        logStream -> listLogStorage.setPositionListener(logStream::setCommitPosition));
+        logStream -> listLogStorage.setPositionListener(logStream::setLastWrittenPosition));
   }
 
   public SynchronousLogStream createLogStream(
-      final String name, final int partitionId, final ListLogStorage listLogStorage) {
+      final String name, final int partitionId, final ListLogStorage sharedStorage) {
     return createLogStream(
         name,
         partitionId,
-        listLogStorage,
-        logStream -> listLogStorage.setPositionListener(logStream::setCommitPosition));
+        sharedStorage,
+        logStream -> sharedStorage.setPositionListener(logStream::setLastWrittenPosition));
   }
 
   private SynchronousLogStream createLogStream(
@@ -160,8 +169,7 @@ public final class TestStreams {
   }
 
   public long getLastWrittenPosition(final String name) {
-    // the position of a written record is directly committed, we can use it as a synonym
-    return getLogStream(name).getCommitPosition();
+    return getLogStream(name).getLastWrittenPosition();
   }
 
   public SynchronousLogStream getLogStream(final String name) {
@@ -236,6 +244,17 @@ public final class TestStreams {
     final var storage = createRuntimeFolder(stream);
     final var snapshot = storage.getParent().resolve(SNAPSHOT_FOLDER);
 
+    final var recoveredLatch = new CountDownLatch(1);
+    final var recoveredAwaiter =
+        new StreamProcessorLifecycleAware() {
+          @Override
+          public void onRecovered(final ReadonlyProcessingContext context) {
+            recoveredLatch.countDown();
+          }
+        };
+    final TypedRecordProcessorFactory wrappedFactory =
+        (ctx) -> factory.createProcessors(ctx).withListener(recoveredAwaiter);
+
     final ZeebeDb<?> zeebeDb;
     if (snapshotWasTaken) {
       zeebeDb = zeebeDbFactory.createDb(snapshot.toFile());
@@ -250,15 +269,21 @@ public final class TestStreams {
             .zeebeDb(zeebeDb)
             .actorSchedulingService(actorScheduler)
             .commandResponseWriter(mockCommandResponseWriter)
-            .onProcessedListener(mockOnProcessedListener)
-            .streamProcessorFactory(factory)
+            .listener(mockStreamProcessorListener)
+            .streamProcessorFactory(wrappedFactory)
             .eventApplierFactory(eventApplierFactory)
+            .streamProcessorMode(streamProcessorMode)
             .build();
     final var openFuture = streamProcessor.openAsync(false);
 
-    if (awaitOpening) {
-      openFuture.join(15, TimeUnit.SECONDS);
+    if (awaitOpening) { // and recovery
+      try {
+        recoveredLatch.await(15, TimeUnit.SECONDS);
+      } catch (final InterruptedException e) {
+        Thread.interrupted();
+      }
     }
+    openFuture.join(15, TimeUnit.SECONDS);
 
     final LogContext context = logContextMap.get(logName);
     final ProcessorContext processorContext =

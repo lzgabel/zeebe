@@ -10,7 +10,7 @@
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-parent</artifactId>
     <version>xhzy-1.0.3-SNAPSHOT</version>
-    <relativePath>../parent</relativePath>
+    <relativePath>../parent/pom.xml</relativePath>
   </parent>
 
   <licenses>
@@ -119,13 +119,6 @@
       <plugin>
         <groupId>org.revapi</groupId>
         <artifactId>revapi-maven-plugin</artifactId>
-        <configuration>
-          <analysisConfigurationFiles>
-            <configurationFile>
-              <path>revapi.json</path>
-            </configurationFile>
-          </analysisConfigurationFiles>
-        </configuration>
       </plugin>
     </plugins>
   </build>

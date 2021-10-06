@@ -35,8 +35,6 @@ import io.atomix.primitive.partition.PartitionManagementService;
 import io.atomix.primitive.partition.PartitionMetadata;
 import io.atomix.raft.zeebe.EntryValidator;
 import io.atomix.utils.concurrent.Futures;
-import io.atomix.utils.logging.ContextualLoggerFactory;
-import io.atomix.utils.logging.LoggerContext;
 import io.atomix.utils.memory.MemorySize;
 import io.atomix.utils.serializer.Namespace;
 import io.atomix.utils.serializer.Namespaces;
@@ -70,16 +68,10 @@ public class RaftPartitionGroup implements ManagedPartitionGroup {
   private ClusterCommunicationService communicationService;
 
   public RaftPartitionGroup(final RaftPartitionGroupConfig config) {
-    final Logger log =
-        ContextualLoggerFactory.getLogger(
-            RaftPartitionGroup.class,
-            LoggerContext.builder(RaftPartitionGroup.class).addValue(config.getName()).build());
-    name = config.getName();
     this.config = config;
-    replicationFactor = config.getReplicationFactor();
 
-    final int threadPoolSize =
-        Math.max(Math.min(Runtime.getRuntime().availableProcessors() * 2, 16), 4);
+    name = config.getName();
+    replicationFactor = config.getReplicationFactor();
     snapshotSubject = "raft-partition-group-" + name + "-snapshot";
 
     buildPartitions(config)
@@ -181,18 +173,10 @@ public class RaftPartitionGroup implements ManagedPartitionGroup {
     final var members =
         config.getMembers().stream().map(MemberId::from).collect(Collectors.toSet());
     metadata =
-        new PartitionDistributor()
-            .generatePartitionDistribution(members, sortedPartitionIds, replicationFactor);
-    // Example distribution with priority, clusterSize=4, partitionCount=5, replicationFactor=3
-    // +------------------+----+----+----+---+
-    // | Partition \ Node | 0  | 1  | 2  | 3 |
-    // +------------------+----+----+----+---+
-    // |                1 | 3  | 2  | 1  |   |
-    // |                2 |    | 3  | 2  | 1 |
-    // |                3 | 1  |    | 3  | 2 |
-    // |                4 | 2  | 1  |    | 3 |
-    // |                5 | 3  | 1  | 2  |   |
-    // +------------------+----+----+----+---+
+        config
+            .getPartitionConfig()
+            .getPartitionDistributor()
+            .distributePartitions(members, sortedPartitionIds, replicationFactor);
 
     communicationService = managementService.getMessagingService();
     communicationService.<Void, Void>subscribe(snapshotSubject, m -> handleSnapshot());
@@ -488,6 +472,18 @@ public class RaftPartitionGroup implements ManagedPartitionGroup {
      */
     public Builder withMaxQuorumResponseTimeout(final Duration maxQuorumResponseTimeout) {
       config.getPartitionConfig().setMaxQuorumResponseTimeout(maxQuorumResponseTimeout);
+      return this;
+    }
+
+    /**
+     * Sets the partition distributor to use. The partition distributor determines which members
+     * will own which partitions, and ensures they are correctly replicated.
+     *
+     * @param partitionDistributor the partition distributor to use
+     * @return this builder for chaining
+     */
+    public Builder withPartitionDistributor(final PartitionDistributor partitionDistributor) {
+      config.getPartitionConfig().setPartitionDistributor(partitionDistributor);
       return this;
     }
 

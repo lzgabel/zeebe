@@ -29,7 +29,7 @@
     <version.netty>4.1.58.Final</version.netty>
 
     <version.java>11</version.java>
-    <plugin.version.javadoc>3.2.0</plugin.version.javadoc>
+    <plugin.version.javadoc>3.3.1</plugin.version.javadoc>
   </properties>
 
   <dependencyManagement>
@@ -97,6 +97,12 @@
       <dependency>
         <groupId>io.camunda</groupId>
         <artifactId>zeebe-protocol-impl</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>io.camunda</groupId>
+        <artifactId>zeebe-protocol-jackson</artifactId>
         <version>${project.version}</version>
       </dependency>
 
@@ -196,16 +202,19 @@
         <groupId>io.camunda</groupId>
         <version>${project.version}</version>
       </dependency>
+
       <dependency>
         <artifactId>zeebe-atomix-storage</artifactId>
         <groupId>io.camunda</groupId>
         <version>${project.version}</version>
       </dependency>
+
       <dependency>
         <artifactId>zeebe-atomix-utils</artifactId>
         <groupId>io.camunda</groupId>
         <version>${project.version}</version>
       </dependency>
+
       <dependency>
         <artifactId>zeebe-atomix</artifactId>
         <groupId>io.camunda</groupId>
@@ -277,7 +286,7 @@
     <url>https://github.com/zeebe-io/zeebe</url>
     <connection>scm:git:git@github.com:zeebe-io/zeebe.git</connection>
     <developerConnection>scm:git:git@github.com:zeebe-io/zeebe.git</developerConnection>
-    <tag>HEAD</tag>
+    <tag>1.2.0</tag>
   </scm>
 
   <distributionManagement>
