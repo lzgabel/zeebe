@@ -9,7 +9,7 @@
   <parent>
     <artifactId>zeebe-parent</artifactId>
     <groupId>io.camunda</groupId>
-    <version>xhzy-1.2.0</version>
+    <version>xhzy-1.2.1</version>
     <relativePath>../../parent/pom.xml</relativePath>
   </parent>
 

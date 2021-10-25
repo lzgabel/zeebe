@@ -9,7 +9,7 @@
     <!-- We can't reference zeebe parent as parent otherwise we will have a circle dependency -->
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-bom</artifactId>
-    <version>xhzy-1.2.0</version>
+    <version>xhzy-1.2.1</version>
     <relativePath>../bom/pom.xml</relativePath>
   </parent>
 
