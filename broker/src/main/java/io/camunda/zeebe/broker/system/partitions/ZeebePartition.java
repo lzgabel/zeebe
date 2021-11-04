@@ -13,7 +13,6 @@ import io.atomix.raft.SnapshotReplicationListener;
 import io.camunda.zeebe.broker.Loggers;
 import io.camunda.zeebe.broker.exporter.stream.ExporterDirector;
 import io.camunda.zeebe.broker.partitioning.PartitionAdminAccess;
-import io.camunda.zeebe.broker.partitioning.PartitionFactory;
 import io.camunda.zeebe.broker.system.monitoring.DiskSpaceUsageListener;
 import io.camunda.zeebe.broker.system.monitoring.HealthMetrics;
 import io.camunda.zeebe.engine.processing.streamprocessor.StreamProcessor;
@@ -24,7 +23,6 @@ import io.camunda.zeebe.util.health.FailureListener;
 import io.camunda.zeebe.util.health.HealthMonitorable;
 import io.camunda.zeebe.util.health.HealthStatus;
 import io.camunda.zeebe.util.sched.Actor;
-import io.camunda.zeebe.util.sched.clock.ActorClock;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
 import io.camunda.zeebe.util.sched.future.CompletableActorFuture;
 import io.camunda.zeebe.util.startup.StartupProcess;
@@ -74,11 +72,7 @@ public final class ZeebePartition extends Actor
     transitionContext.setActorControl(actor);
     transitionContext.setDiskSpaceAvailable(true);
 
-    // todo remove after migration
-    if (PartitionFactory.FEATURE_TOGGLE_USE_NEW_CODE) {
-      transition.setConcurrencyControl(actor);
-    }
-    // todo remove after migration
+    transition.setConcurrencyControl(actor);
 
     actorName =
         buildActorName(
@@ -109,29 +103,25 @@ public final class ZeebePartition extends Actor
 
   @Override
   public void onActorStarting() {
-    if (PartitionFactory.FEATURE_TOGGLE_USE_NEW_CODE) {
-      startupProcess
-          .startup(actor, startupContext)
-          .onComplete(
-              (newStartupContext, error) -> {
-                if (error != null) {
-                  LOG.error(error.getMessage(), error);
-                  handleUnrecoverableFailure();
-                  close();
-                  return;
-                }
-                startupContext = newStartupContext;
-                final var transitionContext = startupContext.createTransitionContext();
+    startupProcess
+        .startup(actor, startupContext)
+        .onComplete(
+            (newStartupContext, error) -> {
+              if (error != null) {
+                LOG.error(error.getMessage(), error);
+                handleUnrecoverableFailure();
+                close();
+                return;
+              }
+              startupContext = newStartupContext;
+              final var transitionContext = startupContext.createTransitionContext();
 
-                transition.updateTransitionContext(transitionContext);
+              transition.updateTransitionContext(transitionContext);
 
-                context = transitionContext.getPartitionContext();
+              context = transitionContext.getPartitionContext();
 
-                registerListenersAndTriggerRoleChange();
-              });
-    } else {
-      registerListenersAndTriggerRoleChange();
-    }
+              registerListenersAndTriggerRoleChange();
+            });
   }
 
   @Override
@@ -160,25 +150,21 @@ public final class ZeebePartition extends Actor
                   .getComponentHealthMonitor()
                   .removeComponent(context.getRaftPartition().name());
 
-              if (PartitionFactory.FEATURE_TOGGLE_USE_NEW_CODE) {
-                startupProcess
-                    .shutdown(actor, startupContext)
-                    .onComplete(
-                        (newStartupContext, error) -> {
-                          if (error != null) {
-                            LOG.error(error.getMessage(), error);
-                          }
+              startupProcess
+                  .shutdown(actor, startupContext)
+                  .onComplete(
+                      (newStartupContext, error) -> {
+                        if (error != null) {
+                          LOG.error(error.getMessage(), error);
+                        }
 
-                          // reset contexts to null to not have lingering references that could
-                          // cause OOM problems in tests which start/stop partitions
-                          startupContext = null;
-                          context = null;
+                        // reset contexts to null to not have lingering references that could
+                        // cause OOM problems in tests which start/stop partitions
+                        startupContext = null;
+                        context = null;
 
-                          closeFuture.complete(null);
-                        });
-              } else {
-                closeFuture.complete(null);
-              }
+                        closeFuture.complete(null);
+                      });
             });
   }
 
@@ -228,9 +214,7 @@ public final class ZeebePartition extends Actor
     ActorFuture<Void> nextTransitionFuture = null;
     switch (newRole) {
       case LEADER:
-        if (raftRole != Role.LEADER) {
-          nextTransitionFuture = leaderTransition(newTerm);
-        }
+        nextTransitionFuture = leaderTransition(newTerm);
         break;
       case INACTIVE:
         nextTransitionFuture = transitionToInactive();
@@ -240,9 +224,7 @@ public final class ZeebePartition extends Actor
       case CANDIDATE:
       case FOLLOWER:
       default:
-        if (raftRole == null || raftRole == Role.LEADER) {
-          nextTransitionFuture = followerTransition(newTerm);
-        }
+        nextTransitionFuture = followerTransition(newTerm);
         break;
     }
 
@@ -254,13 +236,12 @@ public final class ZeebePartition extends Actor
   }
 
   private ActorFuture<Void> leaderTransition(final long newTerm) {
-    final var installStartTime = ActorClock.currentTimeMillis();
+    final var latencyTimer = roleMetrics.startLeaderTransitionLatencyTimer();
     final var leaderTransitionFuture = transition.toLeader(newTerm);
     leaderTransitionFuture.onComplete(
         (success, error) -> {
           if (error == null) {
-            final var leaderTransitionLatency = ActorClock.currentTimeMillis() - installStartTime;
-            roleMetrics.setLeaderTransitionLatency(leaderTransitionLatency);
+            latencyTimer.close();
             final List<ActorFuture<Void>> listenerFutures =
                 context.notifyListenersOfBecomingLeader(newTerm);
             actor.runOnCompletion(
@@ -305,7 +286,7 @@ public final class ZeebePartition extends Actor
 
   private ActorFuture<Void> transitionToInactive() {
     zeebePartitionHealth.setServicesInstalled(false);
-    final var inactiveTransitionFuture = transition.toInactive();
+    final var inactiveTransitionFuture = transition.toInactive(context.getCurrentTerm());
     currentTransitionFuture = inactiveTransitionFuture;
     return inactiveTransitionFuture;
   }
@@ -470,7 +451,7 @@ public final class ZeebePartition extends Actor
     // restart from a new state. So we transition to Inactive to close existing services. The
     // services will be reinstalled when snapshot replication is completed.
     // We do not want to mark it as unhealthy, hence we don't reuse transitionToInactive()
-    actor.run(() -> currentTransitionFuture = transition.toInactive());
+    actor.run(() -> currentTransitionFuture = transition.toInactive(context.getCurrentTerm()));
   }
 
   @Override

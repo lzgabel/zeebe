@@ -7,32 +7,63 @@
  */
 package io.camunda.zeebe.broker.bootstrap;
 
-import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
 
-import io.camunda.zeebe.broker.PartitionListener;
+import io.atomix.cluster.AtomixCluster;
 import io.camunda.zeebe.broker.clustering.ClusterServicesImpl;
-import java.util.Collection;
-import java.util.List;
+import io.camunda.zeebe.broker.partitioning.PartitionManager;
+import io.camunda.zeebe.broker.system.EmbeddedGatewayService;
+import io.camunda.zeebe.broker.system.management.BrokerAdminService;
+import io.camunda.zeebe.broker.system.monitoring.DiskSpaceUsageMonitor;
 
-public final class BrokerContextImpl implements BrokerContext {
+final class BrokerContextImpl implements BrokerContext {
 
   private final ClusterServicesImpl clusterServices;
-  private final List<PartitionListener> partitionListeners;
+  private final EmbeddedGatewayService embeddedGatewayService;
+  private final DiskSpaceUsageMonitor diskSpaceUsageMonitor;
+  private final PartitionManager partitionManager;
+  private final BrokerAdminService brokerAdminService;
 
-  public BrokerContextImpl(
-      final ClusterServicesImpl clusterServices, final List<PartitionListener> partitionListeners) {
+  BrokerContextImpl(
+      final DiskSpaceUsageMonitor diskSpaceUsageMonitor,
+      final ClusterServicesImpl clusterServices,
+      final EmbeddedGatewayService embeddedGatewayService,
+      final PartitionManager partitionManager,
+      final BrokerAdminService brokerAdminService) {
+    this.diskSpaceUsageMonitor = diskSpaceUsageMonitor;
     this.clusterServices = requireNonNull(clusterServices);
-    this.partitionListeners = unmodifiableList(requireNonNull(partitionListeners));
-  }
-
-  @Override
-  public Collection<? extends PartitionListener> getPartitionListeners() {
-    return partitionListeners;
+    this.embeddedGatewayService = embeddedGatewayService;
+    this.partitionManager = requireNonNull(partitionManager);
+    this.brokerAdminService = requireNonNull(brokerAdminService);
   }
 
   @Override
   public ClusterServicesImpl getClusterServices() {
     return clusterServices;
+  }
+
+  @Override
+  public AtomixCluster getAtomixCluster() {
+    return clusterServices.getAtomixCluster();
+  }
+
+  @Override
+  public EmbeddedGatewayService getEmbeddedGatewayService() {
+    return embeddedGatewayService;
+  }
+
+  @Override
+  public DiskSpaceUsageMonitor getDiskSpaceUsageMonitor() {
+    return diskSpaceUsageMonitor;
+  }
+
+  @Override
+  public PartitionManager getPartitionManager() {
+    return partitionManager;
+  }
+
+  @Override
+  public BrokerAdminService getBrokerAdminService() {
+    return brokerAdminService;
   }
 }

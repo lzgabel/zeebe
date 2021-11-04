@@ -30,6 +30,7 @@ import io.camunda.zeebe.snapshots.ReceivableSnapshotStore;
 import io.camunda.zeebe.util.health.HealthMonitor;
 import io.camunda.zeebe.util.sched.ActorControl;
 import io.camunda.zeebe.util.sched.ActorSchedulingService;
+import io.camunda.zeebe.util.sched.ConcurrencyControl;
 import io.camunda.zeebe.util.sched.ScheduledTimer;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
 import java.util.Collection;
@@ -79,6 +80,7 @@ public class PartitionStartupAndTransitionContextImpl
 
   private long currentTerm;
   private Role currentRole;
+  private ConcurrencyControl concurrencyControl;
 
   public PartitionStartupAndTransitionContextImpl(
       final int nodeId,
@@ -111,11 +113,6 @@ public class PartitionStartupAndTransitionContextImpl
     maxFragmentSize = (int) brokerCfg.getNetwork().getMaxMessageSizeInBytes();
     this.exporterRepository = exporterRepository;
     this.partitionProcessingState = partitionProcessingState;
-  }
-
-  @Override
-  public PartitionContext getPartitionContext() {
-    return this;
   }
 
   public PartitionAdminControl getPartitionAdminControl() {
@@ -170,44 +167,8 @@ public class PartitionStartupAndTransitionContextImpl
     return criticalComponentsHealthMonitor;
   }
 
-  @Override
   public void setComponentHealthMonitor(final HealthMonitor criticalComponentsHealthMonitor) {
     this.criticalComponentsHealthMonitor = criticalComponentsHealthMonitor;
-  }
-
-  @Override
-  public StateController getStateController() {
-    return stateController;
-  }
-
-  @Override
-  public LogDeletionService getLogDeletionService() {
-    return logDeletionService;
-  }
-
-  @Override
-  public void setLogDeletionService(final LogDeletionService logDeletionService) {
-    this.logDeletionService = logDeletionService;
-  }
-
-  @Override
-  public LogStream getLogStream() {
-    return logStream;
-  }
-
-  @Override
-  public void setLogStream(final LogStream logStream) {
-    this.logStream = logStream;
-  }
-
-  @Override
-  public ZeebeDb getZeebeDb() {
-    return zeebeDb;
-  }
-
-  @Override
-  public void setZeebeDb(final ZeebeDb zeebeDb) {
-    this.zeebeDb = zeebeDb;
   }
 
   @Override
@@ -221,26 +182,6 @@ public class PartitionStartupAndTransitionContextImpl
   }
 
   @Override
-  public AsyncSnapshotDirector getSnapshotDirector() {
-    return snapshotDirector;
-  }
-
-  @Override
-  public void setSnapshotDirector(final AsyncSnapshotDirector snapshotDirector) {
-    this.snapshotDirector = snapshotDirector;
-  }
-
-  @Override
-  public ScheduledTimer getMetricsTimer() {
-    return metricsTimer;
-  }
-
-  @Override
-  public void setMetricsTimer(final ScheduledTimer metricsTimer) {
-    this.metricsTimer = metricsTimer;
-  }
-
-  @Override
   public ExporterDirector getExporterDirector() {
     return exporterDirector;
   }
@@ -248,6 +189,41 @@ public class PartitionStartupAndTransitionContextImpl
   @Override
   public void setExporterDirector(final ExporterDirector exporterDirector) {
     this.exporterDirector = exporterDirector;
+  }
+
+  @Override
+  public PartitionMessagingService getMessagingService() {
+    return messagingService;
+  }
+
+  @Override
+  public boolean shouldExport() {
+    return !partitionProcessingState.isExportingPaused();
+  }
+
+  @Override
+  public Collection<ExporterDescriptor> getExportedDescriptors() {
+    return getExporterRepository().getExporters().values();
+  }
+
+  @Override
+  public AtomixLogStorage getLogStorage() {
+    return logStorage;
+  }
+
+  @Override
+  public void setLogStorage(final AtomixLogStorage logStorage) {
+    this.logStorage = logStorage;
+  }
+
+  @Override
+  public int getMaxFragmentSize() {
+    return maxFragmentSize;
+  }
+
+  @Override
+  public BrokerCfg getBrokerCfg() {
+    return brokerCfg;
   }
 
   @Override
@@ -261,11 +237,6 @@ public class PartitionStartupAndTransitionContextImpl
   }
 
   @Override
-  public PartitionStartupAndTransitionContextImpl createTransitionContext() {
-    return this;
-  }
-
-  @Override
   public boolean shouldProcess() {
     return partitionProcessingState.shouldProcess();
   }
@@ -275,30 +246,49 @@ public class PartitionStartupAndTransitionContextImpl
     partitionProcessingState.setDiskSpaceAvailable(diskSpaceAvailable);
   }
 
+  @Override
   public void setCurrentTerm(final long currentTerm) {
     this.currentTerm = currentTerm;
   }
 
+  @Override
   public void setCurrentRole(final Role currentRole) {
     this.currentRole = currentRole;
   }
 
   @Override
-  public TypedRecordProcessorFactory getStreamProcessorFactory() {
-    return typedRecordProcessorsFactory::createTypedStreamProcessor;
-  }
-
-  public AtomixLogStorage getLogStorage() {
-    return logStorage;
-  }
-
-  public void setLogStorage(final AtomixLogStorage logStorage) {
-    this.logStorage = logStorage;
+  public LogStream getLogStream() {
+    return logStream;
   }
 
   @Override
-  public BrokerCfg getBrokerCfg() {
-    return brokerCfg;
+  public void setLogStream(final LogStream logStream) {
+    this.logStream = logStream;
+  }
+
+  @Override
+  public AsyncSnapshotDirector getSnapshotDirector() {
+    return snapshotDirector;
+  }
+
+  @Override
+  public void setSnapshotDirector(final AsyncSnapshotDirector snapshotDirector) {
+    this.snapshotDirector = snapshotDirector;
+  }
+
+  @Override
+  public StateController getStateController() {
+    return stateController;
+  }
+
+  @Override
+  public List<PartitionListener> getPartitionListeners() {
+    return partitionListeners;
+  }
+
+  @Override
+  public PartitionContext getPartitionContext() {
+    return this;
   }
 
   @Override
@@ -312,11 +302,6 @@ public class PartitionStartupAndTransitionContextImpl
   }
 
   @Override
-  public PartitionMessagingService getMessagingService() {
-    return messagingService;
-  }
-
-  @Override
   public ConstructableSnapshotStore getConstructableSnapshotStore() {
     return constructableSnapshotStore;
   }
@@ -324,6 +309,51 @@ public class PartitionStartupAndTransitionContextImpl
   @Override
   public ReceivableSnapshotStore getReceivableSnapshotStore() {
     return receivableSnapshotStore;
+  }
+
+  @Override
+  public ActorControl getActorControl() {
+    return actorControl;
+  }
+
+  @Override
+  public void setActorControl(final ActorControl actorControl) {
+    this.actorControl = actorControl;
+  }
+
+  @Override
+  public LogDeletionService getLogDeletionService() {
+    return logDeletionService;
+  }
+
+  @Override
+  public void setLogDeletionService(final LogDeletionService logDeletionService) {
+    this.logDeletionService = logDeletionService;
+  }
+
+  @Override
+  public ScheduledTimer getMetricsTimer() {
+    return metricsTimer;
+  }
+
+  @Override
+  public void setMetricsTimer(final ScheduledTimer metricsTimer) {
+    this.metricsTimer = metricsTimer;
+  }
+
+  @Override
+  public ZeebeDb getZeebeDb() {
+    return zeebeDb;
+  }
+
+  @Override
+  public PartitionStartupAndTransitionContextImpl createTransitionContext() {
+    return this;
+  }
+
+  @Override
+  public void setZeebeDb(final ZeebeDb zeebeDb) {
+    this.zeebeDb = zeebeDb;
   }
 
   @Override
@@ -337,35 +367,21 @@ public class PartitionStartupAndTransitionContextImpl
   }
 
   @Override
+  public TypedRecordProcessorFactory getStreamProcessorFactory() {
+    return typedRecordProcessorsFactory::createTypedStreamProcessor;
+  }
+
   public ExporterRepository getExporterRepository() {
     return exporterRepository;
   }
 
   @Override
-  public List<PartitionListener> getPartitionListeners() {
-    return partitionListeners;
+  public ConcurrencyControl getConcurrencyControl() {
+    return concurrencyControl;
   }
 
   @Override
-  public ActorControl getActorControl() {
-    return actorControl;
-  }
-
-  @Override
-  public void setActorControl(final ActorControl actorControl) {
-    this.actorControl = actorControl;
-  }
-
-  public int getMaxFragmentSize() {
-    return maxFragmentSize;
-  }
-
-  public boolean shouldExport() {
-    return !partitionProcessingState.isExportingPaused();
-  }
-
-  @Override
-  public Collection<ExporterDescriptor> getExportedDescriptors() {
-    return getExporterRepository().getExporters().values();
+  public void setConcurrencyControl(final ConcurrencyControl concurrencyControl) {
+    this.concurrencyControl = concurrencyControl;
   }
 }

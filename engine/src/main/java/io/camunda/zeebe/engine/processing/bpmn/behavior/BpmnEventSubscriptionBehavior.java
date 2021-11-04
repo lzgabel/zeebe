@@ -8,7 +8,6 @@
 package io.camunda.zeebe.engine.processing.bpmn.behavior;
 
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementContext;
-import io.camunda.zeebe.engine.processing.bpmn.BpmnProcessingException;
 import io.camunda.zeebe.engine.processing.common.CatchEventBehavior;
 import io.camunda.zeebe.engine.processing.common.EventTriggerBehavior;
 import io.camunda.zeebe.engine.processing.common.Failure;
@@ -22,9 +21,8 @@ import io.camunda.zeebe.engine.state.immutable.ProcessState;
 import io.camunda.zeebe.engine.state.immutable.ZeebeState;
 import io.camunda.zeebe.engine.state.instance.EventTrigger;
 import io.camunda.zeebe.protocol.impl.record.value.processinstance.ProcessInstanceRecord;
-import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
-import io.camunda.zeebe.protocol.record.value.BpmnElementType;
 import io.camunda.zeebe.util.Either;
+import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.Optional;
 
 public final class BpmnEventSubscriptionBehavior {
@@ -81,7 +79,11 @@ public final class BpmnEventSubscriptionBehavior {
    */
   public Optional<EventTrigger> findEventTrigger(final BpmnElementContext context) {
     final var elementInstanceKey = context.getElementInstanceKey();
-    return Optional.ofNullable(eventScopeInstanceState.peekEventTrigger(elementInstanceKey));
+    // Event triggers could be used to store variables. If the event trigger belongs to the element
+    // itself, we should not activate it, otherwise the element will be activated a second time.
+    return Optional.ofNullable(eventScopeInstanceState.peekEventTrigger(elementInstanceKey))
+        .filter(
+            trigger -> !BufferUtil.contentsEqual(trigger.getElementId(), context.getElementId()));
   }
 
   /**
@@ -126,38 +128,9 @@ public final class BpmnEventSubscriptionBehavior {
   }
 
   public void activateTriggeredStartEvent(
-      final BpmnElementContext context, final EventTrigger triggeredEvent) {
-    final long processDefinitionKey = context.getProcessDefinitionKey();
-    final long processInstanceKey = context.getProcessInstanceKey();
+      final BpmnElementContext context, final EventTrigger eventTrigger) {
 
-    final var process = processState.getProcessByKey(context.getProcessDefinitionKey());
-    if (process == null) {
-      // this should never happen because processes are never deleted.
-      throw new BpmnProcessingException(
-          context, String.format(NO_PROCESS_FOUND_MESSAGE, processDefinitionKey));
-    }
-
-    eventTriggerBehavior.processEventTriggered(
-        triggeredEvent.getEventKey(),
-        processDefinitionKey,
-        processInstanceKey,
-        processDefinitionKey, /* the event scope for the start event is the process definition */
-        triggeredEvent.getElementId());
-
-    eventRecord.reset();
-    eventRecord.wrap(context.getRecordValue());
-
-    final var record =
-        eventRecord
-            .setElementId(triggeredEvent.getElementId())
-            .setBpmnElementType(BpmnElementType.START_EVENT)
-            .setProcessInstanceKey(processInstanceKey)
-            .setVersion(process.getVersion())
-            .setBpmnProcessId(process.getBpmnProcessId())
-            .setFlowScopeKey(processInstanceKey);
-
-    final var newEventInstanceKey = keyGenerator.nextKey();
-    commandWriter.appendFollowUpCommand(
-        newEventInstanceKey, ProcessInstanceIntent.ACTIVATE_ELEMENT, record);
+    activateTriggeredEvent(
+        context.getProcessDefinitionKey(), context.getProcessInstanceKey(), eventTrigger, context);
   }
 }

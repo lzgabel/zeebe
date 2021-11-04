@@ -23,9 +23,9 @@ import io.camunda.zeebe.engine.processing.streamprocessor.writers.CommandRespons
 import io.camunda.zeebe.engine.state.QueryService;
 import io.camunda.zeebe.logstreams.log.LogStream;
 import io.camunda.zeebe.logstreams.storage.atomix.AtomixLogStorage;
-import io.camunda.zeebe.snapshots.ConstructableSnapshotStore;
 import io.camunda.zeebe.util.health.HealthMonitor;
 import io.camunda.zeebe.util.sched.ActorSchedulingService;
+import io.camunda.zeebe.util.sched.ConcurrencyControl;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
 import io.camunda.zeebe.util.sched.future.TestActorFuture;
 import java.util.Collection;
@@ -51,6 +51,7 @@ public class TestPartitionTransitionContext implements PartitionTransitionContex
   private BrokerCfg brokerCfg;
   private AsyncSnapshotDirector snapshotDirector;
   private QueryService queryService;
+  private ConcurrencyControl concurrencyControl;
 
   @Override
   public int getPartitionId() {
@@ -144,6 +145,25 @@ public class TestPartitionTransitionContext implements PartitionTransitionContex
   }
 
   @Override
+  public BrokerCfg getBrokerCfg() {
+    return brokerCfg;
+  }
+
+  @Override
+  public QueryService getQueryService() {
+    return queryService;
+  }
+
+  @Override
+  public void setQueryService(final QueryService queryService) {
+    this.queryService = queryService;
+  }
+
+  public void setBrokerCfg(final BrokerCfg brokerCfg) {
+    this.brokerCfg = brokerCfg;
+  }
+
+  @Override
   public void setStreamProcessor(final StreamProcessor streamProcessor) {
     this.streamProcessor = streamProcessor;
   }
@@ -177,6 +197,11 @@ public class TestPartitionTransitionContext implements PartitionTransitionContex
   }
 
   @Override
+  public void setZeebeDb(final ZeebeDb zeebeDb) {
+    zeebeDB = zeebeDb;
+  }
+
+  @Override
   public CommandResponseWriter getCommandResponseWriter() {
     return null;
   }
@@ -193,11 +218,6 @@ public class TestPartitionTransitionContext implements PartitionTransitionContex
 
   public void setStreamProcessorFactory(final TypedRecordProcessorFactory streamProcessorFactory) {
     this.streamProcessorFactory = streamProcessorFactory;
-  }
-
-  @Override
-  public void setZeebeDb(final ZeebeDb zeebeDb) {
-    zeebeDB = zeebeDb;
   }
 
   public void setRaftPartition(final RaftPartition raftPartition) {
@@ -218,6 +238,7 @@ public class TestPartitionTransitionContext implements PartitionTransitionContex
     return logStream;
   }
 
+  @Override
   public void setLogStream(final LogStream logStream) {
     this.logStream = logStream;
   }
@@ -233,32 +254,8 @@ public class TestPartitionTransitionContext implements PartitionTransitionContex
   }
 
   @Override
-  public BrokerCfg getBrokerCfg() {
-    return brokerCfg;
-  }
-
-  @Override
-  public QueryService getQueryService() {
-    return queryService;
-  }
-
-  @Override
-  public void setQueryService(final QueryService queryService) {
-    this.queryService = queryService;
-  }
-
-  public void setBrokerCfg(final BrokerCfg brokerCfg) {
-    this.brokerCfg = brokerCfg;
-  }
-
-  @Override
   public StateController getStateController() {
     return stateController;
-  }
-
-  @Override
-  public ConstructableSnapshotStore getConstructableSnapshotStore() {
-    return null;
   }
 
   @Override
@@ -273,5 +270,15 @@ public class TestPartitionTransitionContext implements PartitionTransitionContex
 
   public void setStateController(final StateController stateController) {
     this.stateController = stateController;
+  }
+
+  @Override
+  public ConcurrencyControl getConcurrencyControl() {
+    return concurrencyControl;
+  }
+
+  @Override
+  public void setConcurrencyControl(final ConcurrencyControl concurrencyControl) {
+    this.concurrencyControl = concurrencyControl;
   }
 }

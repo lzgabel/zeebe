@@ -21,8 +21,8 @@ import io.camunda.zeebe.engine.processing.streamprocessor.writers.CommandRespons
 import io.camunda.zeebe.engine.state.QueryService;
 import io.camunda.zeebe.logstreams.log.LogStream;
 import io.camunda.zeebe.logstreams.storage.atomix.AtomixLogStorage;
-import io.camunda.zeebe.snapshots.ConstructableSnapshotStore;
 import io.camunda.zeebe.util.sched.ActorSchedulingService;
+import io.camunda.zeebe.util.sched.ConcurrencyControl;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.Consumer;
@@ -37,9 +37,9 @@ public interface PartitionTransitionContext extends PartitionContext {
 
   AsyncSnapshotDirector getSnapshotDirector();
 
-  StateController getStateController();
+  void setSnapshotDirector(AsyncSnapshotDirector snapshotDirector);
 
-  ConstructableSnapshotStore getConstructableSnapshotStore();
+  StateController getStateController();
 
   List<PartitionListener> getPartitionListeners();
 
@@ -55,13 +55,17 @@ public interface PartitionTransitionContext extends PartitionContext {
 
   ZeebeDb getZeebeDb();
 
+  void setZeebeDb(ZeebeDb zeebeDb);
+
   CommandResponseWriter getCommandResponseWriter();
 
   Consumer<TypedRecord<?>> getOnProcessedListener();
 
   TypedRecordProcessorFactory getStreamProcessorFactory();
 
-  void setZeebeDb(ZeebeDb zeebeDb);
+  ConcurrencyControl getConcurrencyControl();
+
+  void setConcurrencyControl(ConcurrencyControl concurrencyControl);
 
   void setExporterDirector(ExporterDirector exporterDirector);
 
@@ -76,8 +80,6 @@ public interface PartitionTransitionContext extends PartitionContext {
   void setLogStorage(AtomixLogStorage logStorage);
 
   int getMaxFragmentSize();
-
-  void setSnapshotDirector(AsyncSnapshotDirector snapshotDirector);
 
   BrokerCfg getBrokerCfg();
 

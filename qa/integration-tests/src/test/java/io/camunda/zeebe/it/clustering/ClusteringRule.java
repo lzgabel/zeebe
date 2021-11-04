@@ -29,6 +29,7 @@ import io.atomix.utils.net.Address;
 import io.camunda.zeebe.broker.Broker;
 import io.camunda.zeebe.broker.PartitionListener;
 import io.camunda.zeebe.broker.SpringBrokerBridge;
+import io.camunda.zeebe.broker.bootstrap.BrokerContext;
 import io.camunda.zeebe.broker.exporter.stream.ExporterDirectorContext;
 import io.camunda.zeebe.broker.partitioning.PartitionManagerImpl;
 import io.camunda.zeebe.broker.system.SystemContext;
@@ -63,11 +64,14 @@ import io.camunda.zeebe.util.sched.future.CompletableActorFuture;
 import io.netty.util.NetUtil;
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -287,9 +291,12 @@ public final class ClusteringRule extends ExternalResource {
 
     systemContext.getScheduler().start();
 
-    final Broker broker = new Broker(systemContext, getSpringBrokerBridge(nodeId));
+    final Broker broker =
+        new Broker(
+            systemContext,
+            getSpringBrokerBridge(nodeId),
+            Collections.singletonList(new LeaderListener(partitionLatch, nodeId)));
 
-    broker.addPartitionListener(new LeaderListener(partitionLatch, nodeId));
     new Thread(
             () -> {
               broker.start();
@@ -598,11 +605,11 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void stepDown(final Broker broker, final int partitionId) {
-    final var atomix = broker.getClusterServices();
+    final var atomix = broker.getBrokerContext().getClusterServices();
     final MemberId nodeId = atomix.getMembershipService().getLocalMember().id();
 
     final var raftPartition =
-        broker.getPartitionManager().getPartitionGroup().getPartitions().stream()
+        broker.getBrokerContext().getPartitionManager().getPartitionGroup().getPartitions().stream()
             .filter(partition -> partition.members().contains(nodeId))
             .filter(partition -> partition.id().id() == partitionId)
             .map(RaftPartition.class::cast)
@@ -613,14 +620,14 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void disconnect(final Broker broker) {
-    final var atomix = broker.getAtomixCluster();
+    final var atomix = broker.getBrokerContext().getAtomixCluster();
 
     ((NettyUnicastService) atomix.getUnicastService()).stop().join();
     ((NettyMessagingService) atomix.getMessagingService()).stop().join();
   }
 
   public void connect(final Broker broker) {
-    final var atomix = broker.getAtomixCluster();
+    final var atomix = broker.getBrokerContext().getAtomixCluster();
 
     ((NettyUnicastService) atomix.getUnicastService()).start().join();
     ((NettyMessagingService) atomix.getMessagingService()).start().join();
@@ -662,11 +669,11 @@ public final class ClusteringRule extends ExternalResource {
     }
 
     final var broker = brokers.get(expectedLeader);
-    final var atomix = broker.getClusterServices();
+    final var atomix = broker.getBrokerContext().getClusterServices();
     final MemberId nodeId = atomix.getMembershipService().getLocalMember().id();
 
     final var raftPartition =
-        broker.getPartitionManager().getPartitionGroup().getPartitions().stream()
+        broker.getBrokerContext().getPartitionManager().getPartitionGroup().getPartitions().stream()
             .filter(partition -> partition.members().contains(nodeId))
             .filter(partition -> partition.id().id() == START_PARTITION_ID)
             .map(RaftPartition.class::cast)
@@ -762,6 +769,49 @@ public final class ClusteringRule extends ExternalResource {
     return Paths.get(dataDir).resolve(RAFT_PARTITION_PATH);
   }
 
+  /**
+   * Fills one segment with messages. Use {@link #runUntilSegmentsFilled} if you need more control
+   * over the content or count of segments.
+   */
+  public void fillSegment() {
+    runUntilSegmentsFilled(
+        getBrokers(),
+        1,
+        () ->
+            client
+                .newPublishMessageCommand()
+                .messageName("msg")
+                .correlationKey("key")
+                .send()
+                .join());
+  }
+
+  /**
+   * Runs until a given number of segments are filled on all brokers. This is useful for publishing
+   * messages until a segment is full, thus triggering log compaction.
+   */
+  public void runUntilSegmentsFilled(
+      final Collection<Broker> brokers, final int segmentCount, Runnable runnable) {
+    while (brokers.stream().map(this::getSegmentsCount).allMatch(count -> count <= segmentCount)) {
+      runnable.run();
+    }
+    runnable.run();
+  }
+
+  public int getSegmentsCount(final Broker broker) {
+    return getSegments(broker).size();
+  }
+
+  Collection<Path> getSegments(final Broker broker) {
+    try {
+      return Files.list(getSegmentsDirectory(broker))
+          .filter(path -> path.toString().endsWith(".log"))
+          .collect(Collectors.toList());
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
   public SnapshotId waitForSnapshotAtBroker(final int nodeId) {
     return waitForNewSnapshotAtBroker(getBroker(nodeId), null);
   }
@@ -771,14 +821,15 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void takeSnapshot(final Broker broker) {
-    broker.getBrokerAdminService().takeSnapshot();
+    broker.getBrokerContext().getBrokerAdminService().takeSnapshot();
   }
 
   public void triggerAndWaitForSnapshots() {
     // Ensure that the exporter positions are distributed to the followers
     getClock().addTime(ExporterDirectorContext.DEFAULT_DISTRIBUTION_INTERVAL);
     getBrokers().stream()
-        .map(Broker::getBrokerAdminService)
+        .map(Broker::getBrokerContext)
+        .map(BrokerContext::getBrokerAdminService)
         .forEach(BrokerAdminService::takeSnapshot);
 
     getBrokers()
@@ -790,7 +841,7 @@ public final class ClusteringRule extends ExternalResource {
                     .until(
                         () -> {
                           // Trigger snapshot again in case snapshot is not already taken
-                          broker.getBrokerAdminService().takeSnapshot();
+                          broker.getBrokerContext().getBrokerAdminService().takeSnapshot();
                           return getSnapshot(broker);
                         },
                         Optional::isPresent));
@@ -827,7 +878,7 @@ public final class ClusteringRule extends ExternalResource {
 
   private Optional<SnapshotId> getSnapshot(final Broker broker, final int partitionId) {
 
-    final var partitions = broker.getBrokerAdminService().getPartitionStatus();
+    final var partitions = broker.getBrokerContext().getBrokerAdminService().getPartitionStatus();
     final var partitionStatus = partitions.get(partitionId);
 
     return Optional.ofNullable(partitionStatus)

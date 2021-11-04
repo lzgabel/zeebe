@@ -14,7 +14,6 @@ import static io.camunda.zeebe.broker.test.EmbeddedBrokerConfigurator.setCommand
 import static io.camunda.zeebe.broker.test.EmbeddedBrokerConfigurator.setGatewayApiPort;
 import static io.camunda.zeebe.broker.test.EmbeddedBrokerConfigurator.setGatewayClusterPort;
 import static io.camunda.zeebe.broker.test.EmbeddedBrokerConfigurator.setInternalApiPort;
-import static io.camunda.zeebe.broker.test.EmbeddedBrokerConfigurator.setMonitoringPort;
 import static io.camunda.zeebe.test.util.TestUtil.waitUntil;
 
 import io.atomix.cluster.AtomixCluster;
@@ -43,6 +42,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -119,7 +120,6 @@ public final class EmbeddedBrokerRule extends ExternalResource {
     setGatewayClusterPort(SocketUtil.getNextAddress().getPort()).accept(brokerCfg);
     setCommandApiPort(SocketUtil.getNextAddress().getPort()).accept(brokerCfg);
     setInternalApiPort(SocketUtil.getNextAddress().getPort()).accept(brokerCfg);
-    setMonitoringPort(SocketUtil.getNextAddress().getPort()).accept(brokerCfg);
   }
 
   @Override
@@ -171,11 +171,11 @@ public final class EmbeddedBrokerRule extends ExternalResource {
   }
 
   public ClusterServices getClusterServices() {
-    return broker.getClusterServices();
+    return broker.getBrokerContext().getClusterServices();
   }
 
   public AtomixCluster getAtomixCluster() {
-    return broker.getAtomixCluster();
+    return broker.getBrokerContext().getAtomixCluster();
   }
 
   public InetSocketAddress getGatewayAddress() {
@@ -227,13 +227,12 @@ public final class EmbeddedBrokerRule extends ExternalResource {
     systemContext =
         new SystemContext(brokerCfg, newTemporaryFolder.getAbsolutePath(), controlledActorClock);
     systemContext.getScheduler().start();
-    broker = new Broker(systemContext, springBrokerBridge);
 
+    final var additionalListeners = new ArrayList<>(Arrays.asList(listeners));
     final CountDownLatch latch = new CountDownLatch(brokerCfg.getCluster().getPartitionsCount());
-    broker.addPartitionListener(new LeaderPartitionListener(latch));
-    for (final PartitionListener listener : listeners) {
-      broker.addPartitionListener(listener);
-    }
+    additionalListeners.add(new LeaderPartitionListener(latch));
+
+    broker = new Broker(systemContext, springBrokerBridge, additionalListeners);
 
     broker.start().join();
 
@@ -244,7 +243,8 @@ public final class EmbeddedBrokerRule extends ExternalResource {
       Thread.currentThread().interrupt();
     }
 
-    final EmbeddedGatewayService embeddedGatewayService = broker.getEmbeddedGatewayService();
+    final EmbeddedGatewayService embeddedGatewayService =
+        broker.getBrokerContext().getEmbeddedGatewayService();
     if (embeddedGatewayService != null) {
       final BrokerClient brokerClient = embeddedGatewayService.get().getBrokerClient();
 
