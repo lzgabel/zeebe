@@ -17,7 +17,9 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import io.camunda.zeebe.gateway.health.impl.GatewayHealthManagerImpl;
 import io.camunda.zeebe.gateway.protocol.GatewayGrpc;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
-import io.grpc.protobuf.services.HealthStatusManager;
+// update HealthStatusManager path for compatible xhzy
+// import io.grpc.protobuf.services.HealthStatusManager;
+import io.grpc.services.HealthStatusManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
