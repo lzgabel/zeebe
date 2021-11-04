@@ -8,6 +8,8 @@
 package io.camunda.zeebe.broker.exporter.stream;
 
 import io.camunda.zeebe.broker.Loggers;
+import io.camunda.zeebe.broker.exporter.stream.ExporterDirectorContext.ExporterMode;
+import io.camunda.zeebe.broker.system.partitions.PartitionMessagingService;
 import io.camunda.zeebe.db.ZeebeDb;
 import io.camunda.zeebe.engine.processing.streamprocessor.EventFilter;
 import io.camunda.zeebe.engine.processing.streamprocessor.RecordValues;
@@ -52,6 +54,7 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
       "Expected to export record '{}' successfully, but exception was thrown.";
   private static final String ERROR_MESSAGE_RECOVER_FROM_SNAPSHOT_FAILED =
       "Expected to find event with the snapshot position %s in log stream, but nothing was found. Failed to recover '%s'.";
+  private static final String EXPORTER_STATE_TOPIC_FORMAT = "exporterState-%d";
 
   private static final Logger LOG = Loggers.EXPORTER_LOGGER;
   private final AtomicBoolean isOpened = new AtomicBoolean(false);
@@ -72,6 +75,12 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
   private boolean inExportingPhase;
   private boolean isPaused;
   private ExporterPhase exporterPhase;
+  private final PartitionMessagingService partitionMessagingService;
+  private final String exporterPositionsTopic;
+  private final ExporterMode exporterMode;
+  private final Duration distributionInterval;
+  private ExporterPositionsDistributionService exporterDistributionService;
+  private final int partitionId;
 
   public ExporterDirector(final ExporterDirectorContext context, final boolean shouldPauseOnStart) {
     name = context.getName();
@@ -79,13 +88,17 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
         context.getDescriptors().stream().map(ExporterContainer::new).collect(Collectors.toList());
 
     logStream = Objects.requireNonNull(context.getLogStream());
-    final int partitionId = logStream.getPartitionId();
+    partitionId = logStream.getPartitionId();
     metrics = new ExporterMetrics(partitionId);
     recordExporter = new RecordExporter(metrics, containers, partitionId);
     exportingRetryStrategy = new BackOffRetryStrategy(actor, Duration.ofSeconds(10));
     recordWrapStrategy = new EndlessRetryStrategy(actor);
     zeebeDb = context.getZeebeDb();
     isPaused = shouldPauseOnStart;
+    partitionMessagingService = context.getPartitionMessagingService();
+    exporterPositionsTopic = String.format(EXPORTER_STATE_TOPIC_FORMAT, partitionId);
+    exporterMode = context.getExporterMode();
+    distributionInterval = context.getDistributionInterval();
   }
 
   public ActorFuture<Void> startAsync(final ActorSchedulingService actorSchedulingService) {
@@ -109,7 +122,9 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
         () -> {
           isPaused = false;
           exporterPhase = ExporterPhase.EXPORTING;
-          actor.submit(this::readNextEvent);
+          if (exporterMode == ExporterMode.ACTIVE) {
+            actor.submit(this::readNextEvent);
+          }
         });
   }
 
@@ -121,29 +136,38 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
   }
 
   @Override
+  protected Map<String, String> createContext() {
+    final var context = super.createContext();
+    context.put(ACTOR_PROP_PARTITION_ID, Integer.toString(partitionId));
+    return context;
+  }
+
+  @Override
   public String getName() {
     return name;
   }
 
   @Override
   protected void onActorStarting() {
-    final ActorFuture<LogStreamReader> newReaderFuture = logStream.newLogStreamReader();
-    actor.runOnCompletionBlockingCurrentPhase(
-        newReaderFuture,
-        (reader, errorOnReceivingReader) -> {
-          if (errorOnReceivingReader == null) {
-            logStreamReader = reader;
-          } else {
-            // TODO https://github.com/zeebe-io/zeebe/issues/3499
-            // ideally we could fail the actor start future such that we are able to propagate the
-            // error
-            LOG.error(
-                "Unexpected error on retrieving reader from log {}",
-                logStream.getLogName(),
-                errorOnReceivingReader);
-            actor.close();
-          }
-        });
+    if (exporterMode == ExporterMode.ACTIVE) {
+      final ActorFuture<LogStreamReader> newReaderFuture = logStream.newLogStreamReader();
+      actor.runOnCompletionBlockingCurrentPhase(
+          newReaderFuture,
+          (reader, errorOnReceivingReader) -> {
+            if (errorOnReceivingReader == null) {
+              logStreamReader = reader;
+            } else {
+              // TODO https://github.com/zeebe-io/zeebe/issues/3499
+              // ideally we could fail the actor start future such that we are able to propagate the
+              // error
+              LOG.error(
+                  "Unexpected error on retrieving reader from log {}",
+                  logStream.getLogName(),
+                  errorOnReceivingReader);
+              actor.close();
+            }
+          });
+    }
   }
 
   @Override
@@ -151,27 +175,36 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
     try {
       LOG.debug("Recovering exporter from snapshot");
       recoverFromSnapshot();
+      exporterDistributionService =
+          new ExporterPositionsDistributionService(
+              this::consumeExporterPositionFromLeader,
+              partitionMessagingService,
+              exporterPositionsTopic);
 
-      for (final ExporterContainer container : containers) {
-        container.initContainer(actor, metrics, state);
-        container.configureExporter();
-      }
-
-      eventFilter = createEventFilter(containers);
-      LOG.debug("Set event filter for exporters: {}", eventFilter);
-
+      // Initialize containers irrespective of if it is Active or Passive mode
+      initContainers();
     } catch (final Exception e) {
       onFailure();
       LangUtil.rethrowUnchecked(e);
     }
 
     isOpened.set(true);
-    onSnapshotRecovered();
+
+    // remove exporters from state
+    // which are no longer in our configuration
+    clearExporterState();
+    if (exporterMode == ExporterMode.ACTIVE) {
+      startActiveExportingMode();
+    } else { // PASSIVE, we consume the messages and set it in our state
+      startPassiveExportingMode();
+    }
   }
 
   @Override
   protected void onActorClosing() {
-    logStreamReader.close();
+    if (logStreamReader != null) {
+      logStreamReader.close();
+    }
     logStream.removeRecordAvailableListener(this);
   }
 
@@ -184,12 +217,21 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
   @Override
   protected void onActorCloseRequested() {
     isOpened.set(false);
-    containers.forEach(ExporterContainer::close);
+    if (exporterMode == ExporterMode.ACTIVE) {
+      containers.forEach(ExporterContainer::close);
+    } else {
+      exporterDistributionService.close();
+    }
   }
 
   @Override
   protected void handleFailure(final Exception failure) {
-    LOG.error("Actor '{}' failed in phase {} with: {} .", name, actor.getLifecyclePhase(), failure);
+    LOG.error(
+        "Actor '{}' failed in phase {} with: {} .",
+        name,
+        actor.getLifecyclePhase(),
+        failure,
+        failure);
     actor.fail();
 
     if (failure instanceof UnrecoverableException) {
@@ -207,16 +249,26 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
     }
   }
 
-  private void recoverFromSnapshot() {
-    state = new ExportersState(zeebeDb, zeebeDb.createContext());
+  private void consumeExporterPositionFromLeader(
+      final String exporterId, final long receivedPosition) {
+    if (state.getPosition(exporterId) < receivedPosition) {
+      state.setPosition(exporterId, receivedPosition);
+    }
+  }
 
-    final long snapshotPosition = state.getLowestPosition();
-    final boolean failedToRecoverReader = !logStreamReader.seekToNextEvent(snapshotPosition);
-    if (failedToRecoverReader) {
-      throw new IllegalStateException(
-          String.format(ERROR_MESSAGE_RECOVER_FROM_SNAPSHOT_FAILED, snapshotPosition, getName()));
+  private void initContainers() throws Exception {
+    for (final ExporterContainer container : containers) {
+      container.initContainer(actor, metrics, state);
+      container.configureExporter();
     }
 
+    eventFilter = createEventFilter(containers);
+    LOG.debug("Set event filter for exporters: {}", eventFilter);
+  }
+
+  private void recoverFromSnapshot() {
+    state = new ExportersState(zeebeDb, zeebeDb.createContext());
+    final long snapshotPosition = state.getLowestPosition();
     LOG.debug(
         "Recovered exporter '{}' from snapshot at lastExportedPosition {}",
         getName(),
@@ -250,7 +302,7 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
     actor.close();
   }
 
-  private void onSnapshotRecovered() {
+  private void startActiveExportingMode() {
     logStream.registerRecordAvailableListener(this);
 
     // start reading
@@ -259,9 +311,13 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
       container.openExporter();
     }
 
-    clearExporterState();
-
     if (state.hasExporters()) {
+      final long snapshotPosition = state.getLowestPosition();
+      final boolean failedToRecoverReader = !logStreamReader.seekToNextEvent(snapshotPosition);
+      if (failedToRecoverReader) {
+        throw new IllegalStateException(
+            String.format(ERROR_MESSAGE_RECOVER_FROM_SNAPSHOT_FAILED, snapshotPosition, getName()));
+      }
       if (!isPaused) {
         exporterPhase = ExporterPhase.EXPORTING;
         actor.submit(this::readNextEvent);
@@ -269,9 +325,30 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
         exporterPhase = ExporterPhase.PAUSED;
       }
 
+      actor.runAtFixedRate(distributionInterval, this::distributeExporterPositions);
+
     } else {
       actor.close();
     }
+  }
+
+  private void startPassiveExportingMode() {
+    // Only initialize the positions, do not open and start exporting
+    for (final ExporterContainer container : containers) {
+      container.initPosition();
+    }
+
+    if (state.hasExporters()) {
+      exporterDistributionService.subscribeForExporterPositions(actor::run);
+    } else {
+      actor.close();
+    }
+  }
+
+  private void distributeExporterPositions() {
+    final var exportPositionsMessage = new ExporterPositionsMessage();
+    state.visitPositions(exportPositionsMessage::putExporter);
+    exporterDistributionService.distributeExporterPositions(exportPositionsMessage);
   }
 
   private void skipRecord(final LoggedEvent currentEvent) {
@@ -338,10 +415,6 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
         });
   }
 
-  public ExportersState getState() {
-    return state;
-  }
-
   private void clearExporterState() {
     final List<String> exporterIds =
         containers.stream().map(ExporterContainer::getId).collect(Collectors.toList());
@@ -379,6 +452,13 @@ public final class ExporterDirector extends Actor implements HealthMonitorable, 
   @Override
   public void onRecordAvailable() {
     actor.run(this::readNextEvent);
+  }
+
+  public ActorFuture<Long> getLowestPosition() {
+    if (actor.isClosed()) {
+      return CompletableActorFuture.completed(ExportersState.VALUE_NOT_FOUND);
+    }
+    return actor.call(() -> state.getLowestPosition());
   }
 
   private static class RecordExporter {

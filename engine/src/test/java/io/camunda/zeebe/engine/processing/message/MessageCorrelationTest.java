@@ -832,6 +832,63 @@ public final class MessageCorrelationTest {
   }
 
   @Test
+  public void shouldCorrelateOnlyOnceToNonInterruptingBoundaryEvent() {
+    // given
+    final BpmnModelInstance process =
+        Bpmn.createExecutableProcess(PROCESS_ID)
+            .startEvent()
+            .serviceTask("task", b -> b.zeebeJobType("test"))
+            .boundaryEvent("message")
+            .cancelActivity(false)
+            .message(m -> m.name("message").zeebeCorrelationKeyExpression("key"))
+            .endEvent("correlated")
+            .moveToActivity("task")
+            .boundaryEvent("timer")
+            .timerWithDuration("PT5M")
+            .endEvent()
+            .done();
+
+    engine.deployment().withXmlResource(process).deploy();
+
+    final var processInstanceKey =
+        engine.processInstance().ofBpmnProcessId(PROCESS_ID).withVariable("key", "key-1").create();
+
+    // when
+    engine.message().withName("message").withCorrelationKey("key-1").publish();
+
+    /* Improved wait statement. The first iteration of the wait statement produced flaky test results
+     * (see #7818) due to a bug (see #7995). To avoid the flakiness we analyzed the logs and found a
+     * more precise condition to wait for
+     */
+    RecordingExporter.messageSubscriptionRecords(MessageSubscriptionIntent.CORRELATED)
+        .withProcessInstanceKey(processInstanceKey)
+        .withMessageName("message")
+        .await();
+
+    // complete the process instance by triggering the interrupting timer boundary event
+    engine.increaseTime(Duration.ofMinutes(5));
+
+    // then
+    assertThat(
+            RecordingExporter.processInstanceRecords()
+                .withProcessInstanceKey(processInstanceKey)
+                .limitToProcessInstanceCompleted()
+                .withIntent(ProcessInstanceIntent.ELEMENT_ACTIVATED)
+                .withElementType(BpmnElementType.BOUNDARY_EVENT))
+        .describedAs("Expected that the message boundary event is activated only once")
+        .hasSize(2)
+        .extracting(r -> r.getValue().getElementId())
+        .containsExactly("message", "timer");
+
+    assertThat(
+            RecordingExporter.records()
+                .limitToProcessInstance(processInstanceKey)
+                .onlyCommandRejections())
+        .describedAs("Expected no subscription command rejections")
+        .isEmpty();
+  }
+
+  @Test
   public void shouldCorrelateMessageAgainAfterRejection() {
     // given
     engine.message().withName("a").withCorrelationKey("123").publish();

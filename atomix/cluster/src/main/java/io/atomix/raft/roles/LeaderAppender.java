@@ -40,7 +40,6 @@ import java.util.concurrent.CompletableFuture;
  */
 final class LeaderAppender extends AbstractAppender {
 
-  private static final long MAX_HEARTBEAT_WAIT = 60000;
   private static final int MIN_BACKOFF_FAILURE_COUNT = 5;
 
   private final long leaderTime;
@@ -255,14 +254,9 @@ final class LeaderAppender extends AbstractAppender {
     // to prevent having to read from disk to configure, install, or append to an unavailable
     // member.
     if (member.getFailureCount() >= MIN_BACKOFF_FAILURE_COUNT) {
-      // To prevent the leader from unnecessarily attempting to connect to a down follower on every
-      // heartbeat,
-      // use exponential backoff to back off up to 60 second heartbeat intervals.
-      if (System.currentTimeMillis() - member.getFailureTime()
-          > Math.min(
-              heartbeatInterval * Math.pow(2, member.getFailureCount()), MAX_HEARTBEAT_WAIT)) {
-        sendAppendRequest(member, buildAppendEmptyRequest(member));
-      }
+      // If the member is not reachable for a long time, only send heartbeats to ping the follower.
+      // When the follower starts acknowledging, leader will start sending the actual events.
+      sendAppendRequest(member, buildAppendEmptyRequest(member));
     }
     // If the member term is less than the current term or the member's configuration index is less
     // than the local configuration index, send a configuration update to the member.
@@ -282,7 +276,7 @@ final class LeaderAppender extends AbstractAppender {
     else if (member.getMember().getType() == RaftMember.Type.ACTIVE
         || member.getMember().getType() == RaftMember.Type.PROMOTABLE
         || member.getMember().getType() == RaftMember.Type.PASSIVE) {
-      tryToReplicateSnapshot(member);
+      tryToReplicate(member);
     }
     // If no AppendRequest is already being sent, send an AppendRequest.
     else if (member.canAppend()) {
@@ -348,25 +342,44 @@ final class LeaderAppender extends AbstractAppender {
                 new RaftException.ProtocolException("Failed to reach consensus")));
   }
 
-  private void tryToReplicateSnapshot(final RaftMemberContext member) {
-    final var persistedSnapshot = raft.getCurrentSnapshot();
-
-    if (persistedSnapshot != null
-        && member.getSnapshotIndex() < persistedSnapshot.getIndex()
-        && persistedSnapshot.getIndex() >= member.getCurrentIndex()) {
+  private void tryToReplicate(final RaftMemberContext member) {
+    if (shouldReplicateSnapshot(member)) {
       if (!member.canInstall()) {
         return;
       }
-
-      log.debug(
-          "Replicating snapshot {} to {}",
-          persistedSnapshot.getIndex(),
-          member.getMember().memberId());
-      buildInstallRequest(member, persistedSnapshot)
-          .ifPresent(installRequest -> sendInstallRequest(member, installRequest));
+      replicateSnapshot(member);
     } else if (member.canAppend()) {
-      sendAppendRequest(member, buildAppendRequest(member, -1));
+      replicateEvents(member);
     }
+  }
+
+  private boolean shouldReplicateSnapshot(final RaftMemberContext member) {
+    final var persistedSnapshot = raft.getCurrentSnapshot();
+    if (persistedSnapshot == null) {
+      return false;
+    }
+    if (raft.getLog().getFirstIndex() > member.getCurrentIndex()) {
+      // Necessary events are not available anymore, we have to use the snapshot
+      return true;
+    }
+    // Only use the snapshot if the number of events that would have to be replicated
+    // is above the threshold
+    final var memberLag = persistedSnapshot.getIndex() - member.getCurrentIndex();
+    return memberLag > raft.getPreferSnapshotReplicationThreshold();
+  }
+
+  private void replicateSnapshot(final RaftMemberContext member) {
+    final var persistedSnapshot = raft.getCurrentSnapshot();
+    log.debug(
+        "Replicating snapshot {} to {}",
+        persistedSnapshot.getIndex(),
+        member.getMember().memberId());
+    buildInstallRequest(member, persistedSnapshot)
+        .ifPresent(installRequest -> sendInstallRequest(member, installRequest));
+  }
+
+  private void replicateEvents(final RaftMemberContext member) {
+    sendAppendRequest(member, buildAppendRequest(member, -1));
   }
 
   /** Records a failed heartbeat. */

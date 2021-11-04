@@ -208,6 +208,12 @@ public abstract class AbstractFlowNodeBuilder<
     return createTargetBuilder(UserTask.class, id);
   }
 
+  public UserTaskBuilder userTask(final String id, final Consumer<UserTaskBuilder> consumer) {
+    final UserTaskBuilder builder = createTargetBuilder(UserTask.class, id);
+    consumer.accept(builder);
+    return builder;
+  }
+
   public BusinessRuleTaskBuilder businessRuleTask() {
     return createTargetBuilder(BusinessRuleTask.class);
   }
@@ -328,6 +334,14 @@ public abstract class AbstractFlowNodeBuilder<
 
   public IntermediateThrowEventBuilder intermediateThrowEvent(final String id) {
     return createTarget(IntermediateThrowEvent.class, id).builder();
+  }
+
+  public IntermediateThrowEventBuilder intermediateThrowEvent(
+      final String id, final Consumer<IntermediateThrowEventBuilder> builderConsumer) {
+    final IntermediateThrowEventBuilder builder =
+        createTarget(IntermediateThrowEvent.class, id).builder();
+    builderConsumer.accept(builder);
+    return builder;
   }
 
   public CallActivityBuilder callActivity() {

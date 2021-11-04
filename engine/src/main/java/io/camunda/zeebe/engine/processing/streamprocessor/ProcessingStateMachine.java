@@ -32,9 +32,9 @@ import io.camunda.zeebe.util.retry.RetryStrategy;
 import io.camunda.zeebe.util.sched.ActorControl;
 import io.camunda.zeebe.util.sched.clock.ActorClock;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
+import io.prometheus.client.Histogram;
 import java.time.Duration;
 import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
 import org.slf4j.Logger;
 
 /**
@@ -127,8 +127,7 @@ public final class ProcessingStateMachine {
   private final RecordProcessorMap recordProcessorMap;
   private final TypedEventImpl typedEvent;
   private final StreamProcessorMetrics metrics;
-  private final Consumer<TypedRecord<?>> onProcessedListener;
-  private final Consumer<LoggedEvent> onSkippedListener;
+  private final StreamProcessorListener streamProcessorListener;
 
   // current iteration
   private SideEffectProducer sideEffectProducer;
@@ -141,7 +140,7 @@ public final class ProcessingStateMachine {
   private volatile boolean onErrorHandlingLoop;
   private int onErrorRetries;
   // Used for processing duration metrics
-  private long processingStartTime;
+  private Histogram.Timer processingTimer;
 
   public ProcessingStateMachine(
       final ProcessingContext context, final BooleanSupplier shouldProcessNext) {
@@ -167,8 +166,7 @@ public final class ProcessingStateMachine {
     responseWriter = context.getWriters().response();
 
     metrics = new StreamProcessorMetrics(partitionId);
-    onProcessedListener = context.getOnProcessedListener();
-    onSkippedListener = context.getOnSkippedListener();
+    streamProcessorListener = context.getStreamProcessorListener();
   }
 
   private void skipRecord() {
@@ -208,7 +206,11 @@ public final class ProcessingStateMachine {
       return;
     }
 
-    processingStartTime = ActorClock.currentTimeMillis();
+    // Here we need to get the current time, since we want to calculate
+    // how long it took between writing to the dispatcher and processing.
+    // In all other cases we should prefer to use the Prometheus Timer API.
+    final var processingStartTime = ActorClock.currentTimeMillis();
+    processingTimer = metrics.startProcessingDurationTimer(metadata.getRecordType());
 
     try {
       final UnifiedRecordValue value = recordValues.readRecordValue(event, metadata.getValueType());
@@ -407,8 +409,9 @@ public final class ProcessingStateMachine {
 
           notifyProcessedListener(typedEvent);
 
-          metrics.processingDuration(
-              metadata.getRecordType(), processingStartTime, ActorClock.currentTimeMillis());
+          // observe the processing duration
+          processingTimer.close();
+
           // continue with next event
           currentProcessor = null;
           actor.submit(this::readNextEvent);
@@ -417,7 +420,7 @@ public final class ProcessingStateMachine {
 
   private void notifyProcessedListener(final TypedRecord processedRecord) {
     try {
-      onProcessedListener.accept(processedRecord);
+      streamProcessorListener.onProcessed(processedRecord);
     } catch (final Exception e) {
       LOG.error(NOTIFY_PROCESSED_LISTENER_ERROR_MESSAGE, processedRecord, e);
     }
@@ -425,7 +428,7 @@ public final class ProcessingStateMachine {
 
   private void notifySkippedListener(final LoggedEvent skippedRecord) {
     try {
-      onSkippedListener.accept(skippedRecord);
+      streamProcessorListener.onSkipped(skippedRecord);
     } catch (final Exception e) {
       LOG.error(NOTIFY_SKIPPED_LISTENER_ERROR_MESSAGE, skippedRecord, metadata, e);
     }
@@ -443,9 +446,14 @@ public final class ProcessingStateMachine {
     return !onErrorHandlingLoop;
   }
 
-  public void startProcessing(final long lastReprocessedPosition) {
+  public void startProcessing(final long lastProcessedPosition) {
+    // Replay ends at the end of the log and returns the lastSourceEventPosition
+    // which is equal to the last processed position
+    // we need to seek to the next record after that position where the processing should start
+    // Be aware on processing we ignore events, so we will process the next command
+    logStreamReader.seekToNextEvent(lastProcessedPosition);
     if (lastSuccessfulProcessedEventPosition == StreamProcessor.UNSET_POSITION) {
-      lastSuccessfulProcessedEventPosition = lastReprocessedPosition;
+      lastSuccessfulProcessedEventPosition = lastProcessedPosition;
     }
     actor.submit(this::readNextEvent);
   }

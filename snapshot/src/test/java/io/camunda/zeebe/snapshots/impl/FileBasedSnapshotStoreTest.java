@@ -9,13 +9,16 @@ package io.camunda.zeebe.snapshots.impl;
 
 import static java.nio.file.StandardOpenOption.CREATE_NEW;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 
 import io.camunda.zeebe.snapshots.TransientSnapshot;
 import io.camunda.zeebe.test.util.asserts.DirectoryAssert;
 import io.camunda.zeebe.util.FileUtil;
 import io.camunda.zeebe.util.sched.testing.ActorSchedulerRule;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -36,12 +39,13 @@ public class FileBasedSnapshotStoreTest {
   private Path snapshotsDir;
   private Path pendingSnapshotsDir;
   private FileBasedSnapshotStore snapshotStore;
+  private Path rootDirectory;
 
   @Before
   public void before() throws IOException {
-    final var root = temporaryFolder.newFolder("snapshots").toPath();
-    snapshotsDir = root.resolve(SNAPSHOT_DIRECTORY);
-    pendingSnapshotsDir = root.resolve(PENDING_DIRECTORY);
+    rootDirectory = temporaryFolder.newFolder("snapshots").toPath();
+    snapshotsDir = rootDirectory.resolve(SNAPSHOT_DIRECTORY);
+    pendingSnapshotsDir = rootDirectory.resolve(PENDING_DIRECTORY);
     snapshotStore = createStore(snapshotsDir, pendingSnapshotsDir);
   }
 
@@ -99,7 +103,7 @@ public class FileBasedSnapshotStoreTest {
   public void shouldNotLoadCorruptedSnapshot() throws Exception {
     // given
     final var persistedSnapshot = (FileBasedSnapshot) takeTransientSnapshot().persist().join();
-    SnapshotChecksum.persist(persistedSnapshot.getChecksumFile(), 0xCAFEL);
+    SnapshotChecksum.persist(persistedSnapshot.getChecksumFile(), new SfvChecksum(0xCAFEL));
 
     // when
     snapshotStore.close();
@@ -125,6 +129,90 @@ public class FileBasedSnapshotStoreTest {
   }
 
   @Test
+  public void shouldDeleteOlderSnapshotsWithCorruptChecksums() throws IOException {
+    // given
+    final var otherStore = createStore(snapshotsDir, pendingSnapshotsDir);
+    final var corruptOlderSnapshot =
+        (FileBasedSnapshot) takeTransientSnapshot(1, otherStore).persist().join();
+    SnapshotChecksum.persist(corruptOlderSnapshot.getChecksumFile(), new SfvChecksum(0xCAFEL));
+
+    final var newerSnapshot =
+        (FileBasedSnapshot) takeTransientSnapshot(2, snapshotStore).persist().join();
+
+    // when
+    snapshotStore.close();
+    snapshotStore = createStore(snapshotsDir, pendingSnapshotsDir);
+
+    // then
+    assertThat(snapshotStore.getLatestSnapshot()).hasValue(newerSnapshot);
+    assertThat(newerSnapshot.getDirectory()).exists();
+    assertThat(newerSnapshot.getChecksumFile()).exists();
+    assertThat(corruptOlderSnapshot.getDirectory()).doesNotExist();
+    assertThat(corruptOlderSnapshot.getChecksumFile()).doesNotExist();
+  }
+
+  @Test
+  public void shouldDeleteOlderSnapshotsWithMissingChecksums() throws IOException {
+    // given
+    final var otherStore = createStore(snapshotsDir, pendingSnapshotsDir);
+    final var corruptOlderSnapshot =
+        (FileBasedSnapshot) takeTransientSnapshot(1, otherStore).persist().join();
+    Files.delete(corruptOlderSnapshot.getChecksumFile());
+
+    final var newerSnapshot =
+        (FileBasedSnapshot) takeTransientSnapshot(2, snapshotStore).persist().join();
+
+    // when
+    snapshotStore.close();
+    snapshotStore = createStore(snapshotsDir, pendingSnapshotsDir);
+
+    // then
+    assertThat(snapshotStore.getLatestSnapshot()).get().isEqualTo(newerSnapshot);
+    assertThat(newerSnapshot.getDirectory()).exists();
+    assertThat(newerSnapshot.getChecksumFile()).exists();
+    assertThat(corruptOlderSnapshot.getDirectory()).doesNotExist();
+    assertThat(corruptOlderSnapshot.getChecksumFile()).doesNotExist();
+  }
+
+  @Test
+  public void shouldDeleteCorruptSnapshotsWhenAddingNewSnapshot() throws IOException {
+    // given
+    final var olderSnapshot =
+        (FileBasedSnapshot) takeTransientSnapshot(1, snapshotStore).persist().join();
+    final var otherStore = createStore(snapshotsDir, pendingSnapshotsDir);
+
+    // when - corrupting old snapshot and adding new valid snapshot
+    SnapshotChecksum.persist(olderSnapshot.getChecksumFile(), new SfvChecksum(0xCAFEL));
+    final var newerSnapshot =
+        (FileBasedSnapshot) takeTransientSnapshot(2, otherStore).persist().join();
+
+    // then -- valid snapshot is unaffected and corrupt snapshot is deleted
+    assertThat(otherStore.getLatestSnapshot()).get().isEqualTo(newerSnapshot);
+    assertThat(newerSnapshot.getDirectory()).exists();
+    assertThat(newerSnapshot.getChecksumFile()).exists();
+    assertThat(olderSnapshot.getDirectory()).doesNotExist();
+    assertThat(olderSnapshot.getChecksumFile()).doesNotExist();
+  }
+
+  @Test
+  public void shouldNotDeleteCorruptSnapshotWithoutValidSnapshot() throws IOException {
+    // given
+    final var otherStore = createStore(snapshotsDir, pendingSnapshotsDir);
+    final var corruptSnapshot =
+        (FileBasedSnapshot) takeTransientSnapshot(1, otherStore).persist().join();
+    SnapshotChecksum.persist(corruptSnapshot.getChecksumFile(), new SfvChecksum(0xCAFEL));
+
+    // when
+    snapshotStore.close();
+    snapshotStore = createStore(snapshotsDir, pendingSnapshotsDir);
+
+    // then
+    assertThat(snapshotStore.getLatestSnapshot()).isEmpty();
+    assertThat(corruptSnapshot.getDirectory()).exists();
+    assertThat(corruptSnapshot.getChecksumFile()).exists();
+  }
+
+  @Test
   public void shouldPurgePendingSnapshots() {
     // given
     takeTransientSnapshot();
@@ -134,6 +222,49 @@ public class FileBasedSnapshotStoreTest {
 
     // then
     assertThat(pendingSnapshotsDir).isEmptyDirectory();
+  }
+
+  @Test
+  public void shouldCopySnapshot() {
+    // given
+    final var persistedSnapshot = (FileBasedSnapshot) takeTransientSnapshot().persist().join();
+    final var target = rootDirectory.resolve("runtime");
+
+    // when
+    snapshotStore.copySnapshot(persistedSnapshot, target).join();
+
+    // then
+    assertThat(target).isNotEmptyDirectory();
+    assertThat(target.toFile().list())
+        .containsExactlyInAnyOrder(persistedSnapshot.getDirectory().toFile().list());
+  }
+
+  @Test
+  public void shouldCompleteWithExceptionWhenCannotCopySnapshot() throws IOException {
+    // given
+    final var persistedSnapshot = (FileBasedSnapshot) takeTransientSnapshot().persist().join();
+    final var target = rootDirectory.resolve("runtime");
+    target.toFile().createNewFile();
+
+    // when
+    final var result = snapshotStore.copySnapshot(persistedSnapshot, target);
+
+    // then - should fail because targetDirectory already exists
+    assertThatThrownBy(result::join).hasCauseInstanceOf(FileAlreadyExistsException.class);
+  }
+
+  @Test
+  public void shouldCompleteWithExceptionWhenCopyingIfSnapshotDoesNotExists() {
+    // given
+    final var persistedSnapshot = (FileBasedSnapshot) takeTransientSnapshot().persist().join();
+    final var target = rootDirectory.resolve("runtime");
+
+    // when
+    persistedSnapshot.delete();
+    final var result = snapshotStore.copySnapshot(persistedSnapshot, target);
+
+    // then
+    assertThatThrownBy(result::join).hasCauseInstanceOf(FileNotFoundException.class);
   }
 
   private boolean createSnapshotDir(final Path path) {
@@ -156,7 +287,7 @@ public class FileBasedSnapshotStoreTest {
 
   private TransientSnapshot takeTransientSnapshot(
       final long index, final FileBasedSnapshotStore store) {
-    final var transientSnapshot = store.newTransientSnapshot(index, 1, 1, 0).orElseThrow();
+    final var transientSnapshot = store.newTransientSnapshot(index, 1, 1, 0).get();
     transientSnapshot.take(this::createSnapshotDir);
     return transientSnapshot;
   }

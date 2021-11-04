@@ -9,32 +9,27 @@ package io.camunda.zeebe.engine.processing.common;
 
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementContext;
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementContextImpl;
-import io.camunda.zeebe.engine.processing.bpmn.BpmnProcessingException;
 import io.camunda.zeebe.engine.processing.bpmn.ProcessInstanceLifecycle;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableStartEvent;
-import io.camunda.zeebe.engine.processing.streamprocessor.MigratedStreamProcessors;
 import io.camunda.zeebe.engine.processing.streamprocessor.sideeffect.SideEffectQueue;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.StateWriter;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.TypedCommandWriter;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.Writers;
 import io.camunda.zeebe.engine.processing.variable.VariableBehavior;
 import io.camunda.zeebe.engine.state.KeyGenerator;
-import io.camunda.zeebe.engine.state.mutable.MutableElementInstanceState;
-import io.camunda.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
-import io.camunda.zeebe.engine.state.mutable.MutableZeebeState;
+import io.camunda.zeebe.engine.state.immutable.ElementInstanceState;
+import io.camunda.zeebe.engine.state.immutable.EventScopeInstanceState;
+import io.camunda.zeebe.engine.state.immutable.ZeebeState;
 import io.camunda.zeebe.protocol.impl.record.value.processinstance.ProcessEventRecord;
 import io.camunda.zeebe.protocol.impl.record.value.processinstance.ProcessInstanceRecord;
 import io.camunda.zeebe.protocol.record.intent.ProcessEventIntent;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import io.camunda.zeebe.protocol.record.value.BpmnElementType;
-import java.util.stream.Collectors;
 import org.agrona.DirectBuffer;
 
 public class EventTriggerBehavior {
 
-  private static final String ERROR_MSG_EXPECTED_START_EVENT =
-      "Expected an start event to be triggered on EventSubProcess scope, but was %s";
   private final ProcessInstanceRecord eventRecord = new ProcessInstanceRecord();
   private final ProcessEventRecord processEventRecord = new ProcessEventRecord();
 
@@ -42,8 +37,8 @@ public class EventTriggerBehavior {
   private final CatchEventBehavior catchEventBehavior;
   private final TypedCommandWriter commandWriter;
   private final StateWriter stateWriter;
-  private final MutableElementInstanceState elementInstanceState;
-  private final MutableEventScopeInstanceState eventScopeInstanceState;
+  private final ElementInstanceState elementInstanceState;
+  private final EventScopeInstanceState eventScopeInstanceState;
 
   private final VariableBehavior variableBehavior;
 
@@ -51,7 +46,7 @@ public class EventTriggerBehavior {
       final KeyGenerator keyGenerator,
       final CatchEventBehavior catchEventBehavior,
       final Writers writers,
-      final MutableZeebeState zeebeState) {
+      final ZeebeState zeebeState) {
     this.keyGenerator = keyGenerator;
     this.catchEventBehavior = catchEventBehavior;
     commandWriter = writers.command();
@@ -122,103 +117,26 @@ public class EventTriggerBehavior {
   }
 
   private boolean terminateChildInstances(final BpmnElementContext flowScopeContext) {
-    // we need to go to the parent and delete all childs to trigger the interrupting event sub
+    // we need to go to the parent and delete all children to trigger the interrupting event sub
     // process
-    final var childInstances =
-        elementInstanceState.getChildren(flowScopeContext.getElementInstanceKey()).stream()
-            .map(
-                childInstance ->
-                    flowScopeContext.copy(
-                        childInstance.getKey(), childInstance.getValue(), childInstance.getState()))
-            .collect(Collectors.toList());
-
-    for (final BpmnElementContext childInstanceContext : childInstances) {
-
-      if (ProcessInstanceLifecycle.canTerminate(childInstanceContext.getIntent())) {
-        if (!MigratedStreamProcessors.isMigrated(childInstanceContext.getBpmnElementType())) {
-          transitionToTerminating(childInstanceContext);
-        } else {
-          commandWriter.appendFollowUpCommand(
-              childInstanceContext.getElementInstanceKey(),
-              ProcessInstanceIntent.TERMINATE_ELEMENT,
-              childInstanceContext.getRecordValue());
-        }
-
-      } else if (!MigratedStreamProcessors.isMigrated(childInstanceContext.getBpmnElementType())
-          && childInstanceContext.getIntent() == ProcessInstanceIntent.ELEMENT_COMPLETED) {
-        // clean up the state because the completed event will not be processed
-        eventScopeInstanceState.deleteInstance(childInstanceContext.getElementInstanceKey());
-        elementInstanceState.removeInstance(childInstanceContext.getElementInstanceKey());
-      }
-    }
+    elementInstanceState.getChildren(flowScopeContext.getElementInstanceKey()).stream()
+        .filter(child -> ProcessInstanceLifecycle.canTerminate(child.getState()))
+        .map(
+            childInstance ->
+                flowScopeContext.copy(
+                    childInstance.getKey(), childInstance.getValue(), childInstance.getState()))
+        .forEach(
+            childInstanceContext ->
+                commandWriter.appendFollowUpCommand(
+                    childInstanceContext.getElementInstanceKey(),
+                    ProcessInstanceIntent.TERMINATE_ELEMENT,
+                    childInstanceContext.getRecordValue()));
 
     final var elementInstance =
         elementInstanceState.getInstance(flowScopeContext.getElementInstanceKey());
     final var activeChildInstances = elementInstance.getNumberOfActiveElementInstances();
 
     return activeChildInstances == 0;
-  }
-
-  // https://github.com/camunda-cloud/zeebe/issues/6202
-  // todo(zell): should be removed or replaced -
-  // it is currently duplication of BpmnTransitionBehavior
-  // ideally this class/behavior will be merged with others
-  public BpmnElementContext transitionToTerminating(final BpmnElementContext context) {
-    final var transitionedContext =
-        transitionTo(context, ProcessInstanceIntent.ELEMENT_TERMINATING);
-    if (!MigratedStreamProcessors.isMigrated(context.getBpmnElementType())) {
-      registerStateTransition(context, ProcessInstanceIntent.ELEMENT_TERMINATING);
-    }
-    return transitionedContext;
-  }
-
-  public void registerStateTransition(
-      final BpmnElementContext context, final ProcessInstanceIntent newState) {
-    switch (newState) {
-      case ELEMENT_ACTIVATING:
-      case ELEMENT_ACTIVATED:
-      case ELEMENT_COMPLETING:
-      case ELEMENT_COMPLETED:
-      case ELEMENT_TERMINATING:
-      case ELEMENT_TERMINATED:
-        updateElementInstanceState(context, newState);
-        break;
-
-      default:
-        // other transitions doesn't change the state of an element instance
-        break;
-    }
-  }
-
-  private void updateElementInstanceState(
-      final BpmnElementContext context, final ProcessInstanceIntent newState) {
-    elementInstanceState.updateInstance(
-        context.getElementInstanceKey(), elementInstance -> elementInstance.setState(newState));
-  }
-
-  private void verifyTransition(
-      final BpmnElementContext context, final ProcessInstanceIntent transition) {
-
-    if (!ProcessInstanceLifecycle.canTransition(context.getIntent(), transition)) {
-      throw new BpmnProcessingException(
-          context,
-          String.format(
-              "Expected to take transition to '%s' but element instance is in state '%s'.",
-              transition, context.getIntent()));
-    }
-  }
-
-  private BpmnElementContext transitionTo(
-      final BpmnElementContext context, final ProcessInstanceIntent transition) {
-    final var key = context.getElementInstanceKey();
-    final var value = context.getRecordValue();
-    if (!MigratedStreamProcessors.isMigrated(context.getBpmnElementType())) {
-      verifyTransition(context, transition);
-      stateWriter.appendFollowUpEvent(key, transition, value);
-    } else {
-      stateWriter.appendFollowUpEvent(key, transition, value);
-    }
-    return context.copy(key, value, transition);
   }
 
   /**
@@ -258,8 +176,8 @@ public class EventTriggerBehavior {
    * Marks a process to be triggered by updating the state with a new {@link
    * ProcessEventIntent#TRIGGERED} event.
    *
-   * @param processDefinitionKey the process instance key of the event trigger
    * @param processInstanceKey the process instance key of the event trigger
+   * @param processDefinitionKey the process instance key of the event trigger
    * @param eventScopeKey the event's scope key, which is used as identifier for the event trigger
    * @param catchEventId the ID of the element which was triggered by the event
    */
@@ -297,18 +215,22 @@ public class EventTriggerBehavior {
           "Expected to activate triggered event, but flow scope is null");
     }
 
+    // We need to activate the event sub process without writing a Triggered event for the process
+    // event. The reason for this is that the event trigger contains variables that are required
+    // for applying the variable output mappings of the start event. Writing the triggered event
+    // would delete the event trigger, causing us to lose access to these variables.
+    if (flowScope.getElementType() == BpmnElementType.EVENT_SUB_PROCESS
+        && triggeredEvent.getElementType() == BpmnElementType.START_EVENT) {
+      activateEventSubProcess(flowScope);
+      return;
+    }
+
     processEventTriggered(
         processEventKey,
         elementRecord.getProcessDefinitionKey(),
         elementRecord.getProcessInstanceKey(),
         eventScopeKey,
         triggeredEvent.getId());
-
-    if (flowScope.getElementType() == BpmnElementType.EVENT_SUB_PROCESS
-        && triggeredEvent.getElementType() == BpmnElementType.START_EVENT) {
-      activateEventSubProcess((ExecutableStartEvent) triggeredEvent, flowScope);
-      return;
-    }
 
     eventRecord
         .setBpmnElementType(triggeredEvent.getElementType())
@@ -335,28 +257,10 @@ public class EventTriggerBehavior {
         eventInstanceKey, ProcessInstanceIntent.COMPLETE_ELEMENT, eventRecord);
   }
 
-  private void activateEventSubProcess(
-      final ExecutableStartEvent triggeredStartEvent, final ExecutableFlowElement flowScope) {
-    // First we move the event sub process immediately to ACTIVATED,
-    // to make sure that we can copy the temp variables from the flow scope directly to the
-    // event sub process scope. This is done in the ACTIVATING applier of the event sub process.
+  private void activateEventSubProcess(final ExecutableFlowElement flowScope) {
     eventRecord
         .setBpmnElementType(BpmnElementType.EVENT_SUB_PROCESS)
         .setElementId(flowScope.getId());
-
-    final var eventSubProcessKey = keyGenerator.nextKey();
-    stateWriter.appendFollowUpEvent(
-        eventSubProcessKey, ProcessInstanceIntent.ELEMENT_ACTIVATING, eventRecord);
-    stateWriter.appendFollowUpEvent(
-        eventSubProcessKey, ProcessInstanceIntent.ELEMENT_ACTIVATED, eventRecord);
-
-    // Then we ACTIVATE the start event and copy the temporary variables further down, such that
-    // we can apply the output mappings.
-    eventRecord
-        .setFlowScopeKey(eventSubProcessKey)
-        .setBpmnElementType(triggeredStartEvent.getElementType())
-        .setElementId(triggeredStartEvent.getId());
-
     commandWriter.appendNewCommand(ProcessInstanceIntent.ACTIVATE_ELEMENT, eventRecord);
   }
 }

@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/camunda-cloud/zeebe/clients/go/pkg/zbc"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -31,6 +30,7 @@ import (
 	"time"
 
 	"github.com/camunda-cloud/zeebe/clients/go/internal/containersuite"
+	"github.com/camunda-cloud/zeebe/clients/go/pkg/zbc"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/suite"
 )
@@ -107,9 +107,16 @@ var tests = []testCase{
 		jsonOutput: true,
 	},
 	{
-		name:       "create instance",
+		name:       "create instance with process id",
 		setupCmds:  [][]string{strings.Fields("--insecure deploy testdata/model.bpmn")},
 		cmd:        strings.Fields("--insecure create instance process"),
+		goldenFile: "testdata/create_instance.golden",
+		jsonOutput: true,
+	},
+	{
+		name:       "create instance with process key",
+		setupCmds:  [][]string{strings.Fields("--insecure deploy testdata/model.bpmn")},
+		cmd:        strings.Fields("--insecure create instance 2251799813685252"),
 		goldenFile: "testdata/create_instance.golden",
 		jsonOutput: true,
 	},
@@ -150,10 +157,16 @@ var tests = []testCase{
 		jsonOutput: true,
 	},
 	{
-		name:       "send message with a space",
+		name:       "send message with a space and json string as variables",
 		setupCmds:  [][]string{strings.Fields("--insecure deploy testdata/start_event.bpmn")},
-		cmd:        []string{"--insecure", "publish", "message", "Start Process", "--correlationKey", "1234"},
+		cmd:        []string{"--insecure", "publish", "message", "Start Process", "--correlationKey", "1234", "--variables", "{\"FOO\":\"BAR\"}"},
 		goldenFile: "testdata/publish_message_with_space.golden",
+		jsonOutput: true,
+	},
+	{
+		name:       "send message with a json file as variables",
+		cmd:        []string{"--insecure", "publish", "message", "Start Process", "--correlationKey", "1234", "--variables", "testdata/message_variables.json"},
+		goldenFile: "testdata/publish_message_with_variables_file.golden",
 		jsonOutput: true,
 	},
 }

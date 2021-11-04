@@ -29,6 +29,7 @@ import io.camunda.zeebe.util.sched.future.CompletableActorFuture;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import org.slf4j.Logger;
@@ -78,56 +79,10 @@ public final class LogStreamImpl extends Actor
   }
 
   @Override
-  public int getPartitionId() {
-    return partitionId;
-  }
-
-  @Override
-  public String getLogName() {
-    return logName;
-  }
-
-  @Override
-  public ActorFuture<LogStreamReader> newLogStreamReader() {
-    return actor.call(this::createLogStreamReader);
-  }
-
-  @Override
-  public ActorFuture<LogStreamRecordWriter> newLogStreamRecordWriter() {
-    // this should be replaced after refactoring the actor control
-    if (actor.isClosed()) {
-      return CompletableActorFuture.completedExceptionally(new RuntimeException("Actor is closed"));
-    }
-
-    final var writerFuture = new CompletableActorFuture<LogStreamRecordWriter>();
-    actor.run(() -> createWriter(writerFuture, LogStreamWriterImpl::new));
-    return writerFuture;
-  }
-
-  @Override
-  public ActorFuture<LogStreamBatchWriter> newLogStreamBatchWriter() {
-    // this should be replaced after refactoring the actor control
-    if (actor.isClosed()) {
-      return CompletableActorFuture.completedExceptionally(new RuntimeException("Actor is closed"));
-    }
-
-    final var writerFuture = new CompletableActorFuture<LogStreamBatchWriter>();
-    actor.run(() -> createWriter(writerFuture, LogStreamBatchWriterImpl::new));
-    return writerFuture;
-  }
-
-  @Override
-  public void registerRecordAvailableListener(final LogRecordAwaiter recordAwaiter) {
-    actor.call(() -> recordAwaiters.add(recordAwaiter));
-  }
-
-  @Override
-  public void removeRecordAvailableListener(final LogRecordAwaiter recordAwaiter) {
-    actor.call(() -> recordAwaiters.remove(recordAwaiter));
-  }
-
-  private void notifyRecordAwaiters() {
-    recordAwaiters.forEach(LogRecordAwaiter::onRecordAvailable);
+  protected Map<String, String> createContext() {
+    final var context = super.createContext();
+    context.put(ACTOR_PROP_PARTITION_ID, Integer.toString(partitionId));
+    return context;
   }
 
   @Override
@@ -188,6 +143,59 @@ public final class LogStreamImpl extends Actor
   }
 
   @Override
+  public int getPartitionId() {
+    return partitionId;
+  }
+
+  @Override
+  public String getLogName() {
+    return logName;
+  }
+
+  @Override
+  public ActorFuture<LogStreamReader> newLogStreamReader() {
+    return actor.call(this::createLogStreamReader);
+  }
+
+  @Override
+  public ActorFuture<LogStreamRecordWriter> newLogStreamRecordWriter() {
+    // this should be replaced after refactoring the actor control
+    if (actor.isClosed()) {
+      return CompletableActorFuture.completedExceptionally(new RuntimeException("Actor is closed"));
+    }
+
+    final var writerFuture = new CompletableActorFuture<LogStreamRecordWriter>();
+    actor.run(() -> createWriter(writerFuture, LogStreamWriterImpl::new));
+    return writerFuture;
+  }
+
+  @Override
+  public ActorFuture<LogStreamBatchWriter> newLogStreamBatchWriter() {
+    // this should be replaced after refactoring the actor control
+    if (actor.isClosed()) {
+      return CompletableActorFuture.completedExceptionally(new RuntimeException("Actor is closed"));
+    }
+
+    final var writerFuture = new CompletableActorFuture<LogStreamBatchWriter>();
+    actor.run(() -> createWriter(writerFuture, LogStreamBatchWriterImpl::new));
+    return writerFuture;
+  }
+
+  @Override
+  public void registerRecordAvailableListener(final LogRecordAwaiter recordAwaiter) {
+    actor.call(() -> recordAwaiters.add(recordAwaiter));
+  }
+
+  @Override
+  public void removeRecordAvailableListener(final LogRecordAwaiter recordAwaiter) {
+    actor.call(() -> recordAwaiters.remove(recordAwaiter));
+  }
+
+  private void notifyRecordAwaiters() {
+    recordAwaiters.forEach(LogRecordAwaiter::onRecordAvailable);
+  }
+
+  @Override
   public void onCommit() {
     actor.call(this::notifyRecordAwaiters);
   }
@@ -205,6 +213,7 @@ public final class LogStreamImpl extends Actor
     } else if (appenderFuture != null) {
       appenderFuture.onComplete(onOpenAppender(writerFuture, creator));
     } else {
+      appenderFuture = new CompletableActorFuture<>();
       openAppender().onComplete(onOpenAppender(writerFuture, creator));
     }
   }
@@ -247,21 +256,23 @@ public final class LogStreamImpl extends Actor
   }
 
   private ActorFuture<LogStorageAppender> openAppender() {
-    if (appenderFuture != null) {
-      return appenderFuture;
+    try {
+      tryOpenAppender();
+    } catch (final Exception error) {
+      onOpenAppenderFailed(error);
     }
+    return appenderFuture;
+  }
 
-    final var appenderOpenFuture = new CompletableActorFuture<LogStorageAppender>();
-
-    appenderFuture = appenderOpenFuture;
-
+  private void tryOpenAppender() {
     final long lastPosition;
     try {
       lastPosition = getLastPosition();
-    } catch (final UnrecoverableException e) {
+    } catch (final UnrecoverableException error) {
+      LOG.error("Unexpected error when opening appender", error);
       onUnrecoverableFailure();
-      appenderFuture.completeExceptionally(e);
-      return appenderFuture;
+      appenderFuture.completeExceptionally(error);
+      return;
     }
 
     final long initialPosition;
@@ -307,8 +318,6 @@ public final class LogStreamImpl extends Actor
                 onOpenAppenderFailed(throwable);
               }
             });
-
-    return appenderOpenFuture;
   }
 
   private void onOpenAppenderFailed(final Throwable error) {

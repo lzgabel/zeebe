@@ -27,9 +27,9 @@ import io.camunda.zeebe.util.health.FailureListener;
 import io.camunda.zeebe.util.health.HealthMonitorable;
 import io.camunda.zeebe.util.health.HealthStatus;
 import io.camunda.zeebe.util.sched.Actor;
-import io.camunda.zeebe.util.sched.clock.ActorClock;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
 import io.camunda.zeebe.util.sched.future.CompletableActorFuture;
+import io.prometheus.client.Histogram.Timer;
 import java.nio.ByteBuffer;
 import java.util.HashSet;
 import java.util.Map;
@@ -55,6 +55,7 @@ public class LogStorageAppender extends Actor implements HealthMonitorable {
   private final AppenderMetrics appenderMetrics;
   private final Set<FailureListener> failureListeners = new HashSet<>();
   private final ActorFuture<Void> closeFuture;
+  private final int partitionId;
 
   public LogStorageAppender(
       final String name,
@@ -65,6 +66,7 @@ public class LogStorageAppender extends Actor implements HealthMonitorable {
     appenderMetrics = new AppenderMetrics(Integer.toString(partitionId));
     env = new Environment();
     this.name = name;
+    this.partitionId = partitionId;
     this.logStorage = logStorage;
     this.writeBufferSubscription = writeBufferSubscription;
     maxAppendBlockSize = maxBlockSize;
@@ -115,7 +117,12 @@ public class LogStorageAppender extends Actor implements HealthMonitorable {
     // Commit position is the position of the last event.
     appendBackpressureMetrics.newEntryToAppend();
     if (appendEntryLimiter.tryAcquire(positions.getRight())) {
-      final var listener = new Listener(this, positions.getRight(), ActorClock.currentTimeMillis());
+      final var listener =
+          new Listener(
+              this,
+              positions.getRight(),
+              appenderMetrics.startAppendLatencyTimer(),
+              appenderMetrics.startCommitLatencyTimer());
       logStorage.append(positions.getLeft(), positions.getRight(), copiedBuffer, listener);
 
       blockPeek.markCompleted();
@@ -127,6 +134,13 @@ public class LogStorageAppender extends Actor implements HealthMonitorable {
           appendEntryLimiter.getLimit());
       // we will be called later again
     }
+  }
+
+  @Override
+  protected Map<String, String> createContext() {
+    final var context = super.createContext();
+    context.put(ACTOR_PROP_PARTITION_ID, Integer.toString(partitionId));
+    return context;
   }
 
   @Override
@@ -168,7 +182,7 @@ public class LogStorageAppender extends Actor implements HealthMonitorable {
     if (writeBufferSubscription.peekBlock(blockPeek, maxAppendBlockSize, true) > 0) {
       appendBlock(blockPeek);
     } else {
-      actor.yield();
+      actor.yieldThread();
     }
   }
 
@@ -217,19 +231,21 @@ public class LogStorageAppender extends Actor implements HealthMonitorable {
     actor.run(() -> appendEntryLimiter.onCommit(highestPosition));
   }
 
-  void notifyWritePosition(final long highestPosition, final long startTime) {
+  void notifyWritePosition(final long highestPosition, final Timer appendLatencyTimer) {
     actor.run(
         () -> {
           appenderMetrics.setLastAppendedPosition(highestPosition);
-          appenderMetrics.appendLatency(startTime, ActorClock.currentTimeMillis());
+          // observe append latency
+          appendLatencyTimer.close();
         });
   }
 
-  void notifyCommitPosition(final long highestPosition, final long startTime) {
+  void notifyCommitPosition(final long highestPosition, final Timer commitLatencyTimer) {
     actor.run(
         () -> {
           appenderMetrics.setLastCommittedPosition(highestPosition);
-          appenderMetrics.commitLatency(startTime, ActorClock.currentTimeMillis());
+          // observe commit latency
+          commitLatencyTimer.close();
         });
   }
 }

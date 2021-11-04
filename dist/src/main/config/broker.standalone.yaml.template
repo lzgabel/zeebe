@@ -32,14 +32,6 @@
 
 # zeebe:
   # broker:
-    # Sets the timeout for each start and closing step.
-    #
-    # Broker bootstrap and closing is divided in several individual steps.
-    # Each step should take at max the defined stepTimeout, otherwise the bootstrap is aborted.
-    #
-    # This setting can also be overridden using the environment variable ZEEBE_BROKER_STEPTIMEOUT.
-    # stepTimeout: 5m
-
     # gateway:
       # Enable the embedded gateway to start on broker startup.
       # This setting can also be overridden using the environment variable ZEEBE_BROKER_GATEWAY_ENABLE.
@@ -70,11 +62,6 @@
         # This setting can also be overridden using the environment variable ZEEBE_BROKER_GATEWAY_THREADS_MANAGEMENTTHREADS.
         # managementThreads: 1
 
-      # monitoring:
-        # Enables the metrics collection in the gateway
-        # This setting can also be overridden using the environment variable ZEEBE_BROKER_GATEWAY_MONITORING_ENABLED.
-        # enabled: false
-
       # security:
         # Enables TLS authentication between clients and the gateway
         # This setting can also be overridden using the environment variable ZEEBE_BROKER_GATEWAY_SECURITY_ENABLED.
@@ -93,12 +80,36 @@
         # This setting can also be overridden using the environment variable ZEEBE_BROKER_GATEWAY_LONGPOLLING_ENABLED.
         # enabled: true
 
+      # interceptors:
+        # Configure interceptors below.
+        # Please consider reading our documentation on interceptors first.
+        #
+        # Each interceptors should be configured following this template:
+        #
+        # id:
+        #   identifier for this interceptor.
+        #   This setting can also be overridden using the environment variable ZEEBE_BROKER_GATEWAY_INTERCEPTORS_0_ID.
+        # jarPath:
+        #   path (relative or absolute) to the JAR file containing the interceptor class and its dependencies.
+        #   all classes must be compiled for the same language version as Zeebe or lower.
+        #   This setting can also be overridden using the environment variable ZEEBE_BROKER_GATEWAY_INTERCEPTORS_0_JARPATH.
+        # className:
+        #   entry point of the interceptor, a class which must:
+        #     - implement io.grpc.ServerInterceptor (see: https://grpc.github.io/grpc-java/javadoc/io/grpc/ServerInterceptor.html)
+        #     - have public visibility
+        #     - have a public default constructor (i.e. no-arg constructor)
+        #   This setting can also be overridden using the environment variable ZEEBE_BROKER_GATEWAY_INTERCEPTORS_0_CLASSNAME.
+        #
+        # Example configuration for a single interceptor
+        # - id: example-interceptor
+        #   className: com.acme.ExampleInterceptor
+        #   jarPath: /path/to/interceptor/example-interceptor.jar
+
     # network:
       # This section contains the network configuration. Particularly, it allows to
-      # configure the hosts and ports the broker should bind to. The broker exposes three sockets:
+      # configure the hosts and ports the broker should bind to. The broker exposes two sockets:
       # 1. command: the socket which is used for gateway-to-broker communication
       # 2. internal: the socket which is used for broker-to-broker communication
-      # 3. monitoring: the socket which is used to monitor the broker
 
       # Controls the default host the broker should bind to. Can be overwritten on a
       # per binding basis for client, management and replication
@@ -125,6 +136,19 @@
       # This setting can also be overridden using the environment variable ZEEBE_BROKER_NETWORK_MAXMESSAGESIZE.
       # maxMessageSize: 4MB
 
+      # security:
+        # Enables TLS authentication between this gateway and other nodes in the cluster
+        # This setting can also be overridden using the environment variable ZEEBE_BROKER_NETWORK_SECURITY_ENABLED.
+        # enabled: false
+
+        # Sets the path to the certificate chain file.
+        # This setting can also be overridden using the environment variable ZEEBE_BROKER_NETWORK_SECURITY_CERTIFICATECHAINPATH.
+        # certificateChainPath:
+
+        # Sets the path to the private key file location
+        # This setting can also be overridden using the environment variable ZEEBE_BROKER_NETWORK_SECURITY_PRIVATEKEYPATH.
+        # privateKeyPath:
+
       # commandApi:
         # Overrides the host used for gateway-to-broker communication
         # This setting can also be overridden using the environment variable ZEEBE_BROKER_NETWORK_COMMANDAPI_HOST.
@@ -142,15 +166,6 @@
         # Sets the port used for internal broker-to-broker communication
         # This setting can also be overridden using the environment variable ZEEBE_BROKER_NETWORK_INTERNALAPI_PORT.
         # port: 26502
-
-      # monitoringApi:
-        # Overrides the host used for exposing monitoring information
-        # This setting can also be overridden using the environment variable ZEEBE_BROKER_NETWORK_MONITORINGAPI_HOST.
-        # host: 0.0.0.0
-
-        # Sets the port used for exposing monitoring information
-        # This setting can also be overridden using the environment variable ZEEBE_BROKER_NETWORK_MONITORINGAPI_PORT.
-        # port: 9600
 
     # data:
       # This section allows to configure Zeebe's data storage. Data is stored in
@@ -468,6 +483,7 @@
         #
         # args:
         #   url: http://localhost:9200
+        #   requestTimeoutMs: 1000
         #
         #   bulk:
         #     delay: 5
@@ -517,6 +533,65 @@
       # It is not guaranteed to be a strictly uniform distribution.
       # This setting can also be overridden using the environment variable ZEEBE_BROKER_EXPERIMENTAL_ENABLEPRIORITYELECTION
       # enablePriorityElection = false;
+
+      # This setting allows you to configure how partitions are distributed amongst the node of the
+      # clusters. It currently supports to partitioning schemes: ROUND_ROBIN, and FIXED.
+      #
+      # ROUND_ROBIN is the default partitioning scheme. To enable it, set `scheme` to `ROUND_ROBIN`;
+      # not extra configuration is required. To understand how it will distribute the partitions,
+      # refer to the documentation:
+      #   https://docs.camunda.io/docs/product-manuals/zeebe/technical-concepts/partitions#partition-distribution
+      #
+      # The FIXED partitioning scheme allows users with non-traditional deployments to manual
+      # distribute the partitions across their set of brokers. This can be useful, for example, if
+      # you want to deploy a cluster across multiple data centers with some replication guarantees.
+      # See below for details on how to configure it.
+      #
+      # This setting can also be overridden using the environment variable ZEEBE_BROKER_EXPERIMENTAL_PARTITIONING
+      # partitioning:
+        # The partitioning scheme to use. Can be one of: ROUND_ROBIN, FIXED. Defaults to
+        # ROUND_ROBIN.
+        # scheme: ROUND_ROBIN
+        #
+        # The FIXED partitioning scheme configuration. This must be an exhaustive mapping of all
+        # partitions to a set of brokers. If any partitions are not configured, the broker will not
+        # start.
+        #
+        # For each partition, you must specify its partition ID (ranging from 1 to
+        # partitionCount), and the set of nodes which will manage it. This must be a subset
+        # of nodes whose IDs are valid within your cluster. This means with node IDs ranging from 0
+        # to the (clusterSize - 1), without any repeated IDs. This subset must have the same amount
+        # of nodes as the replication factor, otherwise the broker will not start.
+        #
+        # If you are using priority election, then you can also specify the priorities for each
+        # nodes. Note that for a given partition, the priorities of each member must be different,
+        # otherwise the broker will fail to start.
+        #
+        # fixed:
+        #   - partitionId: 1
+        #     nodes:
+        #       - nodeId: 0
+        #         priority: 1
+        #       - nodeId: 1
+        #         priority: 2
+        #       - nodeId: 2
+        #         priority: 3
+        #   - partitionId: 2
+        #     nodes:
+        #       - nodeId: 0
+        #         priority: 3
+        #       - nodeId: 1
+        #         priority: 2
+        #       - nodeId: 2
+        #         priority: 1
+        #   - partitionId: 3
+        #     nodes:
+        #       - nodeId: 0
+        #         priority: 2
+        #       - nodeId: 1
+        #         priority: 3
+        #       - nodeId: 2
+        #         priority: 2
 
       # Allows to configure specific raft properties
       # raft:
@@ -591,3 +666,20 @@
         # performance is a bit less predictable when disabling the WAL.
         # This setting can also be set using the environment variable ZEEBE_BROKER_EXPERIMENTAL_ROCKSDB_DISABLEWAL
         # disableWal: false
+
+      # Allows to configure the query API. By default, the broker only offers a command API, which
+      # is used by the gateway to pass commands it received along to the broker. Commands can then
+      # be processed. Zeebe does not directly support querying of brokers, instead it provides a way
+      # to export data to data lakes that can be queried. In highly specific cases, direct querying
+      # of a broker is necessary. For this, Zeebe provides a specialized query API. This query API
+      # can provide the `BPMN Process Id` belonging to a job, process instance or process
+      # definition. For easy access, a Java interface is provided to gateway interceptors, which
+      # you can retrieve using
+      # `io.camunda.zeebe.gateway.interceptors.InterceptorUtil.getQueryApiKey()`. Please read our
+      # documentation on interceptors to learn more about creating and loading interceptors into the
+      # gateway. In addition, please have a look at the Javadoc on InterceptorUtil.getQueryApiKey()
+      # to see how to use this in practise.
+      # queryApi:
+        # Enables the query api in the broker.
+        # This setting can also be set using the environmentvariable ZEEBE_BROKER_EXPERIMENTAL_QUERYAPI_ENABLED
+        # enabled: false

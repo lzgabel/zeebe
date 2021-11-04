@@ -26,6 +26,7 @@ import io.atomix.raft.RaftCommittedEntryListener;
 import io.atomix.raft.RaftRoleChangeListener;
 import io.atomix.raft.RaftServer;
 import io.atomix.raft.RaftServer.Role;
+import io.atomix.raft.SnapshotReplicationListener;
 import io.atomix.raft.metrics.RaftStartupMetrics;
 import io.atomix.raft.partition.RaftElectionConfig;
 import io.atomix.raft.partition.RaftPartition;
@@ -149,7 +150,7 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer>, Health
 
   @Override
   public CompletableFuture<Void> stop() {
-    return server.shutdown();
+    return server != null ? server.shutdown() : CompletableFuture.completedFuture(null);
   }
 
   private void initServer() {
@@ -180,6 +181,7 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer>, Health
 
     return RaftServer.builder(localMemberId)
         .withName(partition.name())
+        .withPartitionId(partitionId)
         .withMembershipService(membershipService)
         .withProtocol(createServerProtocol())
         .withPartitionConfig(partitionConfig)
@@ -232,6 +234,7 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer>, Health
     }
   }
 
+  @Override
   public void removeFailureListener(final FailureListener listener) {
     deferredFailureListeners.remove(listener);
     server.removeFailureListener(listener);
@@ -255,6 +258,29 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer>, Health
   /** @see io.atomix.raft.impl.RaftContext#addCommittedEntryListener(RaftCommittedEntryListener) */
   public void addCommittedEntryListener(final RaftCommittedEntryListener commitListener) {
     server.getContext().addCommittedEntryListener(commitListener);
+  }
+
+  /**
+   * @see io.atomix.raft.impl.RaftContext#removeCommittedEntryListener(RaftCommittedEntryListener)
+   */
+  public void removeCommittedEntryListener(final RaftCommittedEntryListener commitListener) {
+    server.getContext().removeCommittedEntryListener(commitListener);
+  }
+
+  /**
+   * @see
+   *     io.atomix.raft.impl.RaftContext#addSnapshotReplicationListener(SnapshotReplicationListener)
+   */
+  public void addSnapshotReplicationListener(final SnapshotReplicationListener listener) {
+    server.getContext().addSnapshotReplicationListener(listener);
+  }
+
+  /**
+   * @see
+   *     io.atomix.raft.impl.RaftContext#removeSnapshotReplicationListener(SnapshotReplicationListener)
+   */
+  public void removeSnapshotReplicationListener(final SnapshotReplicationListener listener) {
+    server.getContext().removeSnapshotReplicationListener(listener);
   }
 
   public PersistedSnapshotStore getPersistedSnapshotStore() {
@@ -326,5 +352,9 @@ public class RaftPartitionServer implements Managed<RaftPartitionServer>, Health
 
   public CompletableFuture<Void> stepDown() {
     return server.stepDown();
+  }
+
+  public CompletableFuture<RaftServer> promote() {
+    return server.promote();
   }
 }

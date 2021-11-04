@@ -16,7 +16,6 @@ import io.camunda.zeebe.util.sched.ActorSchedulingService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 public final class StreamProcessorBuilder {
@@ -61,8 +60,8 @@ public final class StreamProcessorBuilder {
     return this;
   }
 
-  public StreamProcessorBuilder onProcessedListener(final Consumer<TypedRecord<?>> onProcessed) {
-    processingContext.onProcessedListener(onProcessed);
+  public StreamProcessorBuilder listener(final StreamProcessorListener listener) {
+    processingContext.listener(listener);
     return this;
   }
 
@@ -74,6 +73,11 @@ public final class StreamProcessorBuilder {
   public StreamProcessorBuilder eventApplierFactory(
       final Function<MutableZeebeState, EventApplier> eventApplierFactory) {
     this.eventApplierFactory = eventApplierFactory;
+    return this;
+  }
+
+  public StreamProcessorBuilder streamProcessorMode(final StreamProcessorMode streamProcessorMode) {
+    processingContext.processorMode(streamProcessorMode);
     return this;
   }
 

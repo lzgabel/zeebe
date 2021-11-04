@@ -11,6 +11,8 @@ import static io.camunda.zeebe.util.ObjectWriterFactory.getDefaultJsonObjectWrit
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.camunda.zeebe.util.exception.UncheckedExecutionException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -22,9 +24,9 @@ public class GatewayCfg {
   private NetworkCfg network = new NetworkCfg();
   private ClusterCfg cluster = new ClusterCfg();
   private ThreadsCfg threads = new ThreadsCfg();
-  private MonitoringCfg monitoring = new MonitoringCfg();
   private SecurityCfg security = new SecurityCfg();
   private LongPollingCfg longPolling = new LongPollingCfg();
+  private List<InterceptorCfg> interceptors = new ArrayList<>();
   private boolean initialized = false;
 
   public void init() {
@@ -33,7 +35,6 @@ public class GatewayCfg {
 
   public void init(final String defaultHost) {
     network.init(defaultHost);
-    monitoring.init(defaultHost);
     initialized = true;
   }
 
@@ -68,15 +69,6 @@ public class GatewayCfg {
     return this;
   }
 
-  public MonitoringCfg getMonitoring() {
-    return monitoring;
-  }
-
-  public GatewayCfg setMonitoring(final MonitoringCfg monitoring) {
-    this.monitoring = monitoring;
-    return this;
-  }
-
   public SecurityCfg getSecurity() {
     return security;
   }
@@ -95,9 +87,17 @@ public class GatewayCfg {
     return this;
   }
 
+  public List<InterceptorCfg> getInterceptors() {
+    return interceptors;
+  }
+
+  public void setInterceptors(final List<InterceptorCfg> interceptors) {
+    this.interceptors = interceptors;
+  }
+
   @Override
   public int hashCode() {
-    return Objects.hash(network, cluster, threads, monitoring, security, longPolling);
+    return Objects.hash(network, cluster, threads, security, longPolling, interceptors);
   }
 
   @Override
@@ -112,9 +112,9 @@ public class GatewayCfg {
     return Objects.equals(network, that.network)
         && Objects.equals(cluster, that.cluster)
         && Objects.equals(threads, that.threads)
-        && Objects.equals(monitoring, that.monitoring)
         && Objects.equals(security, that.security)
-        && Objects.equals(longPolling, that.longPolling);
+        && Objects.equals(longPolling, that.longPolling)
+        && Objects.equals(interceptors, that.interceptors);
   }
 
   @Override
@@ -126,19 +126,19 @@ public class GatewayCfg {
         + cluster
         + ", threadsCfg="
         + threads
-        + ", monitoringCfg="
-        + monitoring
         + ", securityCfg="
         + security
         + ", longPollingCfg="
         + longPolling
+        + ", interceptors="
+        + interceptors
         + '}';
   }
 
   public String toJson() {
     try {
       return getDefaultJsonObjectWriter().writeValueAsString(this);
-    } catch (JsonProcessingException e) {
+    } catch (final JsonProcessingException e) {
       throw new UncheckedExecutionException("Writing to JSON failed", e);
     }
   }

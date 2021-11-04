@@ -3,7 +3,9 @@
 * [Build Zeebe from source](#build-zeebe-from-source)
 * [Report issues or contact developers](#report-issues-or-contact-developers)
 * [GitHub Issue Guidelines](#github-issue-guidelines)
-* [Create a Pull Request](#create-a-pull-request)
+* [Starting on an Issue](#starting-on-an-issue)
+* [Creating a Pull Request](#creating-a-pull-request)
+* [Backporting changes](#backporting-changes)
 * [Commit Message Guidelines](#commit-message-guidelines)
 * [Contributor License Agreement](#contributor-license-agreement)
 * [Licenses](#licenses)
@@ -68,7 +70,7 @@ describes:
 - a problem, how we can reproduce it and what would be the expected behavior
 - a change and the intention how this would improve the system
 
-## Create a Pull Request
+## Starting on an issue
 
 Zeebe follows a
 [gitflow](https://nvie.com/posts/a-successful-git-branching-model/) process.
@@ -90,52 +92,88 @@ To work on an issue, follow the following steps:
 1. Follow the [Google Java Format](https://github.com/google/google-java-format#intellij-android-studio-and-other-jetbrains-ides)
    and [Zeebe Code Style](https://github.com/zeebe-io/zeebe/wiki/Code-Style) while coding.
 1. Implement the required changes on your branch and regularly push your
-   changes to the origin so that the CI can run. Git commit will run a
-   pre-commit hook which will check the formatting, style and license headers
-   before committing. If these checks fail please fix the issues. Code format
-   and license headers can be fixed automatically by running maven. Checkstyle
+   changes to the origin so that the CI can run. Code formatting, style and
+   license header are fixed automatically by running maven. Checkstyle
    violations have to be fixed manually.
    ```
    git commit -am 'feat(broker): bpel support'
    git push -u origin 123-adding-bpel-support
    ```
 1. If you think you finished the issue please prepare the branch for reviewing.
-   In general the commits should be squashed into meaningful commits with a
-   helpful message. This means cleanup/fix etc commits should be squashed into
-   the related commit. If you made refactorings or similar which are not
-   directly necessary for the task it would be best if they are split up into
-   another commit. Rule of thumb is that you should think about how a reviewer
-   can best understand your changes. Please follow the [commit message
-   guidelines](#commit-message-guidelines).
+   Please consider our [pull requests and code
+   reviews](https://github.com/camunda-cloud/zeebe/wiki/Pull-Requests-and-Code-Reviews)
+   guide, before requesting a review. In general the commits should be squashed
+   into meaningful commits with a helpful message. This means cleanup/fix etc
+   commits should be squashed into the related commit. If you made refactorings
+   it would be best if they are split up into another commit. Rule of thumb is
+   that you should think about how a reviewer can best understand your changes.
+   Please follow the [commit message guidelines](#commit-message-guidelines).
 1. After finishing up the squashing force push your changes to your branch.
    ```
    git push --force-with-lease
    ```
+
+## Creating a pull request
+
 1. To start the review process create a new pull request on GitHub from your
    branch to the `develop` branch. Give it a meaningful name and describe
    your changes in the body of the pull request. Lastly add a link to the issue
    this pull request closes, i.e. by writing in the description `closes #123`
-1. Assign the pull request to one developer to review, if you are not sure who
+2. Assign the pull request to one developer to review, if you are not sure who
    should review the issue skip this step. Someone will assign a reviewer for
    you.
-1. The reviewer will look at the pull request in the following days and give
-   you either feedback or accept the changes.
+3. The reviewer will look at the pull request in the following days and give
+   you either feedback or accept the changes. Your reviewer might use
+   [emoji code](https://devblogs.microsoft.com/appcenter/how-the-visual-studio-mobile-center-team-does-code-review/#introducing-the-emoji-code)
+   during the reviewing process.
     1. If there are changes requested address them in a new commit. Notify the
        reviewer in a comment if the pull request is ready for review again. If
        the changes are accepted squash them again in the related commit and force push.
-       Then initiate a merge by writing a comment with the contet `bors r+`.
-    1. If no changes are requested the reviewer will initiate a merge by adding a
-       comment with the content `bors r+`.
-1. When a merge is initiated, a bot will merge your branch with the latest
+       Then initiate a merge by writing a comment with the content `bors merge`.
+    2. If no changes are requested the reviewer will initiate a merge by adding a
+       comment with the content `bors merge`.
+5. When a merge is initiated, a bot will merge your branch with the latest
    develop and run the CI on it.
     1. If everything goes well the branch is merged and deleted and the issue
-       and pull request are cloesed.
+       and pull request are closed.
     2. If there are merge conflicts the author of the pull request has to
        manually rebase `develop` into the issue branch and retrigger a merge
        attempt.
     3. If there are CI errors the author of the pull request has to check if
        they are caused by its changes and address them. If they are flaky tests
        a merge can be retried with a comment with the content `bors retry`.
+
+## Backporting changes
+
+Some changes need to be copied to older versions. We use the
+[backport](https://github.com/zeebe-io/backport-action) Github Action to automate this process.
+Please follow these steps to backport your changes:
+
+1. **Label the pull request** with a backport label (e.g. the label `backport stable/1.0` indicates
+   that we want to backport this pull request to the `stable/1.0` branch).
+   - if the pull request is _not yet_ merged, it will be automatically backported when bors has
+     finished merging the pull request.
+   - if the pull request is _already_ merged, create a comment on the pull request that contains
+     `/backport` to trigger the automatic backporting.
+2. The Github Actions bot comments on the pull request once it finishes:
+   - When _successful_, a new backport pull request was automatically created. Simply **approve and
+     merge it** by adding a review with a `bors merge` comment.
+   - If it _failed_, please follow these **manual steps**:
+      1. Locally checkout the target branch (e.g. `stable/1.0`).
+      2. Make sure it's up to date with origin (i.e. `git pull`).
+      3. Checkout a new branch for your backported changes (e.g. `git checkout -b
+         backport-123-to-stable/1.0`).
+      4. Cherry pick your changes `git cherry-pick -x <sha-1>...<sha-n>`. You may need to resolve
+         conflicts.
+      5. Push your cherry-picked changes `git push`.
+      6. Create a pull request for your backport branch:
+         - Make sure it is clear that this backports in the title (e.g. `[Backport stable/1.0] Title
+           of the original PR`).
+         - Make sure to change the target of the pull request to the correct branch (e.g.
+           `stable/1.0`).
+         - Refer to the pull request in the description to link it (e.g. `backports #123`)
+         - Refer to any issues that were referenced in the original pull request (e.g. `relates to
+           #99`).
 
 ## Commit Message Guidelines
 
@@ -167,7 +205,7 @@ The commit header should match the following pattern:
 The commit header should be kept short, preferably under 72 chars but we allow a max of 120 chars.
 
 - `type` should be one of:
-   - `build`: Changes that affect the build system (e.g. Maven, Docker, etc)
+   - `build`: Changes that affect the build system (e.g. Maven, Docker, etc)
    - `ci`: Changes to our CI configuration files and scripts (e.g. Jenkins, Bors, etc)
    - `deps`: A change to the external dependencies (was already used by Dependabot)
    - `docs`:  A change to the documentation

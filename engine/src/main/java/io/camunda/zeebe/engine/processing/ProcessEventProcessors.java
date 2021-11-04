@@ -7,6 +7,7 @@
  */
 package io.camunda.zeebe.engine.processing;
 
+import io.camunda.zeebe.engine.metrics.JobMetrics;
 import io.camunda.zeebe.engine.processing.bpmn.BpmnStreamProcessor;
 import io.camunda.zeebe.engine.processing.common.CatchEventBehavior;
 import io.camunda.zeebe.engine.processing.common.EventTriggerBehavior;
@@ -52,7 +53,8 @@ public final class ProcessEventProcessors {
       final CatchEventBehavior catchEventBehavior,
       final DueDateTimerChecker timerChecker,
       final EventTriggerBehavior eventTriggerBehavior,
-      final Writers writers) {
+      final Writers writers,
+      final JobMetrics jobMetrics) {
     final MutableProcessMessageSubscriptionState subscriptionState =
         zeebeState.getProcessMessageSubscriptionState();
     final VariableBehavior variableBehavior =
@@ -68,7 +70,8 @@ public final class ProcessEventProcessors {
             variableBehavior,
             eventTriggerBehavior,
             zeebeState,
-            writers);
+            writers,
+            jobMetrics);
     addBpmnStepProcessor(typedRecordProcessors, bpmnStreamProcessor);
 
     addMessageStreamProcessors(
@@ -122,13 +125,6 @@ public final class ProcessEventProcessors {
         .forEach(
             intent ->
                 typedRecordProcessors.onCommand(
-                    ValueType.PROCESS_INSTANCE, intent, bpmnStepProcessor));
-
-    Arrays.stream(ProcessInstanceIntent.values())
-        .filter(ProcessInstanceIntent::isBpmnElementEvent)
-        .forEach(
-            intent ->
-                typedRecordProcessors.onEvent(
                     ValueType.PROCESS_INSTANCE, intent, bpmnStepProcessor));
   }
 

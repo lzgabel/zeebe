@@ -9,8 +9,7 @@ package io.camunda.zeebe.snapshots;
 
 import io.camunda.zeebe.util.sched.future.ActorFuture;
 import java.nio.file.Path;
-import java.util.function.BiConsumer;
-import java.util.function.Predicate;
+import java.util.function.Consumer;
 
 /** A transient snapshot which can be persisted after taking a snapshot. */
 public interface TransientSnapshot extends PersistableSnapshot {
@@ -24,12 +23,5 @@ public interface TransientSnapshot extends PersistableSnapshot {
    *     success
    * @return true on success, false otherwise
    */
-  ActorFuture<Boolean> take(Predicate<Path> takeSnapshot);
-
-  /**
-   * Execute an operation after {@link TransientSnapshot#take(Predicate)} is completed.
-   *
-   * @param runnable the operation that should be executed after the transient snapshot is taken
-   */
-  void onSnapshotTaken(BiConsumer<Boolean, Throwable> runnable);
+  ActorFuture<Void> take(Consumer<Path> takeSnapshot);
 }

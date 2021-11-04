@@ -74,7 +74,6 @@
   "annotations": {
     "list": [
       {
-        "$$hashKey": "object:47",
         "builtIn": 1,
         "datasource": "-- Grafana --",
         "enable": true,
@@ -89,7 +88,7 @@
   "gnetId": null,
   "graphTooltip": 1,
   "id": null,
-  "iteration": 1625552874210,
+  "iteration": 1634130126222,
   "links": [],
   "panels": [
     {
@@ -105,10 +104,11 @@
       "panels": [
         {
           "datasource": "$DS_PROMETHEUS",
-          "description": "Current partition leader",
+          "description": "Shows for each partition which broker is the leader",
           "fieldConfig": {
             "defaults": {
               "custom": {
+                "align": null,
                 "displayMode": "auto",
                 "filterable": false
               },
@@ -174,8 +174,8 @@
             "showHeader": true,
             "sortBy": [
               {
-                "desc": true,
-                "displayName": "Role"
+                "desc": false,
+                "displayName": "Partition"
               }
             ]
           },
@@ -221,9 +221,9 @@
                   "instance": 3,
                   "job": 4,
                   "namespace": 5,
-                  "partition": 8,
+                  "partition": 7,
                   "partitionGroupName": 6,
-                  "pod": 7,
+                  "pod": 8,
                   "service": 9
                 },
                 "renameByName": {
@@ -452,7 +452,7 @@
           "fillGradient": 1,
           "gridPos": {
             "h": 5,
-            "w": 24,
+            "w": 12,
             "x": 0,
             "y": 7
           },
@@ -498,15 +498,6 @@
               "refId": "A"
             },
             {
-              "expr": "sum(rate(zeebe_exporter_events_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[1m])) by (pod, partition, exporter)",
-              "format": "time_series",
-              "hide": false,
-              "interval": "",
-              "intervalFactor": 1,
-              "legendFormat": "{{pod}}-{{partition}}-exported",
-              "refId": "B"
-            },
-            {
               "expr": "sum(rate(zeebe_stream_processor_records_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\", action=~\"written\"}[1m])) by (pod, partition, processor)",
               "interval": "",
               "legendFormat": "{{pod}}-{{partition}}-{{processor}}-written",
@@ -533,14 +524,123 @@
           },
           "yaxes": [
             {
+              "$$hashKey": "object:254",
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": "5000",
+              "min": "0",
+              "show": true
+            },
+            {
+              "$$hashKey": "object:255",
               "format": "short",
               "label": null,
               "logBase": 1,
               "max": null,
               "min": null,
               "show": true
+            }
+          ],
+          "yaxis": {
+            "align": false,
+            "alignLevel": null
+          }
+        },
+        {
+          "aliasColors": {},
+          "bars": false,
+          "dashLength": 10,
+          "dashes": false,
+          "datasource": "$DS_PROMETHEUS",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "links": []
+            },
+            "overrides": []
+          },
+          "fill": 1,
+          "fillGradient": 1,
+          "gridPos": {
+            "h": 5,
+            "w": 12,
+            "x": 12,
+            "y": 7
+          },
+          "hiddenSeries": false,
+          "id": 270,
+          "legend": {
+            "alignAsTable": false,
+            "avg": false,
+            "current": false,
+            "hideEmpty": false,
+            "hideZero": false,
+            "max": false,
+            "min": false,
+            "rightSide": true,
+            "show": false,
+            "sideWidth": 250,
+            "total": false,
+            "values": false
+          },
+          "lines": true,
+          "linewidth": 1,
+          "links": [],
+          "nullPointMode": "null",
+          "options": {
+            "alertThreshold": true
+          },
+          "percentage": false,
+          "pluginVersion": "7.4.5",
+          "pointradius": 2,
+          "points": false,
+          "renderer": "flot",
+          "seriesOverrides": [],
+          "spaceLength": 10,
+          "stack": false,
+          "steppedLine": false,
+          "targets": [
+            {
+              "expr": "sum(rate(zeebe_exporter_events_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[1m])) by (pod, partition, exporter)",
+              "format": "time_series",
+              "hide": false,
+              "interval": "",
+              "intervalFactor": 1,
+              "legendFormat": "{{pod}}-{{partition}}-exported",
+              "refId": "B"
+            }
+          ],
+          "thresholds": [],
+          "timeFrom": null,
+          "timeRegions": [],
+          "timeShift": null,
+          "title": "Exporting per Partition",
+          "tooltip": {
+            "shared": true,
+            "sort": 2,
+            "value_type": "individual"
+          },
+          "type": "graph",
+          "xaxis": {
+            "buckets": null,
+            "mode": "time",
+            "name": null,
+            "show": true,
+            "values": []
+          },
+          "yaxes": [
+            {
+              "$$hashKey": "object:254",
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": "5000",
+              "min": "0",
+              "show": true
             },
             {
+              "$$hashKey": "object:255",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -662,7 +762,6 @@
               "custom": {},
               "mappings": [
                 {
-                  "$$hashKey": "object:725",
                   "id": 0,
                   "op": "=",
                   "text": "0",
@@ -1235,14 +1334,12 @@
           "renderer": "flot",
           "seriesOverrides": [
             {
-              "$$hashKey": "object:235",
               "alias": "limit",
               "color": "#E02F44",
               "fill": 0,
               "linewidth": 2
             },
             {
-              "$$hashKey": "object:1073",
               "alias": "request",
               "color": "#56A64B",
               "fill": 0,
@@ -1296,7 +1393,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:323",
               "format": "decbytes",
               "label": null,
               "logBase": 1,
@@ -1305,7 +1401,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:324",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -1335,6 +1430,121 @@
       "id": 203,
       "panels": [
         {
+          "aliasColors": {},
+          "bars": false,
+          "dashLength": 10,
+          "dashes": false,
+          "datasource": "${DS_PROMETHEUS}",
+          "description": "Shows the processing queue size over time. Processing queue defines, what is already appended but not yet processed by the stream processor.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "fill": 1,
+          "fillGradient": 0,
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 2
+          },
+          "hiddenSeries": false,
+          "id": 272,
+          "legend": {
+            "avg": false,
+            "current": false,
+            "max": false,
+            "min": false,
+            "show": true,
+            "total": false,
+            "values": false
+          },
+          "lines": true,
+          "linewidth": 1,
+          "nullPointMode": "null",
+          "options": {
+            "alertThreshold": true
+          },
+          "percentage": false,
+          "pluginVersion": "7.4.5",
+          "pointradius": 2,
+          "points": false,
+          "renderer": "flot",
+          "seriesOverrides": [],
+          "spaceLength": 10,
+          "stack": false,
+          "steppedLine": false,
+          "targets": [
+            {
+              "expr": "sum by (partition) (zeebe_log_appender_last_appended_position{namespace=~\"$namespace\", partition=~\"$partition\"}) - sum by (partition) (zeebe_stream_processor_last_processed_position{namespace=~\"$namespace\", partition=~\"$partition\"})",
+              "interval": "",
+              "legendFormat": "Partition {{partition}}",
+              "refId": "A"
+            }
+          ],
+          "thresholds": [
+            {
+              "$$hashKey": "object:2366",
+              "colorMode": "warning",
+              "fill": true,
+              "line": true,
+              "op": "gt",
+              "value": 100,
+              "yaxis": "left"
+            },
+            {
+              "$$hashKey": "object:2372",
+              "colorMode": "critical",
+              "fill": true,
+              "line": true,
+              "op": "gt",
+              "value": 150,
+              "yaxis": "left"
+            }
+          ],
+          "timeRegions": [],
+          "title": "Processing Queue size",
+          "tooltip": {
+            "shared": true,
+            "sort": 2,
+            "value_type": "individual"
+          },
+          "type": "graph",
+          "xaxis": {
+            "buckets": null,
+            "mode": "time",
+            "name": null,
+            "show": true,
+            "values": []
+          },
+          "yaxes": [
+            {
+              "$$hashKey": "object:2345",
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": null,
+              "min": "0",
+              "show": true
+            },
+            {
+              "$$hashKey": "object:2346",
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": null,
+              "min": null,
+              "show": true
+            }
+          ],
+          "yaxis": {
+            "align": false,
+            "alignLevel": null
+          }
+        },
+        {
           "datasource": "${DS_PROMETHEUS}",
           "description": "Shows how many positions are not updated by exporters per partition. Means what is the difference between last committed exporter position and committed log position.",
           "fieldConfig": {
@@ -1361,7 +1571,7 @@
             "h": 4,
             "w": 12,
             "x": 0,
-            "y": 2
+            "y": 9
           },
           "id": 192,
           "options": {
@@ -1374,9 +1584,10 @@
               "values": false
             },
             "showThresholdLabels": false,
-            "showThresholdMarkers": true
+            "showThresholdMarkers": true,
+            "text": {}
           },
-          "pluginVersion": "7.0.3",
+          "pluginVersion": "7.4.5",
           "targets": [
             {
               "expr": "zeebe_exporter_last_exported_position{namespace=~\"$namespace\", partition=~\"$partition\"} - zeebe_exporter_last_updated_exported_position{namespace=~\"$namespace\", partition=~\"$partition\"}",
@@ -1406,9 +1617,9 @@
           "fontSize": "80%",
           "gridPos": {
             "h": 4,
-            "w": 4,
+            "w": 7,
             "x": 12,
-            "y": 2
+            "y": 9
           },
           "id": 196,
           "pageSize": null,
@@ -1419,7 +1630,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:7009",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -1427,7 +1637,6 @@
               "type": "hidden"
             },
             {
-              "$$hashKey": "object:7010",
               "alias": "Position",
               "align": "center",
               "colorMode": null,
@@ -1443,7 +1652,6 @@
               "unit": "short"
             },
             {
-              "$$hashKey": "object:7858",
               "alias": "Partition",
               "align": "center",
               "colorMode": null,
@@ -1490,9 +1698,9 @@
           "fontSize": "80%",
           "gridPos": {
             "h": 4,
-            "w": 4,
-            "x": 16,
-            "y": 2
+            "w": 5,
+            "x": 19,
+            "y": 9
           },
           "id": 200,
           "pageSize": null,
@@ -1503,7 +1711,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:7009",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -1511,7 +1718,6 @@
               "type": "hidden"
             },
             {
-              "$$hashKey": "object:7010",
               "alias": "Position",
               "align": "center",
               "colorMode": null,
@@ -1527,7 +1733,6 @@
               "unit": "short"
             },
             {
-              "$$hashKey": "object:7858",
               "alias": "Partition",
               "align": "center",
               "colorMode": null,
@@ -1562,9 +1767,68 @@
           "type": "table-old"
         },
         {
+          "datasource": "${DS_PROMETHEUS}",
+          "description": "Shows how many records are not exported yet.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1000
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 5,
+            "x": 0,
+            "y": 13
+          },
+          "id": 194,
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "text": {}
+          },
+          "pluginVersion": "7.4.5",
+          "targets": [
+            {
+              "expr": "sum (zeebe_log_appender_last_committed_position{namespace=~\"$namespace\", partition=~\"$partition\"}) by (partition) - sum (zeebe_exporter_last_exported_position{namespace=~\"$namespace\", partition=~\"$partition\", exporter=\"elasticsearch\"}) by (partition)",
+              "format": "time_series",
+              "instant": false,
+              "interval": "",
+              "legendFormat": "Exporter {{partition}}",
+              "refId": "A"
+            }
+          ],
+          "timeFrom": null,
+          "timeShift": null,
+          "title": "Number of records not exported",
+          "type": "gauge"
+        },
+        {
           "columns": [],
           "datasource": "${DS_PROMETHEUS}",
-          "description": "Shows the last processed position by the stream processor per partition.",
+          "description": "Shows the last exported position which was committed by the given exporter per partition.",
           "fieldConfig": {
             "defaults": {
               "custom": {}
@@ -1573,12 +1837,12 @@
           },
           "fontSize": "80%",
           "gridPos": {
-            "h": 4,
-            "w": 4,
-            "x": 20,
-            "y": 2
+            "h": 6,
+            "w": 7,
+            "x": 5,
+            "y": 13
           },
-          "id": 198,
+          "id": 199,
           "pageSize": null,
           "showHeader": true,
           "sort": {
@@ -1587,7 +1851,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:7009",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -1595,7 +1858,6 @@
               "type": "hidden"
             },
             {
-              "$$hashKey": "object:7010",
               "alias": "Position",
               "align": "center",
               "colorMode": null,
@@ -1611,7 +1873,87 @@
               "unit": "short"
             },
             {
-              "$$hashKey": "object:7858",
+              "alias": "Partition",
+              "align": "center",
+              "colorMode": null,
+              "colors": [
+                "rgba(245, 54, 54, 0.9)",
+                "rgba(237, 129, 40, 0.89)",
+                "rgba(50, 172, 45, 0.97)"
+              ],
+              "dateFormat": "YYYY-MM-DD HH:mm:ss",
+              "decimals": 0,
+              "mappingType": 1,
+              "pattern": "partition",
+              "thresholds": [],
+              "type": "number",
+              "unit": "short"
+            }
+          ],
+          "targets": [
+            {
+              "expr": "sum by (exporter, partition) (zeebe_exporter_last_updated_exported_position{namespace=~\"$namespace\", partition=~\"$partition\"})",
+              "format": "table",
+              "instant": true,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "timeFrom": null,
+          "timeShift": null,
+          "title": "Last updated exported position",
+          "transform": "table",
+          "type": "table-old"
+        },
+        {
+          "columns": [],
+          "datasource": "${DS_PROMETHEUS}",
+          "description": "Shows the last processed position by the stream processor per partition.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "fontSize": "80%",
+          "gridPos": {
+            "h": 12,
+            "w": 5,
+            "x": 12,
+            "y": 13
+          },
+          "id": 198,
+          "pageSize": null,
+          "showHeader": true,
+          "sort": {
+            "col": 0,
+            "desc": true
+          },
+          "styles": [
+            {
+              "alias": "Time",
+              "align": "auto",
+              "dateFormat": "YYYY-MM-DD HH:mm:ss",
+              "pattern": "Time",
+              "type": "hidden"
+            },
+            {
+              "alias": "Position",
+              "align": "center",
+              "colorMode": null,
+              "colors": [
+                "rgba(245, 54, 54, 0.9)",
+                "rgba(237, 129, 40, 0.89)",
+                "rgba(50, 172, 45, 0.97)"
+              ],
+              "decimals": 2,
+              "pattern": "Value",
+              "thresholds": [],
+              "type": "string",
+              "unit": "short"
+            },
+            {
               "alias": "Partition",
               "align": "center",
               "colorMode": null,
@@ -1652,62 +1994,85 @@
           "type": "table-old"
         },
         {
+          "columns": [],
           "datasource": "${DS_PROMETHEUS}",
-          "description": "Shows how many records are not exported yet.",
+          "description": "Shows the last replayed source position by the stream processor per partition and pod",
           "fieldConfig": {
             "defaults": {
-              "custom": {},
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 1000
-                  }
-                ]
-              }
+              "custom": {}
             },
             "overrides": []
           },
+          "fontSize": "80%",
           "gridPos": {
-            "h": 6,
-            "w": 5,
-            "x": 0,
-            "y": 6
+            "h": 12,
+            "w": 7,
+            "x": 17,
+            "y": 13
           },
-          "id": 194,
-          "options": {
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "mean"
-              ],
-              "fields": "",
-              "values": false
+          "id": 268,
+          "pageSize": null,
+          "showHeader": true,
+          "sort": {
+            "col": 0,
+            "desc": true
+          },
+          "styles": [
+            {
+              "alias": "Time",
+              "align": "auto",
+              "dateFormat": "YYYY-MM-DD HH:mm:ss",
+              "pattern": "Time",
+              "type": "hidden"
             },
-            "showThresholdLabels": false,
-            "showThresholdMarkers": true
-          },
-          "pluginVersion": "7.0.3",
+            {
+              "alias": "Position",
+              "align": "center",
+              "colorMode": null,
+              "colors": [
+                "rgba(245, 54, 54, 0.9)",
+                "rgba(237, 129, 40, 0.89)",
+                "rgba(50, 172, 45, 0.97)"
+              ],
+              "decimals": 2,
+              "pattern": "Value",
+              "thresholds": [],
+              "type": "string",
+              "unit": "short"
+            },
+            {
+              "alias": "Partition",
+              "align": "center",
+              "colorMode": null,
+              "colors": [
+                "rgba(245, 54, 54, 0.9)",
+                "rgba(237, 129, 40, 0.89)",
+                "rgba(50, 172, 45, 0.97)"
+              ],
+              "dateFormat": "YYYY-MM-DD HH:mm:ss",
+              "decimals": 0,
+              "mappingType": 1,
+              "pattern": "partition",
+              "thresholds": [],
+              "type": "number",
+              "unit": "short"
+            }
+          ],
           "targets": [
             {
-              "expr": "sum (zeebe_log_appender_last_committed_position{namespace=~\"$namespace\", partition=~\"$partition\"}) by (partition) - sum (zeebe_exporter_last_exported_position{namespace=~\"$namespace\", partition=~\"$partition\", exporter=\"elasticsearch\"}) by (partition)",
-              "format": "time_series",
-              "instant": false,
+              "expr": "sum by (partition, pod) (zeebe_replay_last_source_position{namespace=~\"$namespace\", partition=~\"$partition\"})",
+              "format": "table",
+              "instant": true,
               "interval": "",
-              "legendFormat": "Exporter {{partition}}",
+              "legendFormat": "",
               "refId": "A"
             }
           ],
           "timeFrom": null,
           "timeShift": null,
-          "title": "Number of records not exported",
-          "type": "gauge"
+          "title": "Last replayed source position",
+          "transform": "table",
+          "type": "table-old"
         },
         {
           "datasource": "${DS_PROMETHEUS}",
@@ -1734,9 +2099,9 @@
           },
           "gridPos": {
             "h": 6,
-            "w": 7,
-            "x": 5,
-            "y": 6
+            "w": 5,
+            "x": 0,
+            "y": 19
           },
           "id": 189,
           "options": {
@@ -1749,9 +2114,10 @@
               "values": false
             },
             "showThresholdLabels": false,
-            "showThresholdMarkers": true
+            "showThresholdMarkers": true,
+            "text": {}
           },
-          "pluginVersion": "7.0.3",
+          "pluginVersion": "7.4.5",
           "targets": [
             {
               "expr": "zeebe_log_appender_last_committed_position{namespace=~\"$namespace\", partition=~\"$partition\"} - zeebe_stream_processor_last_processed_position{namespace=~\"$namespace\", partition=~\"$partition\"}",
@@ -1771,90 +2137,6 @@
         {
           "columns": [],
           "datasource": "${DS_PROMETHEUS}",
-          "description": "Shows the last exported position which was committed by the given exporter per partition.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {}
-            },
-            "overrides": []
-          },
-          "fontSize": "80%",
-          "gridPos": {
-            "h": 6,
-            "w": 7,
-            "x": 12,
-            "y": 6
-          },
-          "id": 199,
-          "pageSize": null,
-          "showHeader": true,
-          "sort": {
-            "col": 0,
-            "desc": true
-          },
-          "styles": [
-            {
-              "$$hashKey": "object:7009",
-              "alias": "Time",
-              "align": "auto",
-              "dateFormat": "YYYY-MM-DD HH:mm:ss",
-              "pattern": "Time",
-              "type": "hidden"
-            },
-            {
-              "$$hashKey": "object:7010",
-              "alias": "Position",
-              "align": "center",
-              "colorMode": null,
-              "colors": [
-                "rgba(245, 54, 54, 0.9)",
-                "rgba(237, 129, 40, 0.89)",
-                "rgba(50, 172, 45, 0.97)"
-              ],
-              "decimals": 2,
-              "pattern": "Value",
-              "thresholds": [],
-              "type": "string",
-              "unit": "short"
-            },
-            {
-              "$$hashKey": "object:7858",
-              "alias": "Partition",
-              "align": "center",
-              "colorMode": null,
-              "colors": [
-                "rgba(245, 54, 54, 0.9)",
-                "rgba(237, 129, 40, 0.89)",
-                "rgba(50, 172, 45, 0.97)"
-              ],
-              "dateFormat": "YYYY-MM-DD HH:mm:ss",
-              "decimals": 0,
-              "mappingType": 1,
-              "pattern": "partition",
-              "thresholds": [],
-              "type": "number",
-              "unit": "short"
-            }
-          ],
-          "targets": [
-            {
-              "expr": "sum by (exporter, partition) (zeebe_exporter_last_updated_exported_position{namespace=~\"$namespace\", partition=~\"$partition\"})",
-              "format": "table",
-              "instant": true,
-              "interval": "",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ],
-          "timeFrom": null,
-          "timeShift": null,
-          "title": "Last updated exported position",
-          "transform": "table",
-          "type": "table-old"
-        },
-        {
-          "columns": [],
-          "datasource": "${DS_PROMETHEUS}",
           "description": "Shows the last exported position per partition.",
           "fieldConfig": {
             "defaults": {
@@ -1865,9 +2147,9 @@
           "fontSize": "80%",
           "gridPos": {
             "h": 6,
-            "w": 5,
-            "x": 19,
-            "y": 6
+            "w": 7,
+            "x": 5,
+            "y": 19
           },
           "id": 201,
           "pageSize": null,
@@ -1878,7 +2160,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:7009",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -1886,7 +2167,6 @@
               "type": "hidden"
             },
             {
-              "$$hashKey": "object:7010",
               "alias": "Position",
               "align": "center",
               "colorMode": null,
@@ -1902,7 +2182,6 @@
               "unit": "short"
             },
             {
-              "$$hashKey": "object:7858",
               "alias": "Partition",
               "align": "center",
               "colorMode": null,
@@ -1971,7 +2250,7 @@
             "h": 5,
             "w": 12,
             "x": 0,
-            "y": 3
+            "y": 26
           },
           "hideTimeOverride": false,
           "id": 12,
@@ -2035,7 +2314,7 @@
             "h": 5,
             "w": 12,
             "x": 12,
-            "y": 3
+            "y": 26
           },
           "hideTimeOverride": false,
           "id": 13,
@@ -2094,7 +2373,8 @@
           "datasource": "$DS_PROMETHEUS",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -2104,7 +2384,7 @@
             "h": 6,
             "w": 12,
             "x": 0,
-            "y": 8
+            "y": 31
           },
           "hiddenSeries": false,
           "id": 2,
@@ -2122,9 +2402,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 5,
           "points": false,
           "renderer": "flot",
@@ -2197,7 +2478,8 @@
           "datasource": "$DS_PROMETHEUS",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -2207,7 +2489,7 @@
             "h": 6,
             "w": 12,
             "x": 12,
-            "y": 8
+            "y": 31
           },
           "hiddenSeries": false,
           "id": 3,
@@ -2225,9 +2507,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 5,
           "points": false,
           "renderer": "flot",
@@ -2298,9 +2581,11 @@
           "dashLength": 10,
           "dashes": false,
           "datasource": "$DS_PROMETHEUS",
+          "description": "Processed commands by the leading Stream Processor",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -2308,9 +2593,9 @@
           "fillGradient": 0,
           "gridPos": {
             "h": 6,
-            "w": 12,
+            "w": 9,
             "x": 0,
-            "y": 14
+            "y": 37
           },
           "hiddenSeries": false,
           "id": 4,
@@ -2328,9 +2613,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 5,
           "points": false,
           "renderer": "flot",
@@ -2340,25 +2626,19 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "sum(zeebe_stream_processor_events_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}) by (action, processor)",
+              "expr": "sum(rate(zeebe_stream_processor_records_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[1m])) by (action, partition)",
               "format": "time_series",
+              "interval": "",
               "intervalFactor": 1,
-              "legendFormat": "{{processor}} ({{action}})",
+              "legendFormat": "Partition {{partition}} ({{action}})",
               "refId": "A"
-            },
-            {
-              "expr": "sum(zeebe_exporter_events_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}) by (action, processor)",
-              "format": "time_series",
-              "intervalFactor": 1,
-              "legendFormat": "exporter ({{action}})",
-              "refId": "B"
             }
           ],
           "thresholds": [],
           "timeFrom": null,
           "timeRegions": [],
           "timeShift": null,
-          "title": "Stream Processor Events",
+          "title": "Processed Commands",
           "tooltip": {
             "shared": true,
             "sort": 0,
@@ -2374,14 +2654,16 @@
           },
           "yaxes": [
             {
+              "$$hashKey": "object:142",
               "format": "short",
               "label": null,
               "logBase": 1,
-              "max": null,
-              "min": null,
+              "max": "5000",
+              "min": "0",
               "show": true
             },
             {
+              "$$hashKey": "object:143",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -2401,9 +2683,11 @@
           "dashLength": 10,
           "dashes": false,
           "datasource": "$DS_PROMETHEUS",
+          "description": "Exported Records by the leading Stream Processor",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -2411,12 +2695,12 @@
           "fillGradient": 0,
           "gridPos": {
             "h": 6,
-            "w": 12,
-            "x": 12,
-            "y": 14
+            "w": 7,
+            "x": 9,
+            "y": 37
           },
           "hiddenSeries": false,
-          "id": 5,
+          "id": 266,
           "legend": {
             "avg": false,
             "current": false,
@@ -2431,9 +2715,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 5,
           "points": false,
           "renderer": "flot",
@@ -2443,25 +2728,20 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "sum(rate(zeebe_stream_processor_events_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[1m])) by (action, processor)",
+              "expr": "sum(rate(zeebe_exporter_events_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[1m])) by (partition, pod)",
               "format": "time_series",
+              "hide": false,
+              "interval": "",
               "intervalFactor": 1,
-              "legendFormat": "{{processor}} ({{action}})",
+              "legendFormat": "{{pod}} Partition {{partition}}",
               "refId": "A"
-            },
-            {
-              "expr": "sum(rate(zeebe_exporter_events_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[1m])) by (action, processor)",
-              "format": "time_series",
-              "intervalFactor": 1,
-              "legendFormat": "exporter ({{action}})",
-              "refId": "B"
             }
           ],
           "thresholds": [],
           "timeFrom": null,
           "timeRegions": [],
           "timeShift": null,
-          "title": "Stream Processor Events per second (range = 1m)",
+          "title": "Exported Records",
           "tooltip": {
             "shared": true,
             "sort": 0,
@@ -2477,14 +2757,119 @@
           },
           "yaxes": [
             {
+              "$$hashKey": "object:142",
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": "5000",
+              "min": "0",
+              "show": true
+            },
+            {
+              "$$hashKey": "object:143",
               "format": "short",
               "label": null,
               "logBase": 1,
               "max": null,
               "min": null,
               "show": true
+            }
+          ],
+          "yaxis": {
+            "align": false,
+            "alignLevel": null
+          }
+        },
+        {
+          "aliasColors": {},
+          "bars": false,
+          "dashLength": 10,
+          "dashes": false,
+          "datasource": "$DS_PROMETHEUS",
+          "description": "Replayed events by the following Stream Processor",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "links": []
+            },
+            "overrides": []
+          },
+          "fill": 1,
+          "fillGradient": 0,
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 37
+          },
+          "hiddenSeries": false,
+          "id": 267,
+          "legend": {
+            "avg": false,
+            "current": false,
+            "max": false,
+            "min": false,
+            "show": true,
+            "total": false,
+            "values": false
+          },
+          "lines": true,
+          "linewidth": 1,
+          "links": [],
+          "nullPointMode": "null",
+          "options": {
+            "alertThreshold": true
+          },
+          "percentage": false,
+          "pluginVersion": "7.4.5",
+          "pointradius": 5,
+          "points": false,
+          "renderer": "flot",
+          "seriesOverrides": [],
+          "spaceLength": 10,
+          "stack": false,
+          "steppedLine": false,
+          "targets": [
+            {
+              "expr": "sum(rate(zeebe_replay_events_total{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[1m])) by (partition, pod)",
+              "format": "time_series",
+              "hide": false,
+              "interval": "",
+              "intervalFactor": 1,
+              "legendFormat": "{{pod}} Partition {{partition}}",
+              "refId": "A"
+            }
+          ],
+          "thresholds": [],
+          "timeFrom": null,
+          "timeRegions": [],
+          "timeShift": null,
+          "title": "Replayed Events",
+          "tooltip": {
+            "shared": true,
+            "sort": 0,
+            "value_type": "individual"
+          },
+          "type": "graph",
+          "xaxis": {
+            "buckets": null,
+            "mode": "time",
+            "name": null,
+            "show": true,
+            "values": []
+          },
+          "yaxes": [
+            {
+              "$$hashKey": "object:142",
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": "5000",
+              "min": "0",
+              "show": true
             },
             {
+              "$$hashKey": "object:143",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -2506,7 +2891,8 @@
           "datasource": "$DS_PROMETHEUS",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -2514,9 +2900,9 @@
           "fillGradient": 0,
           "gridPos": {
             "h": 5,
-            "w": 12,
+            "w": 24,
             "x": 0,
-            "y": 20
+            "y": 43
           },
           "hiddenSeries": false,
           "id": 15,
@@ -2534,9 +2920,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 5,
           "points": false,
           "renderer": "flot",
@@ -2572,102 +2959,6 @@
           "timeRegions": [],
           "timeShift": null,
           "title": "Running Process Instances",
-          "tooltip": {
-            "shared": true,
-            "sort": 0,
-            "value_type": "individual"
-          },
-          "type": "graph",
-          "xaxis": {
-            "buckets": null,
-            "mode": "time",
-            "name": null,
-            "show": true,
-            "values": []
-          },
-          "yaxes": [
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            },
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            }
-          ],
-          "yaxis": {
-            "align": false,
-            "alignLevel": null
-          }
-        },
-        {
-          "aliasColors": {},
-          "bars": false,
-          "dashLength": 10,
-          "dashes": false,
-          "datasource": "$DS_PROMETHEUS",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {}
-            },
-            "overrides": []
-          },
-          "fill": 1,
-          "fillGradient": 0,
-          "gridPos": {
-            "h": 5,
-            "w": 12,
-            "x": 12,
-            "y": 20
-          },
-          "hiddenSeries": false,
-          "id": 18,
-          "legend": {
-            "avg": false,
-            "current": false,
-            "max": false,
-            "min": false,
-            "show": true,
-            "total": false,
-            "values": false
-          },
-          "lines": true,
-          "linewidth": 1,
-          "links": [],
-          "nullPointMode": "null",
-          "options": {
-            "dataLinks": []
-          },
-          "percentage": false,
-          "pointradius": 5,
-          "points": false,
-          "renderer": "flot",
-          "seriesOverrides": [],
-          "spaceLength": 10,
-          "stack": false,
-          "steppedLine": false,
-          "targets": [
-            {
-              "expr": "sum(zeebe_stream_processor_events_total{namespace=~\"$namespace\", action=~\"skipped|processed\", partition=~\"$partition\", pod=~\"$pod\"}) - sum(zeebe_exporter_events_total{namespace=~\"$namespace\", partition=~\"$partition\", pod=~\"$pod\"})",
-              "format": "time_series",
-              "intervalFactor": 1,
-              "legendFormat": "Events processed but not exported",
-              "refId": "A"
-            }
-          ],
-          "thresholds": [],
-          "timeFrom": null,
-          "timeRegions": [],
-          "timeShift": null,
-          "title": "Stream Processor vs Exporter",
           "tooltip": {
             "shared": true,
             "sort": 0,
@@ -3123,7 +3414,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:2030",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -3132,7 +3422,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:2031",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -3398,14 +3687,12 @@
           "renderer": "flot",
           "seriesOverrides": [
             {
-              "$$hashKey": "object:235",
               "alias": "limit",
               "color": "#E02F44",
               "fill": 0,
               "linewidth": 2
             },
             {
-              "$$hashKey": "object:1073",
               "alias": "request",
               "color": "#56A64B",
               "fill": 0,
@@ -3459,7 +3746,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:323",
               "format": "decbytes",
               "label": null,
               "logBase": 1,
@@ -3468,7 +3754,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:324",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -3851,7 +4136,6 @@
           "renderer": "flot",
           "seriesOverrides": [
             {
-              "$$hashKey": "object:407",
               "alias": "/.*limit.*/",
               "color": "#C4162A",
               "fill": 0,
@@ -3898,7 +4182,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:556",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -3907,7 +4190,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:557",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -4613,7 +4895,8 @@
           "description": "Shows the execution time of a process instance. This means the time (latency) between creating the instance and completing it.",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -4641,9 +4924,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 2,
           "points": false,
           "renderer": "flot",
@@ -4687,7 +4971,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:201",
               "format": "short",
               "label": "seconds",
               "logBase": 1,
@@ -4696,7 +4979,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:202",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -4864,6 +5146,76 @@
           },
           "dataFormat": "tsbuckets",
           "datasource": "$DS_PROMETHEUS",
+          "description": "Shows the time (latency) between writing the command to the dispatcher and processing the record.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 23
+          },
+          "heatmap": {},
+          "hideZeroBuckets": true,
+          "highlightCards": true,
+          "id": 28,
+          "legend": {
+            "show": false
+          },
+          "links": [],
+          "reverseYBuckets": false,
+          "targets": [
+            {
+              "expr": "sum(increase(zeebe_stream_processor_latency_bucket{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[30s])) by (le)",
+              "format": "heatmap",
+              "interval": "30s",
+              "intervalFactor": 1,
+              "legendFormat": "{{le}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Overall Processing Latency",
+          "tooltip": {
+            "show": true,
+            "showHistogram": false
+          },
+          "type": "heatmap",
+          "xAxis": {
+            "show": true
+          },
+          "xBucketNumber": null,
+          "xBucketSize": null,
+          "yAxis": {
+            "decimals": null,
+            "format": "dtdurations",
+            "logBase": 1,
+            "max": null,
+            "min": null,
+            "show": true,
+            "splitFactor": null
+          },
+          "yBucketBound": "auto",
+          "yBucketNumber": null,
+          "yBucketSize": null
+        },
+        {
+          "cards": {
+            "cardPadding": null,
+            "cardRound": null
+          },
+          "color": {
+            "cardColor": "#ef843c",
+            "colorScale": "sqrt",
+            "colorScheme": "interpolateSpectral",
+            "exponent": 0.5,
+            "mode": "spectrum"
+          },
+          "dataFormat": "tsbuckets",
+          "datasource": "$DS_PROMETHEUS",
           "description": "Time taken to process a record",
           "fieldConfig": {
             "defaults": {
@@ -4875,7 +5227,7 @@
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 23
+            "y": 30
           },
           "heatmap": {},
           "hideZeroBuckets": true,
@@ -4934,7 +5286,7 @@
           },
           "dataFormat": "tsbuckets",
           "datasource": "$DS_PROMETHEUS",
-          "description": "Time taken to append a record to the log",
+          "description": "Time taken to replay a batch of events",
           "fieldConfig": {
             "defaults": {
               "custom": {}
@@ -4945,12 +5297,12 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 23
+            "y": 30
           },
           "heatmap": {},
           "hideZeroBuckets": true,
           "highlightCards": true,
-          "id": 234,
+          "id": 269,
           "legend": {
             "show": false
           },
@@ -4958,7 +5310,7 @@
           "reverseYBuckets": false,
           "targets": [
             {
-              "expr": "sum(increase(zeebe_log_appender_append_latency_bucket{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[30s])) by (le)",
+              "expr": "sum(increase(zeebe_replay_event_batch_replay_duration_bucket{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[30s])) by (le)",
               "format": "heatmap",
               "interval": "30s",
               "intervalFactor": 1,
@@ -4966,7 +5318,7 @@
               "refId": "A"
             }
           ],
-          "title": "Record write latency",
+          "title": "Batch Event Replay Duration",
           "tooltip": {
             "show": true,
             "showHistogram": false
@@ -5015,7 +5367,7 @@
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 30
+            "y": 37
           },
           "heatmap": {},
           "hideZeroBuckets": true,
@@ -5074,7 +5426,7 @@
           },
           "dataFormat": "tsbuckets",
           "datasource": "$DS_PROMETHEUS",
-          "description": "Shows the time (latency) between writing the command to the dispatcher and processing the record.",
+          "description": "Time taken to append a record to the log",
           "fieldConfig": {
             "defaults": {
               "custom": {}
@@ -5085,12 +5437,12 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 30
+            "y": 37
           },
           "heatmap": {},
           "hideZeroBuckets": true,
           "highlightCards": true,
-          "id": 28,
+          "id": 234,
           "legend": {
             "show": false
           },
@@ -5098,7 +5450,7 @@
           "reverseYBuckets": false,
           "targets": [
             {
-              "expr": "sum(increase(zeebe_stream_processor_latency_bucket{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\",recordType=\"COMMAND\"}[30s])) by (le)",
+              "expr": "sum(increase(zeebe_log_appender_append_latency_bucket{namespace=~\"$namespace\",partition=~\"$partition\",pod=~\"$pod\"}[30s])) by (le)",
               "format": "heatmap",
               "interval": "30s",
               "intervalFactor": 1,
@@ -5106,7 +5458,7 @@
               "refId": "A"
             }
           ],
-          "title": "Overall Processing Latency",
+          "title": "Record write latency",
           "tooltip": {
             "show": true,
             "showHistogram": false
@@ -5151,9 +5503,11 @@
           "dashLength": 10,
           "dashes": false,
           "datasource": "$DS_PROMETHEUS",
+          "description": "Shows counts of all gRPC messages, which have been sent to the Zeebe Cluster.",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -5181,9 +5535,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 5,
           "points": false,
           "renderer": "flot",
@@ -5205,10 +5560,10 @@
           "timeFrom": null,
           "timeRegions": [],
           "timeShift": null,
-          "title": "gRPC requests",
+          "title": "Total gRPC requests",
           "tooltip": {
             "shared": true,
-            "sort": 0,
+            "sort": 2,
             "value_type": "individual"
           },
           "type": "graph",
@@ -5250,7 +5605,8 @@
           "datasource": "$DS_PROMETHEUS",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -5278,9 +5634,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 5,
           "points": false,
           "renderer": "flot",
@@ -5713,7 +6070,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:334",
               "format": "percentunit",
               "label": null,
               "logBase": 1,
@@ -5722,7 +6078,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:335",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -5811,7 +6166,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:420",
               "format": "percentunit",
               "label": null,
               "logBase": 1,
@@ -5820,7 +6174,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:421",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -5850,6 +6203,106 @@
       "id": 76,
       "panels": [
         {
+          "aliasColors": {},
+          "bars": false,
+          "dashLength": 10,
+          "dashes": false,
+          "datasource": "${DS_PROMETHEUS}",
+          "description": "Shows the rate of different raft requests send from the leader to different followers",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "fill": 1,
+          "fillGradient": 0,
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 10
+          },
+          "hiddenSeries": false,
+          "id": 278,
+          "legend": {
+            "avg": false,
+            "current": false,
+            "hideEmpty": true,
+            "hideZero": true,
+            "max": false,
+            "min": false,
+            "show": false,
+            "total": false,
+            "values": false
+          },
+          "lines": true,
+          "linewidth": 1,
+          "nullPointMode": "null as zero",
+          "options": {
+            "alertThreshold": true
+          },
+          "percentage": false,
+          "pluginVersion": "7.4.5",
+          "pointradius": 2,
+          "points": false,
+          "renderer": "flot",
+          "seriesOverrides": [],
+          "spaceLength": 10,
+          "stack": false,
+          "steppedLine": false,
+          "targets": [
+            {
+              "expr": "sum(rate(atomix_raft_messages_send_total{namespace=~\"$namespace\"}[1m])) by (pod, partition, to, type)",
+              "interval": "",
+              "legendFormat": "{{pod}} {{partition}} send {{type}} to {{to}}",
+              "refId": "A"
+            }
+          ],
+          "thresholds": [],
+          "timeFrom": null,
+          "timeRegions": [],
+          "timeShift": null,
+          "title": "Raft requests per second [1m]",
+          "tooltip": {
+            "shared": true,
+            "sort": 2,
+            "value_type": "individual"
+          },
+          "type": "graph",
+          "xaxis": {
+            "buckets": null,
+            "mode": "time",
+            "name": null,
+            "show": true,
+            "values": []
+          },
+          "yaxes": [
+            {
+              "$$hashKey": "object:1422",
+              "format": "short",
+              "label": "Requests",
+              "logBase": 1,
+              "max": null,
+              "min": "0",
+              "show": true
+            },
+            {
+              "$$hashKey": "object:1423",
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": null,
+              "min": null,
+              "show": true
+            }
+          ],
+          "yaxis": {
+            "align": false,
+            "alignLevel": null
+          }
+        },
+        {
           "cards": {
             "cardPadding": null,
             "cardRound": null
@@ -5873,7 +6326,7 @@
             "h": 6,
             "w": 12,
             "x": 0,
-            "y": 33
+            "y": 17
           },
           "heatmap": {},
           "hideZeroBuckets": true,
@@ -5943,7 +6396,7 @@
             "h": 6,
             "w": 12,
             "x": 12,
-            "y": 33
+            "y": 17
           },
           "heatmap": {},
           "hideZeroBuckets": true,
@@ -5994,8 +6447,8 @@
           "bars": false,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "$DS_PROMETHEUS",
-          "description": "Approximate Install RPC as measured by the follower.",
+          "datasource": "${DS_PROMETHEUS}",
+          "description": "Shows the total count of send install requests from the leader to the followers",
           "fieldConfig": {
             "defaults": {
               "custom": {}
@@ -6006,9 +6459,110 @@
           "fillGradient": 0,
           "gridPos": {
             "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 23
+          },
+          "hiddenSeries": false,
+          "id": 283,
+          "legend": {
+            "avg": false,
+            "current": false,
+            "hideEmpty": true,
+            "hideZero": true,
+            "max": false,
+            "min": false,
+            "show": false,
+            "total": false,
+            "values": false
+          },
+          "lines": true,
+          "linewidth": 1,
+          "nullPointMode": "null as zero",
+          "options": {
+            "alertThreshold": true
+          },
+          "percentage": false,
+          "pluginVersion": "7.4.5",
+          "pointradius": 2,
+          "points": false,
+          "renderer": "flot",
+          "seriesOverrides": [],
+          "spaceLength": 10,
+          "stack": false,
+          "steppedLine": false,
+          "targets": [
+            {
+              "expr": "atomix_raft_messages_send_total{namespace=~\"$namespace\", type=\"InstallRequest\"}",
+              "interval": "",
+              "legendFormat": "{{pod}} {{partition}} send {{type}} to {{to}}",
+              "refId": "A"
+            }
+          ],
+          "thresholds": [],
+          "timeFrom": null,
+          "timeRegions": [],
+          "timeShift": null,
+          "title": "Total install requests send",
+          "tooltip": {
+            "shared": true,
+            "sort": 2,
+            "value_type": "individual"
+          },
+          "type": "graph",
+          "xaxis": {
+            "buckets": null,
+            "mode": "time",
+            "name": null,
+            "show": true,
+            "values": []
+          },
+          "yaxes": [
+            {
+              "$$hashKey": "object:1422",
+              "format": "short",
+              "label": "Install Requests",
+              "logBase": 1,
+              "max": null,
+              "min": "0",
+              "show": true
+            },
+            {
+              "$$hashKey": "object:1423",
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": null,
+              "min": null,
+              "show": true
+            }
+          ],
+          "yaxis": {
+            "align": false,
+            "alignLevel": null
+          }
+        },
+        {
+          "aliasColors": {},
+          "bars": false,
+          "dashLength": 10,
+          "dashes": false,
+          "datasource": "$DS_PROMETHEUS",
+          "description": "Approximate Install RPC as measured by the follower.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "links": []
+            },
+            "overrides": []
+          },
+          "fill": 1,
+          "fillGradient": 0,
+          "gridPos": {
+            "h": 7,
             "w": 12,
             "x": 0,
-            "y": 39
+            "y": 30
           },
           "hiddenSeries": false,
           "id": 79,
@@ -6026,9 +6580,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 2,
           "points": false,
           "renderer": "flot",
@@ -6096,7 +6651,8 @@
           "description": "Ongoing snapshot replications per partition, from the follower point-of-view.",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -6106,7 +6662,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 39
+            "y": 30
           },
           "hiddenSeries": false,
           "id": 114,
@@ -6123,9 +6679,10 @@
           "linewidth": 1,
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 2,
           "points": false,
           "renderer": "flot",
@@ -6206,7 +6763,7 @@
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 46
+            "y": 37
           },
           "heatmap": {},
           "hideZeroBuckets": true,
@@ -6276,7 +6833,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 46
+            "y": 37
           },
           "heatmap": {},
           "hideZeroBuckets": true,
@@ -6347,7 +6904,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 53
+            "y": 44
           },
           "heatmap": {},
           "hideZeroBuckets": true,
@@ -6403,7 +6960,8 @@
           "datasource": "$DS_PROMETHEUS",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -6413,7 +6971,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 53
+            "y": 44
           },
           "hiddenSeries": false,
           "id": 72,
@@ -6433,9 +6991,10 @@
           "linewidth": 1,
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 2,
           "points": false,
           "renderer": "flot",
@@ -6502,9 +7061,11 @@
           "dashes": false,
           "datasource": "$DS_PROMETHEUS",
           "decimals": 0,
+          "description": "Shows when a role change has happened. \n1 = Follower\n2 = Candidate\n3 = Leader\n2 - ",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -6514,21 +7075,21 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 61
+            "y": 52
           },
           "hiddenSeries": false,
           "id": 95,
           "interval": "1s",
           "legend": {
-            "alignAsTable": true,
+            "alignAsTable": false,
             "avg": false,
             "current": true,
             "hideEmpty": false,
             "hideZero": true,
             "max": false,
             "min": false,
-            "rightSide": true,
-            "show": true,
+            "rightSide": false,
+            "show": false,
             "sideWidth": 300,
             "total": false,
             "values": true
@@ -6538,10 +7099,10 @@
           "links": [],
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
-          "pluginVersion": "6.3.5",
+          "pluginVersion": "7.4.5",
           "pointradius": 2,
           "points": false,
           "renderer": "flot",
@@ -6555,8 +7116,9 @@
               "format": "time_series",
               "hide": false,
               "instant": false,
+              "interval": "",
               "intervalFactor": 1,
-              "legendFormat": "{{pod}} {{partition}} {{partitionGroupName}}",
+              "legendFormat": "{{pod}} p{{partition}} ",
               "refId": "A"
             }
           ],
@@ -6564,10 +7126,10 @@
           "timeFrom": null,
           "timeRegions": [],
           "timeShift": null,
-          "title": "Role Changes",
+          "title": "Role changes over time",
           "tooltip": {
             "shared": true,
-            "sort": 0,
+            "sort": 2,
             "value_type": "individual"
           },
           "type": "graph",
@@ -6580,22 +7142,24 @@
           },
           "yaxes": [
             {
+              "$$hashKey": "object:239",
               "decimals": 0,
               "format": "short",
-              "label": "Role",
+              "label": "Role (3 = Leader)",
               "logBase": 1,
               "max": "3",
               "min": "1",
               "show": true
             },
             {
+              "$$hashKey": "object:240",
               "decimals": null,
-              "format": "short",
+              "format": "Misc",
               "label": "",
               "logBase": 1,
               "max": null,
               "min": null,
-              "show": true
+              "show": false
             }
           ],
           "yaxis": {
@@ -6612,7 +7176,8 @@
           "description": "",
           "fieldConfig": {
             "defaults": {
-              "custom": {}
+              "custom": {},
+              "links": []
             },
             "overrides": []
           },
@@ -6622,7 +7187,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 61
+            "y": 52
           },
           "hiddenSeries": false,
           "id": 180,
@@ -6639,9 +7204,10 @@
           "linewidth": 1,
           "nullPointMode": "null",
           "options": {
-            "dataLinks": []
+            "alertThreshold": true
           },
           "percentage": false,
+          "pluginVersion": "7.4.5",
           "pointradius": 2,
           "points": false,
           "renderer": "flot",
@@ -6677,7 +7243,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:922",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -6686,7 +7251,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:923",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -6703,7 +7267,6 @@
         {
           "columns": [
             {
-              "$$hashKey": "object:8801",
               "text": "Current",
               "value": "current"
             }
@@ -6720,7 +7283,7 @@
             "h": 5,
             "w": 8,
             "x": 0,
-            "y": 69
+            "y": 60
           },
           "id": 205,
           "maxPerRow": 6,
@@ -6742,7 +7305,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:440",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -6750,7 +7312,6 @@
               "type": "date"
             },
             {
-              "$$hashKey": "object:441",
               "alias": "Commit index",
               "align": "right",
               "colorMode": null,
@@ -6786,7 +7347,6 @@
         {
           "columns": [
             {
-              "$$hashKey": "object:8801",
               "text": "Current",
               "value": "current"
             }
@@ -6803,15 +7363,14 @@
             "h": 5,
             "w": 8,
             "x": 8,
-            "y": 69
+            "y": 60
           },
-          "id": 256,
+          "id": 279,
           "maxPerRow": 6,
           "pageSize": null,
           "pluginVersion": "6.7.1",
-          "repeat": null,
           "repeatDirection": "h",
-          "repeatIteration": 1623398951903,
+          "repeatIteration": 1634130126219,
           "repeatPanelId": 205,
           "scopedVars": {
             "partition": {
@@ -6827,7 +7386,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:440",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -6835,7 +7393,6 @@
               "type": "date"
             },
             {
-              "$$hashKey": "object:441",
               "alias": "Commit index",
               "align": "right",
               "colorMode": null,
@@ -6871,7 +7428,6 @@
         {
           "columns": [
             {
-              "$$hashKey": "object:8801",
               "text": "Current",
               "value": "current"
             }
@@ -6888,15 +7444,14 @@
             "h": 5,
             "w": 8,
             "x": 16,
-            "y": 69
+            "y": 60
           },
-          "id": 257,
+          "id": 280,
           "maxPerRow": 6,
           "pageSize": null,
           "pluginVersion": "6.7.1",
-          "repeat": null,
           "repeatDirection": "h",
-          "repeatIteration": 1623398951903,
+          "repeatIteration": 1634130126219,
           "repeatPanelId": 205,
           "scopedVars": {
             "partition": {
@@ -6912,7 +7467,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:440",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -6920,7 +7474,6 @@
               "type": "date"
             },
             {
-              "$$hashKey": "object:441",
               "alias": "Commit index",
               "align": "right",
               "colorMode": null,
@@ -6956,7 +7509,6 @@
         {
           "columns": [
             {
-              "$$hashKey": "object:2675",
               "text": "Current",
               "value": "current"
             }
@@ -6973,7 +7525,7 @@
             "h": 5,
             "w": 8,
             "x": 0,
-            "y": 74
+            "y": 65
           },
           "id": 209,
           "maxPerRow": 6,
@@ -6995,7 +7547,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:440",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -7003,7 +7554,6 @@
               "type": "date"
             },
             {
-              "$$hashKey": "object:441",
               "alias": "Last appended index",
               "align": "right",
               "colorMode": null,
@@ -7037,9 +7587,66 @@
           "type": "table-old"
         },
         {
+          "datasource": "$DS_PROMETHEUS",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1000
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 12,
+            "x": 12,
+            "y": 65
+          },
+          "id": 217,
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "last"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "text": {}
+          },
+          "pluginVersion": "7.4.5",
+          "repeat": null,
+          "repeatDirection": "h",
+          "targets": [
+            {
+              "expr": "max(atomix_partition_raft_commit_index{namespace=~\"$namespace\",partition=~\"$partition\"}) by (partition, namespace) - min(atomix_partition_raft_commit_index{namespace=~\"$namespace\",partition=~\"$partition\"}) by (partition, namespace)",
+              "interval": "",
+              "legendFormat": "Partition {{partition}} ({{namespace}})",
+              "refId": "A"
+            }
+          ],
+          "timeFrom": null,
+          "timeShift": null,
+          "title": "Number of records by which the slowest follower is lagging behind",
+          "type": "gauge"
+        },
+        {
           "columns": [
             {
-              "$$hashKey": "object:2675",
               "text": "Current",
               "value": "current"
             }
@@ -7056,15 +7663,14 @@
             "h": 5,
             "w": 8,
             "x": 8,
-            "y": 74
+            "y": 70
           },
-          "id": 258,
+          "id": 281,
           "maxPerRow": 6,
           "pageSize": null,
           "pluginVersion": "6.7.1",
-          "repeat": null,
           "repeatDirection": "h",
-          "repeatIteration": 1623398951903,
+          "repeatIteration": 1634130126219,
           "repeatPanelId": 209,
           "scopedVars": {
             "partition": {
@@ -7080,7 +7686,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:440",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -7088,7 +7693,6 @@
               "type": "date"
             },
             {
-              "$$hashKey": "object:441",
               "alias": "Last appended index",
               "align": "right",
               "colorMode": null,
@@ -7124,7 +7728,6 @@
         {
           "columns": [
             {
-              "$$hashKey": "object:2675",
               "text": "Current",
               "value": "current"
             }
@@ -7141,15 +7744,14 @@
             "h": 5,
             "w": 8,
             "x": 16,
-            "y": 74
+            "y": 70
           },
-          "id": 259,
+          "id": 282,
           "maxPerRow": 6,
           "pageSize": null,
           "pluginVersion": "6.7.1",
-          "repeat": null,
           "repeatDirection": "h",
-          "repeatIteration": 1623398951903,
+          "repeatIteration": 1634130126219,
           "repeatPanelId": 209,
           "scopedVars": {
             "partition": {
@@ -7165,7 +7767,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:440",
               "alias": "Time",
               "align": "auto",
               "dateFormat": "YYYY-MM-DD HH:mm:ss",
@@ -7173,7 +7774,6 @@
               "type": "date"
             },
             {
-              "$$hashKey": "object:441",
               "alias": "Last appended index",
               "align": "right",
               "colorMode": null,
@@ -7232,7 +7832,7 @@
             "h": 5,
             "w": 12,
             "x": 0,
-            "y": 79
+            "y": 75
           },
           "id": 215,
           "options": {
@@ -7245,9 +7845,10 @@
               "values": false
             },
             "showThresholdLabels": false,
-            "showThresholdMarkers": true
+            "showThresholdMarkers": true,
+            "text": {}
           },
-          "pluginVersion": "7.0.3",
+          "pluginVersion": "7.4.5",
           "targets": [
             {
               "expr": "max(atomix_partition_raft_append_index{namespace=~\"$namespace\",partition=~\"$partition\"}) by (partition, namespace) - max(atomix_partition_raft_commit_index{namespace=~\"$namespace\",partition=~\"$partition\"}) by (partition, namespace)",
@@ -7259,63 +7860,6 @@
           "timeFrom": null,
           "timeShift": null,
           "title": "Number of records appended on the leader but not committed",
-          "type": "gauge"
-        },
-        {
-          "datasource": "$DS_PROMETHEUS",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {},
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 1000
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 5,
-            "w": 12,
-            "x": 12,
-            "y": 79
-          },
-          "id": 217,
-          "options": {
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "last"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "showThresholdLabels": false,
-            "showThresholdMarkers": true
-          },
-          "pluginVersion": "7.0.3",
-          "repeat": null,
-          "repeatDirection": "h",
-          "targets": [
-            {
-              "expr": "max(atomix_partition_raft_commit_index{namespace=~\"$namespace\",partition=~\"$partition\"}) by (partition, namespace) - min(atomix_partition_raft_commit_index{namespace=~\"$namespace\",partition=~\"$partition\"}) by (partition, namespace)",
-              "interval": "",
-              "legendFormat": "Partition {{partition}} ({{namespace}})",
-              "refId": "A"
-            }
-          ],
-          "timeFrom": null,
-          "timeShift": null,
-          "title": "Number of records by which the slowest follower is lagging behind",
           "type": "gauge"
         }
       ],
@@ -7408,7 +7952,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -7417,7 +7960,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -7505,7 +8047,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:878",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -7514,7 +8055,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:879",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -7602,7 +8142,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:583",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -7611,7 +8150,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:584",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -7699,7 +8237,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -7708,7 +8245,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -7796,7 +8332,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -7805,7 +8340,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -7893,7 +8427,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -7902,7 +8435,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -7990,7 +8522,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -7999,7 +8530,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8088,7 +8618,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -8097,7 +8626,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8185,7 +8713,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -8194,7 +8721,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8282,7 +8808,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -8291,7 +8816,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8379,7 +8903,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -8388,7 +8911,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8405,7 +8927,6 @@
         {
           "columns": [
             {
-              "$$hashKey": "object:9223",
               "text": "Current",
               "value": "current"
             }
@@ -8435,7 +8956,6 @@
           },
           "styles": [
             {
-              "$$hashKey": "object:3811",
               "alias": "Time",
               "align": "",
               "colorMode": null,
@@ -8453,7 +8973,6 @@
               "unit": "short"
             },
             {
-              "$$hashKey": "object:7218",
               "alias": "Pod",
               "align": "",
               "colorMode": null,
@@ -8471,7 +8990,6 @@
               "unit": "short"
             },
             {
-              "$$hashKey": "object:9232",
               "alias": "Stopped",
               "align": "",
               "colorMode": null,
@@ -8491,12 +9009,10 @@
               "unit": "short",
               "valueMaps": [
                 {
-                  "$$hashKey": "object:9290",
                   "text": "Running",
                   "value": "0"
                 },
                 {
-                  "$$hashKey": "object:9320",
                   "text": "Stopped",
                   "value": "1"
                 }
@@ -8592,7 +9108,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -8601,7 +9116,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8689,7 +9203,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8698,7 +9211,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8786,7 +9298,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8795,7 +9306,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8883,7 +9393,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8892,7 +9401,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -8980,7 +9488,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:1139",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -8989,7 +9496,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:1140",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -9164,7 +9670,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:58",
               "format": "percentunit",
               "label": null,
               "logBase": 1,
@@ -9173,7 +9678,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:59",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -9334,7 +9838,6 @@
           },
           "yaxes": [
             {
-              "$$hashKey": "object:359",
               "format": "bytes",
               "label": null,
               "logBase": 1,
@@ -9343,7 +9846,6 @@
               "show": true
             },
             {
-              "$$hashKey": "object:360",
               "format": "short",
               "label": null,
               "logBase": 1,
@@ -9859,7 +10361,7 @@
       "type": "row"
     }
   ],
-  "refresh": false,
+  "refresh": "10s",
   "schemaVersion": 27,
   "style": "dark",
   "tags": [],
@@ -9999,5 +10501,5 @@
   "timezone": "",
   "title": "Zeebe",
   "uid": "I4lo7_EZk",
-  "version": 15
+  "version": 21
 }

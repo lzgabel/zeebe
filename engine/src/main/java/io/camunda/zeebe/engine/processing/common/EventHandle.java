@@ -10,7 +10,6 @@ package io.camunda.zeebe.engine.processing.common;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableCatchEvent;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableStartEvent;
-import io.camunda.zeebe.engine.processing.streamprocessor.MigratedStreamProcessors;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.StateWriter;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.TypedCommandWriter;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.Writers;
@@ -18,6 +17,7 @@ import io.camunda.zeebe.engine.state.KeyGenerator;
 import io.camunda.zeebe.engine.state.immutable.EventScopeInstanceState;
 import io.camunda.zeebe.engine.state.immutable.ProcessState;
 import io.camunda.zeebe.engine.state.instance.ElementInstance;
+import io.camunda.zeebe.protocol.impl.record.value.job.JobRecord;
 import io.camunda.zeebe.protocol.impl.record.value.message.MessageRecord;
 import io.camunda.zeebe.protocol.impl.record.value.message.MessageStartEventSubscriptionRecord;
 import io.camunda.zeebe.protocol.impl.record.value.processinstance.ProcessInstanceRecord;
@@ -110,31 +110,37 @@ public final class EventHandle {
             catchEvent.getId(),
             variables);
 
-    if (MigratedStreamProcessors.isMigrated(elementRecord.getBpmnElementType())) {
+    if (isElementActivated(catchEvent)) {
+      commandWriter.appendFollowUpCommand(
+          eventScopeKey, ProcessInstanceIntent.COMPLETE_ELEMENT, elementRecord);
+    } else if (catchEvent.getFlowScope().getElementType() == BpmnElementType.EVENT_SUB_PROCESS
+        && catchEvent.getElementType() == BpmnElementType.START_EVENT) {
+      final var startEvent = (ExecutableStartEvent) catchEvent;
+      eventTriggerBehavior.triggerEventSubProcess(
+          startEvent, eventScopeKey, elementRecord, variables);
 
-      if (isElementActivated(catchEvent)) {
-        commandWriter.appendFollowUpCommand(
-            eventScopeKey, ProcessInstanceIntent.COMPLETE_ELEMENT, elementRecord);
-      } else if (catchEvent.getFlowScope().getElementType() == BpmnElementType.EVENT_SUB_PROCESS
-          && catchEvent.getElementType() == BpmnElementType.START_EVENT) {
-        final var startEvent = (ExecutableStartEvent) catchEvent;
-        eventTriggerBehavior.triggerEventSubProcess(
-            startEvent, eventScopeKey, elementRecord, variables);
-
-      } else if (isInterrupting(catchEvent)) {
-        // terminate the activated element and then activate the triggered catch event
-        commandWriter.appendFollowUpCommand(
-            eventScopeKey, ProcessInstanceIntent.TERMINATE_ELEMENT, elementRecord);
-      } else {
-        eventTriggerBehavior.activateTriggeredEvent(
-            processEventKey,
-            catchEvent,
-            eventScopeKey,
-            elementRecord.getFlowScopeKey(),
-            elementRecord,
-            variables);
-      }
+    } else if (isInterrupting(catchEvent)) {
+      // terminate the activated element and then activate the triggered catch event
+      commandWriter.appendFollowUpCommand(
+          eventScopeKey, ProcessInstanceIntent.TERMINATE_ELEMENT, elementRecord);
+    } else {
+      eventTriggerBehavior.activateTriggeredEvent(
+          processEventKey,
+          catchEvent,
+          eventScopeKey,
+          elementRecord.getFlowScopeKey(),
+          elementRecord,
+          variables);
     }
+  }
+
+  public void triggeringProcessEvent(final JobRecord jobRecord) {
+    triggeringProcessEvent(
+        jobRecord.getProcessDefinitionKey(),
+        jobRecord.getProcessInstanceKey(),
+        jobRecord.getElementInstanceKey(),
+        jobRecord.getElementIdBuffer(),
+        jobRecord.getVariablesBuffer());
   }
 
   private boolean isElementActivated(final ExecutableFlowElement catchEvent) {

@@ -8,29 +8,21 @@
 package io.camunda.zeebe.engine.processing.bpmn.behavior;
 
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementContext;
-import io.camunda.zeebe.engine.processing.bpmn.BpmnProcessingException;
 import io.camunda.zeebe.engine.processing.common.CatchEventBehavior;
 import io.camunda.zeebe.engine.processing.common.EventTriggerBehavior;
-import io.camunda.zeebe.engine.processing.common.ExpressionProcessor.EvaluationException;
 import io.camunda.zeebe.engine.processing.common.Failure;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableCatchEventSupplier;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
-import io.camunda.zeebe.engine.processing.message.MessageCorrelationKeyException;
-import io.camunda.zeebe.engine.processing.message.MessageNameException;
 import io.camunda.zeebe.engine.processing.streamprocessor.sideeffect.SideEffects;
-import io.camunda.zeebe.engine.processing.streamprocessor.writers.StateWriter;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.TypedCommandWriter;
 import io.camunda.zeebe.engine.state.KeyGenerator;
+import io.camunda.zeebe.engine.state.immutable.EventScopeInstanceState;
 import io.camunda.zeebe.engine.state.immutable.ProcessState;
+import io.camunda.zeebe.engine.state.immutable.ZeebeState;
 import io.camunda.zeebe.engine.state.instance.EventTrigger;
-import io.camunda.zeebe.engine.state.mutable.MutableElementInstanceState;
-import io.camunda.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
-import io.camunda.zeebe.engine.state.mutable.MutableZeebeState;
 import io.camunda.zeebe.protocol.impl.record.value.processinstance.ProcessInstanceRecord;
-import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
-import io.camunda.zeebe.protocol.record.value.BpmnElementType;
-import io.camunda.zeebe.protocol.record.value.ErrorType;
 import io.camunda.zeebe.util.Either;
+import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.Optional;
 
 public final class BpmnEventSubscriptionBehavior {
@@ -40,12 +32,9 @@ public final class BpmnEventSubscriptionBehavior {
 
   private final ProcessInstanceRecord eventRecord = new ProcessInstanceRecord();
 
-  private final BpmnStateBehavior stateBehavior;
-  private final MutableEventScopeInstanceState eventScopeInstanceState;
-  private final MutableElementInstanceState elementInstanceState;
+  private final EventScopeInstanceState eventScopeInstanceState;
   private final CatchEventBehavior catchEventBehavior;
 
-  private final StateWriter stateWriter;
   private final SideEffects sideEffects;
 
   private final KeyGenerator keyGenerator;
@@ -54,44 +43,26 @@ public final class BpmnEventSubscriptionBehavior {
   private final EventTriggerBehavior eventTriggerBehavior;
 
   public BpmnEventSubscriptionBehavior(
-      final BpmnStateBehavior stateBehavior,
       final CatchEventBehavior catchEventBehavior,
       final EventTriggerBehavior eventTriggerBehavior,
-      final StateWriter stateWriter,
       final TypedCommandWriter commandWriter,
       final SideEffects sideEffects,
-      final MutableZeebeState zeebeState) {
-    this.stateBehavior = stateBehavior;
+      final ZeebeState zeebeState,
+      final KeyGenerator keyGenerator) {
     this.catchEventBehavior = catchEventBehavior;
     this.eventTriggerBehavior = eventTriggerBehavior;
-    this.stateWriter = stateWriter;
     this.commandWriter = commandWriter;
     this.sideEffects = sideEffects;
 
     processState = zeebeState.getProcessState();
     eventScopeInstanceState = zeebeState.getEventScopeInstanceState();
-    elementInstanceState = zeebeState.getElementInstanceState();
-    keyGenerator = zeebeState.getKeyGenerator();
+    this.keyGenerator = keyGenerator;
   }
 
+  /** @return either a failure or nothing */
   public <T extends ExecutableCatchEventSupplier> Either<Failure, Void> subscribeToEvents(
       final T element, final BpmnElementContext context) {
-
-    try {
-      catchEventBehavior.subscribeToEvents(context, element, sideEffects, commandWriter);
-      return Either.right(null);
-
-    } catch (final MessageCorrelationKeyException e) {
-      return Either.left(
-          new Failure(e.getMessage(), ErrorType.EXTRACT_VALUE_ERROR, e.getVariableScopeKey()));
-
-    } catch (final EvaluationException e) {
-      return Either.left(
-          new Failure(
-              e.getMessage(), ErrorType.EXTRACT_VALUE_ERROR, context.getElementInstanceKey()));
-    } catch (final MessageNameException e) {
-      return Either.left(e.getFailure());
-    }
+    return catchEventBehavior.subscribeToEvents(context, element, sideEffects, commandWriter);
   }
 
   public void unsubscribeFromEvents(final BpmnElementContext context) {
@@ -108,7 +79,11 @@ public final class BpmnEventSubscriptionBehavior {
    */
   public Optional<EventTrigger> findEventTrigger(final BpmnElementContext context) {
     final var elementInstanceKey = context.getElementInstanceKey();
-    return Optional.ofNullable(eventScopeInstanceState.peekEventTrigger(elementInstanceKey));
+    // Event triggers could be used to store variables. If the event trigger belongs to the element
+    // itself, we should not activate it, otherwise the element will be activated a second time.
+    return Optional.ofNullable(eventScopeInstanceState.peekEventTrigger(elementInstanceKey))
+        .filter(
+            trigger -> !BufferUtil.contentsEqual(trigger.getElementId(), context.getElementId()));
   }
 
   /**
@@ -153,38 +128,9 @@ public final class BpmnEventSubscriptionBehavior {
   }
 
   public void activateTriggeredStartEvent(
-      final BpmnElementContext context, final EventTrigger triggeredEvent) {
-    final long processDefinitionKey = context.getProcessDefinitionKey();
-    final long processInstanceKey = context.getProcessInstanceKey();
+      final BpmnElementContext context, final EventTrigger eventTrigger) {
 
-    final var process = processState.getProcessByKey(context.getProcessDefinitionKey());
-    if (process == null) {
-      // this should never happen because processes are never deleted.
-      throw new BpmnProcessingException(
-          context, String.format(NO_PROCESS_FOUND_MESSAGE, processDefinitionKey));
-    }
-
-    eventTriggerBehavior.processEventTriggered(
-        triggeredEvent.getEventKey(),
-        processDefinitionKey,
-        processInstanceKey,
-        processDefinitionKey, /* the event scope for the start event is the process definition */
-        triggeredEvent.getElementId());
-
-    eventRecord.reset();
-    eventRecord.wrap(context.getRecordValue());
-
-    final var record =
-        eventRecord
-            .setElementId(triggeredEvent.getElementId())
-            .setBpmnElementType(BpmnElementType.START_EVENT)
-            .setProcessInstanceKey(processInstanceKey)
-            .setVersion(process.getVersion())
-            .setBpmnProcessId(process.getBpmnProcessId())
-            .setFlowScopeKey(processInstanceKey);
-
-    final var newEventInstanceKey = keyGenerator.nextKey();
-    commandWriter.appendFollowUpCommand(
-        newEventInstanceKey, ProcessInstanceIntent.ACTIVATE_ELEMENT, record);
+    activateTriggeredEvent(
+        context.getProcessDefinitionKey(), context.getProcessInstanceKey(), eventTrigger, context);
   }
 }
