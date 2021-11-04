@@ -12,7 +12,9 @@ import io.camunda.zeebe.gateway.health.Status;
 import io.camunda.zeebe.gateway.protocol.GatewayGrpc;
 import io.grpc.BindableService;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
-import io.grpc.protobuf.services.HealthStatusManager;
+// update HealthStatusManager path for compatible xhzy
+// import io.grpc.protobuf.services.HealthStatusManager;
+import io.grpc.services.HealthStatusManager;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.concurrent.ThreadSafe;
