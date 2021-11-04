@@ -71,34 +71,34 @@ public final class DeployProcessCommandImpl
   @Override
   public DeployProcessCommandBuilderStep2 addResourceBytes(
       final byte[] resource, final String resourceName) {
-      ByteString definition = ByteString.copyFrom(resource);
-      if (namespace != null && namespace.length() > 0) {
-          BpmnModelInstance instance = Bpmn.readModelFromStream(new ByteArrayInputStream(resource));
-          Collection<Process> processes = instance.getModelElementsByType(Process.class);
-          Process process = processes.iterator().next();
+    ByteString definition = ByteString.copyFrom(resource);
+    if (namespace != null && namespace.length() > 0) {
+      BpmnModelInstance instance = Bpmn.readModelFromStream(new ByteArrayInputStream(resource));
+      Collection<Process> processes = instance.getModelElementsByType(Process.class);
+      Process process = processes.iterator().next();
 
-          // ServiceTask
-          resolveNamespace(instance, namespace, ServiceTask.class);
+      // ServiceTask
+      resolveNamespace(instance, namespace, ServiceTask.class);
 
-          // BusinessRuleTask
-          resolveNamespace(instance, namespace, BusinessRuleTask.class);
+      // BusinessRuleTask
+      resolveNamespace(instance, namespace, BusinessRuleTask.class);
 
-          // ScriptTask
-          resolveNamespace(instance, namespace, ScriptTask.class);
+      // ScriptTask
+      resolveNamespace(instance, namespace, ScriptTask.class);
 
-          // SendTask
-          resolveNamespace(instance, namespace, SendTask.class);
+      // SendTask
+      resolveNamespace(instance, namespace, SendTask.class);
 
-          // ManualTask
-          resolveNamespace(instance, namespace, ManualTask.class);
+      // ManualTask
+      resolveNamespace(instance, namespace, ManualTask.class);
 
-          // CallActivity
-          resolveNamespace(instance, namespace, CallActivity.class);
+      // CallActivity
+      resolveNamespace(instance, namespace, CallActivity.class);
 
-          process.setId(namespace + "." + process.getId());
-          process.setName(namespace + "." + process.getName());
-          definition = ByteString.copyFrom(Bpmn.convertToString(instance).getBytes());
-      }
+      process.setId(namespace + "." + process.getId());
+      process.setName(namespace + "." + process.getName());
+      definition = ByteString.copyFrom(Bpmn.convertToString(instance).getBytes());
+    }
     requestBuilder.addProcesses(
         ProcessRequestObject.newBuilder()
             .setName(resourceName)
@@ -107,29 +107,34 @@ public final class DeployProcessCommandImpl
     return this;
   }
 
-  private <T extends Activity> void resolveNamespace(BpmnModelInstance instance, String namespace, Class<T> type) {
-      Collection<T> tasks = instance.getModelElementsByType(type);
-      if (type == CallActivity.class) {
-          tasks.stream().forEach(task -> {
-              ExtensionElements extensionElements = task.getExtensionElements();
-              Collection<ZeebeCalledElement> zeebeCalledElements = extensionElements.getChildElementsByType(ZeebeCalledElement.class);
-              ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
-              // If it is not a dynamic variable, add a namespace for business isolation.
-              if (Objects.nonNull(zeebeCalledElement.getProcessId()) && !zeebeCalledElement.getProcessId().startsWith("=")) {
-                  zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
-              }
-          });
-      } else {
-          tasks.stream().forEach(task -> {
-              ExtensionElements extensionElements = task.getExtensionElements();
-              Collection<ZeebeTaskDefinition> taskDefinitions = extensionElements.getChildElementsByType(ZeebeTaskDefinition.class);
-              ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
-              // If it is not a dynamic variable, add a namespace for business isolation.
-              if (Objects.nonNull(taskDefinition.getType()) && !taskDefinition.getType().startsWith("=")) {
-                  taskDefinition.setType(namespace + "." + taskDefinition.getType());
-              }
-          });
-      }
+  private <T extends Activity> void resolveNamespace(BpmnModelInstance instance, String namespace,
+      Class<T> type) {
+    Collection<T> tasks = instance.getModelElementsByType(type);
+    if (type == CallActivity.class) {
+      tasks.stream().forEach(task -> {
+        ExtensionElements extensionElements = task.getExtensionElements();
+        Collection<ZeebeCalledElement> zeebeCalledElements = extensionElements
+            .getChildElementsByType(ZeebeCalledElement.class);
+        ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
+        // If it is not a dynamic variable, add a namespace for business isolation.
+        if (Objects.nonNull(zeebeCalledElement.getProcessId()) && !zeebeCalledElement.getProcessId()
+            .startsWith("=")) {
+          zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
+        }
+      });
+    } else {
+      tasks.stream().forEach(task -> {
+        ExtensionElements extensionElements = task.getExtensionElements();
+        Collection<ZeebeTaskDefinition> taskDefinitions = extensionElements
+            .getChildElementsByType(ZeebeTaskDefinition.class);
+        ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
+        // If it is not a dynamic variable, add a namespace for business isolation.
+        if (Objects.nonNull(taskDefinition.getType()) && !taskDefinition.getType()
+            .startsWith("=")) {
+          taskDefinition.setType(namespace + "." + taskDefinition.getType());
+        }
+      });
+    }
   }
 
   @Override
@@ -214,10 +219,10 @@ public final class DeployProcessCommandImpl
 
     final RetriableClientFutureImpl<DeploymentEvent, GatewayOuterClass.DeployProcessResponse>
         future =
-            new RetriableClientFutureImpl<>(
-                DeploymentEventImpl::new,
-                retryPredicate,
-                streamObserver -> send(request, streamObserver));
+        new RetriableClientFutureImpl<>(
+            DeploymentEventImpl::new,
+            retryPredicate,
+            streamObserver -> send(request, streamObserver));
 
     send(request, future);
 
