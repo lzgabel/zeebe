@@ -6,9 +6,9 @@
     <groupId>io.camunda</groupId>
     <artifactId>zeebe-root</artifactId>
     <version>xhzy-1.3.0-SNAPSHOT</version>
+    <relativePath>../parent/pom.xml</relativePath>
   </parent>
 
-  <groupId>io.camunda</groupId>
   <artifactId>zeebe-expression-language</artifactId>
 
   <name>Zeebe Expression Language</name>
