@@ -22,6 +22,7 @@ import io.camunda.zeebe.protocol.record.value.ProcessInstanceCreationRecordValue
 import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.agrona.DirectBuffer;
 
 public final class ProcessInstanceCreationRecord extends UnifiedRecordValue
@@ -36,6 +37,7 @@ public final class ProcessInstanceCreationRecord extends UnifiedRecordValue
       new LongProperty("processInstanceKey", -1);
   private final ArrayProperty<StringValue> fetchVariablesProperty =
       new ArrayProperty<>("fetchVariables", new StringValue());
+  private final StringProperty startableByProperty = new StringProperty("startableBy", "");
 
   public ProcessInstanceCreationRecord() {
     declareProperty(bpmnProcessIdProperty)
@@ -43,7 +45,8 @@ public final class ProcessInstanceCreationRecord extends UnifiedRecordValue
         .declareProperty(processInstanceKeyProperty)
         .declareProperty(versionProperty)
         .declareProperty(variablesProperty)
-        .declareProperty(fetchVariablesProperty);
+        .declareProperty(fetchVariablesProperty)
+        .declareProperty(startableByProperty);
   }
 
   @Override
@@ -108,6 +111,18 @@ public final class ProcessInstanceCreationRecord extends UnifiedRecordValue
     fetchVariables.forEach(variable -> fetchVariablesProperty.add().wrap(wrapString(variable)));
     return this;
   }
+
+  public StringProperty startableBy() {
+    return startableByProperty;
+  }
+
+  public ProcessInstanceCreationRecord setStartableBy(final String startableBy) {
+    Optional.ofNullable(startableBy)
+        .map(BufferUtil::wrapString)
+        .ifPresent(startableByProperty::setValue);
+    return this;
+  }
+
 
   @JsonIgnore
   public DirectBuffer getBpmnProcessIdBuffer() {

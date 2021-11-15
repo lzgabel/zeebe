@@ -37,8 +37,8 @@ import java.util.function.Predicate;
 
 public final class CreateProcessInstanceCommandImpl
     implements CreateProcessInstanceCommandStep1,
-        CreateProcessInstanceCommandStep2,
-        CreateProcessInstanceCommandStep3 {
+    CreateProcessInstanceCommandStep2,
+    CreateProcessInstanceCommandStep3 {
 
   private final GatewayStub asyncStub;
   private final Builder builder;
@@ -92,7 +92,11 @@ public final class CreateProcessInstanceCommandImpl
 
   @Override
   public CreateProcessInstanceCommandStep2 bpmnProcessId(final String id) {
-    builder.setBpmnProcessId(namespace == null || namespace.length() == 0 ? id : namespace + "." + id);
+    String processId = id;
+    if (namespace != null && namespace.length() > 0) {
+      processId = namespace + "." + id;
+    }
+    builder.setBpmnProcessId(processId);
     return this;
   }
 
@@ -114,6 +118,12 @@ public final class CreateProcessInstanceCommandImpl
   }
 
   @Override
+  public CreateProcessInstanceCommandStep2 startableBy(final String startableBy) {
+    builder.setStartableBy(startableBy);
+    return this;
+  }
+
+  @Override
   public FinalCommandStep<ProcessInstanceEvent> requestTimeout(final Duration requestTimeout) {
     this.requestTimeout = requestTimeout;
     return this;
@@ -124,12 +134,12 @@ public final class CreateProcessInstanceCommandImpl
     final CreateProcessInstanceRequest request = builder.build();
 
     final RetriableClientFutureImpl<
-            ProcessInstanceEvent, GatewayOuterClass.CreateProcessInstanceResponse>
+        ProcessInstanceEvent, GatewayOuterClass.CreateProcessInstanceResponse>
         future =
-            new RetriableClientFutureImpl<>(
-                CreateProcessInstanceResponseImpl::new,
-                retryPredicate,
-                streamObserver -> send(request, streamObserver));
+        new RetriableClientFutureImpl<>(
+            CreateProcessInstanceResponseImpl::new,
+            retryPredicate,
+            streamObserver -> send(request, streamObserver));
 
     send(request, future);
     return future;

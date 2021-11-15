@@ -28,14 +28,15 @@ import io.camunda.zeebe.client.api.worker.JobWorker;
 import io.camunda.zeebe.client.api.worker.JobWorkerBuilderStep1;
 import io.camunda.zeebe.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep2;
 import io.camunda.zeebe.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3;
+import io.camunda.zeebe.client.impl.ZeebeClientBuilderImpl;
 import io.camunda.zeebe.gateway.protocol.GatewayGrpc.GatewayStub;
 import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.ActivateJobsRequest;
 import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.ActivateJobsRequest.Builder;
-
 import java.io.Closeable;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Predicate;
 
@@ -79,7 +80,7 @@ public final class JobWorkerBuilderImpl
     timeout = configuration.getDefaultJobTimeout().toMillis();
     workerName = configuration.getDefaultJobWorkerName();
     namespace = configuration.getNamespace() == null ||
-            configuration.getNamespace().length() == 0 ? "" : configuration.getNamespace() + ".";
+        configuration.getNamespace().length() == 0 ? "" : configuration.getNamespace() + ".";
     maxJobsActive = configuration.getDefaultJobWorkerMaxJobsActive();
     pollInterval = configuration.getDefaultJobPollInterval();
     requestTimeout = configuration.getDefaultRequestTimeout();

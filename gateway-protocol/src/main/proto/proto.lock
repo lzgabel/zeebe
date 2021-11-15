@@ -208,6 +208,11 @@
                 "id": 4,
                 "name": "variables",
                 "type": "string"
+              },
+              {
+                "id": 5,
+                "name": "startableBy",
+                "type": "string"
               }
             ]
           },

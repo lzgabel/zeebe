@@ -15,6 +15,9 @@
  */
 package io.camunda.zeebe.client.impl.command;
 
+import static io.camunda.zeebe.client.impl.command.ArgumentUtil.ensureNotNull;
+import static io.camunda.zeebe.client.impl.command.StreamUtil.readInputStream;
+
 import com.google.protobuf.ByteString;
 import io.camunda.zeebe.client.api.ZeebeFuture;
 import io.camunda.zeebe.client.api.command.ClientException;
@@ -30,12 +33,11 @@ import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.DeployProcessRequest;
 import io.camunda.zeebe.gateway.protocol.GatewayOuterClass.ProcessRequestObject;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
-import io.camunda.zeebe.model.bpmn.instance.Process;
 import io.camunda.zeebe.model.bpmn.instance.*;
+import io.camunda.zeebe.model.bpmn.instance.Process;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledElement;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskDefinition;
 import io.grpc.stub.StreamObserver;
-
 import java.io.*;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -44,9 +46,6 @@ import java.util.Collection;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
-
-import static io.camunda.zeebe.client.impl.command.ArgumentUtil.ensureNotNull;
-import static io.camunda.zeebe.client.impl.command.StreamUtil.readInputStream;
 
 public final class DeployProcessCommandImpl
     implements DeployProcessCommandStep1, DeployProcessCommandBuilderStep2 {
@@ -73,9 +72,10 @@ public final class DeployProcessCommandImpl
       final byte[] resource, final String resourceName) {
     ByteString definition = ByteString.copyFrom(resource);
     if (namespace != null && namespace.length() > 0) {
-      BpmnModelInstance instance = Bpmn.readModelFromStream(new ByteArrayInputStream(resource));
-      Collection<Process> processes = instance.getModelElementsByType(Process.class);
-      Process process = processes.iterator().next();
+      final BpmnModelInstance instance =
+          Bpmn.readModelFromStream(new ByteArrayInputStream(resource));
+      final Collection<Process> processes = instance.getModelElementsByType(Process.class);
+      final Process process = processes.iterator().next();
 
       // ServiceTask
       resolveNamespace(instance, namespace, ServiceTask.class);
@@ -100,40 +100,43 @@ public final class DeployProcessCommandImpl
       definition = ByteString.copyFrom(Bpmn.convertToString(instance).getBytes());
     }
     requestBuilder.addProcesses(
-        ProcessRequestObject.newBuilder()
-            .setName(resourceName)
-            .setDefinition(definition));
+        ProcessRequestObject.newBuilder().setName(resourceName).setDefinition(definition));
 
     return this;
   }
 
-  private <T extends Activity> void resolveNamespace(BpmnModelInstance instance, String namespace,
-      Class<T> type) {
-    Collection<T> tasks = instance.getModelElementsByType(type);
+  private <T extends Activity> void resolveNamespace(
+      BpmnModelInstance instance, String namespace, Class<T> type) {
+    final Collection<T> tasks = instance.getModelElementsByType(type);
     if (type == CallActivity.class) {
-      tasks.stream().forEach(task -> {
-        ExtensionElements extensionElements = task.getExtensionElements();
-        Collection<ZeebeCalledElement> zeebeCalledElements = extensionElements
-            .getChildElementsByType(ZeebeCalledElement.class);
-        ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
-        // If it is not a dynamic variable, add a namespace for business isolation.
-        if (Objects.nonNull(zeebeCalledElement.getProcessId()) && !zeebeCalledElement.getProcessId()
-            .startsWith("=")) {
-          zeebeCalledElement.setProcessId(namespace + "." + zeebeCalledElement.getProcessId());
-        }
-      });
+      tasks.stream()
+          .forEach(
+              task -> {
+                final ExtensionElements extensionElements = task.getExtensionElements();
+                final Collection<ZeebeCalledElement> zeebeCalledElements =
+                    extensionElements.getChildElementsByType(ZeebeCalledElement.class);
+                final ZeebeCalledElement zeebeCalledElement = zeebeCalledElements.iterator().next();
+                // If it is not a dynamic variable, add a namespace for business isolation.
+                if (Objects.nonNull(zeebeCalledElement.getProcessId())
+                    && !zeebeCalledElement.getProcessId().startsWith("=")) {
+                  zeebeCalledElement.setProcessId(
+                      namespace + "." + zeebeCalledElement.getProcessId());
+                }
+              });
     } else {
-      tasks.stream().forEach(task -> {
-        ExtensionElements extensionElements = task.getExtensionElements();
-        Collection<ZeebeTaskDefinition> taskDefinitions = extensionElements
-            .getChildElementsByType(ZeebeTaskDefinition.class);
-        ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
-        // If it is not a dynamic variable, add a namespace for business isolation.
-        if (Objects.nonNull(taskDefinition.getType()) && !taskDefinition.getType()
-            .startsWith("=")) {
-          taskDefinition.setType(namespace + "." + taskDefinition.getType());
-        }
-      });
+      tasks.stream()
+          .forEach(
+              task -> {
+                final ExtensionElements extensionElements = task.getExtensionElements();
+                final Collection<ZeebeTaskDefinition> taskDefinitions =
+                    extensionElements.getChildElementsByType(ZeebeTaskDefinition.class);
+                final ZeebeTaskDefinition taskDefinition = taskDefinitions.iterator().next();
+                // If it is not a dynamic variable, add a namespace for business isolation.
+                if (Objects.nonNull(taskDefinition.getType())
+                    && !taskDefinition.getType().startsWith("=")) {
+                  taskDefinition.setType(namespace + "." + taskDefinition.getType());
+                }
+              });
     }
   }
 

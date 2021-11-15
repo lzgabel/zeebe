@@ -11,6 +11,7 @@ import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutablePro
 import org.agrona.DirectBuffer;
 
 public final class DeployedProcess {
+
   private final ExecutableProcess process;
   private final PersistedProcess persistedProcess;
 
@@ -41,6 +42,14 @@ public final class DeployedProcess {
 
   public DirectBuffer getBpmnProcessId() {
     return persistedProcess.getBpmnProcessId();
+  }
+
+  public DirectBuffer getCandidateStarterGroups() {
+    return persistedProcess.getCandidateStarterGroups();
+  }
+
+  public DirectBuffer getCandidateStarterUsers() {
+    return persistedProcess.getCandidateStarterUsers();
   }
 
   @Override
