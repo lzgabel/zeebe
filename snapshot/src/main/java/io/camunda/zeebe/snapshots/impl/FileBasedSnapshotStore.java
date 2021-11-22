@@ -19,6 +19,7 @@ import io.camunda.zeebe.snapshots.TransientSnapshot;
 import io.camunda.zeebe.util.Either;
 import io.camunda.zeebe.util.FileUtil;
 import io.camunda.zeebe.util.sched.Actor;
+import io.camunda.zeebe.util.sched.ActorThread;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
 import io.camunda.zeebe.util.sched.future.CompletableActorFuture;
 import java.io.FileNotFoundException;
@@ -366,11 +367,30 @@ public final class FileBasedSnapshotStore extends Actor
   }
 
   private void addPendingSnapshot(final PersistableSnapshot pendingSnapshot) {
-    actor.submit(() -> pendingSnapshots.add(pendingSnapshot));
+    final Runnable action = () -> pendingSnapshots.add(pendingSnapshot);
+
+    if (!isCurrentActor()) {
+      actor.submit(action);
+    } else {
+      action.run();
+    }
   }
 
   void removePendingSnapshot(final PersistableSnapshot pendingSnapshot) {
     pendingSnapshots.remove(pendingSnapshot);
+  }
+
+  private boolean isCurrentActor() {
+    final var currentActorThread = ActorThread.current();
+
+    if (currentActorThread != null) {
+      final var task = currentActorThread.getCurrentTask();
+      if (task != null) {
+        return task.getActor() == this;
+      }
+    }
+
+    return false;
   }
 
   private void observeSnapshotSize(final FileBasedSnapshot persistedSnapshot) {
@@ -393,20 +413,20 @@ public final class FileBasedSnapshotStore extends Actor
     }
   }
 
-  private void purgePendingSnapshots(final SnapshotId cutoffIndex) {
+  private void purgePendingSnapshots(final SnapshotId cutoffSnapshot) {
     LOGGER.trace(
         "Search for orphaned snapshots below oldest valid snapshot with index {} in {}",
-        cutoffIndex.getSnapshotIdAsString(),
+        cutoffSnapshot.getSnapshotIdAsString(),
         pendingDirectory);
 
     pendingSnapshots.stream()
-        .filter(pendingSnapshot -> pendingSnapshot.snapshotId().compareTo(cutoffIndex) < 0)
+        .filter(pendingSnapshot -> pendingSnapshot.snapshotId().compareTo(cutoffSnapshot) < 0)
         .forEach(PersistableSnapshot::abort);
 
     // If there are orphaned directories if a previous abort failed, delete them explicitly
     try (final var pendingSnapshotsDirectories = Files.newDirectoryStream(pendingDirectory)) {
       for (final var pendingSnapshot : pendingSnapshotsDirectories) {
-        purgePendingSnapshot(cutoffIndex, pendingSnapshot);
+        purgePendingSnapshot(cutoffSnapshot, pendingSnapshot);
       }
     } catch (final IOException e) {
       LOGGER.warn(
@@ -443,11 +463,14 @@ public final class FileBasedSnapshotStore extends Actor
     final var currentPersistedSnapshot = currentPersistedSnapshotRef.get();
 
     if (isCurrentSnapshotNewer(metadata)) {
+      final var currentPersistedSnapshotMetadata = currentPersistedSnapshot.getMetadata();
+
       LOGGER.debug(
           "Snapshot is older than the latest snapshot {}. Snapshot {} won't be committed.",
-          currentPersistedSnapshot.getMetadata(),
+          currentPersistedSnapshotMetadata,
           metadata);
-      purgePendingSnapshots(metadata);
+
+      purgePendingSnapshots(currentPersistedSnapshotMetadata);
       return currentPersistedSnapshot;
     }
 
