@@ -34,6 +34,7 @@ public interface CreateProcessInstanceCommandStep1 {
    */
   CreateProcessInstanceCommandStep2 bpmnProcessId(String bpmnProcessId);
 
+
   /**
    * Set the key of the process to create an instance of. The key is assigned by the broker while
    * deploying the process. It can be picked from the deployment or process event.
@@ -42,6 +43,7 @@ public interface CreateProcessInstanceCommandStep1 {
    * @return the builder for this command
    */
   CreateProcessInstanceCommandStep3 processDefinitionKey(long processDefinitionKey);
+
 
   interface CreateProcessInstanceCommandStep2 {
     /**
@@ -62,6 +64,14 @@ public interface CreateProcessInstanceCommandStep1 {
      * @return the builder for this command
      */
     CreateProcessInstanceCommandStep3 latestVersion();
+
+    /**
+     * Set the startableBy of the process instance.
+     *
+     * @param startableBy the startableBy of the process
+     * @return the builder for this command
+     */
+    CreateProcessInstanceCommandStep2 startableBy(String startableBy);
   }
 
   interface CreateProcessInstanceCommandStep3 extends FinalCommandStep<ProcessInstanceEvent> {

@@ -98,6 +98,9 @@ message CreateProcessInstanceRequest {
   // "b" respectively, with their associated values. [{ "a": 1, "b": 2 }] would not be a
   // valid argument, as the root of the JSON document is an array and not an object.
   string variables = 4;
+
+  // the startableBy of the process;
+  string startableBy = 5;
 }
 
 message CreateProcessInstanceResponse {

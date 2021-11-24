@@ -17,9 +17,13 @@ import io.camunda.zeebe.msgpack.property.BooleanProperty;
 import io.camunda.zeebe.msgpack.property.IntegerProperty;
 import io.camunda.zeebe.msgpack.property.LongProperty;
 import io.camunda.zeebe.msgpack.property.StringProperty;
+import io.camunda.zeebe.msgpack.value.ArrayValue;
+import io.camunda.zeebe.msgpack.value.StringValue;
 import io.camunda.zeebe.protocol.impl.record.UnifiedRecordValue;
 import io.camunda.zeebe.protocol.record.value.deployment.ProcessMetadataValue;
 import io.camunda.zeebe.util.buffer.BufferUtil;
+import java.util.Arrays;
+import java.util.Optional;
 import org.agrona.DirectBuffer;
 
 /**
@@ -27,11 +31,16 @@ import org.agrona.DirectBuffer;
  * user. It is similar to {@link ProcessRecord} except that it doesn't contain the actual resources.
  */
 public final class ProcessMetadata extends UnifiedRecordValue implements ProcessMetadataValue {
+
   private final StringProperty bpmnProcessIdProp = new StringProperty(PROP_PROCESS_BPMN_PROCESS_ID);
   private final IntegerProperty versionProp = new IntegerProperty(PROP_PROCESS_VERSION);
   private final LongProperty keyProp = new LongProperty(PROP_PROCESS_KEY);
   private final StringProperty resourceNameProp = new StringProperty("resourceName");
   private final BinaryProperty checksumProp = new BinaryProperty("checksum");
+  private final StringProperty candidateStarterUsersProp =
+      new StringProperty("candidateStarterUsers", "");
+  private final StringProperty candidateStarterGroupsProp =
+      new StringProperty("candidateStarterGroups", "");
 
   // should be set to true if the process was already deployed - property should not be exported
   private final BooleanProperty isDuplicateProp = new BooleanProperty("isDuplicate", false);
@@ -42,7 +51,9 @@ public final class ProcessMetadata extends UnifiedRecordValue implements Process
         .declareProperty(keyProp)
         .declareProperty(resourceNameProp)
         .declareProperty(checksumProp)
-        .declareProperty(isDuplicateProp);
+        .declareProperty(isDuplicateProp)
+        .declareProperty(candidateStarterGroupsProp)
+        .declareProperty(candidateStarterUsersProp);
   }
 
   @Override
@@ -140,6 +151,24 @@ public final class ProcessMetadata extends UnifiedRecordValue implements Process
   @JsonIgnore
   public DirectBuffer getResourceNameBuffer() {
     return resourceNameProp.getValue();
+  }
+
+  public String getCandidateStarterGroups() {
+    return BufferUtil.bufferAsString(candidateStarterGroupsProp.getValue());
+  }
+
+  public ProcessMetadata setCandidateStarterGroups(final String candidateStarterGroups) {
+    Optional.ofNullable(candidateStarterGroups).ifPresent(candidateStarterGroupsProp::setValue);
+    return this;
+  }
+
+  public String getCandidateStarterUsers() {
+    return BufferUtil.bufferAsString(candidateStarterUsersProp.getValue());
+  }
+
+  public ProcessMetadata setCandidateStarterUsers(final String candidateStarterUsers) {
+    Optional.ofNullable(candidateStarterUsers).ifPresent(candidateStarterUsersProp::setValue);
+    return this;
   }
 
   public ProcessMetadata setBpmnProcessId(

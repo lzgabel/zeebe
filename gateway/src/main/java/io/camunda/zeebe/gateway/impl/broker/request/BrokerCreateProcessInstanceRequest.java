@@ -36,6 +36,11 @@ public class BrokerCreateProcessInstanceRequest
     return this;
   }
 
+  public BrokerCreateProcessInstanceRequest setStartableBy(final String startableBy) {
+    requestDto.setStartableBy(startableBy);
+    return this;
+  }
+
   public BrokerCreateProcessInstanceRequest setVariables(final DirectBuffer variables) {
     requestDto.setVariables(variables);
     return this;

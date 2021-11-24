@@ -17,10 +17,13 @@
 package io.camunda.zeebe.model.bpmn.impl.instance;
 
 import static io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants.BPMN20_NS;
+import static io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants.BPMN_ATTRIBUTE_CANDIDATE_STARTER_GROUPS;
+import static io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants.BPMN_ATTRIBUTE_CANDIDATE_STARTER_USERS;
 import static io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants.BPMN_ATTRIBUTE_IS_CLOSED;
 import static io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants.BPMN_ATTRIBUTE_IS_EXECUTABLE;
 import static io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants.BPMN_ATTRIBUTE_PROCESS_TYPE;
 import static io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants.BPMN_ELEMENT_PROCESS;
+import static io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants.ZEEBE_NS;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.ProcessType;
@@ -57,6 +60,8 @@ public class ProcessImpl extends CallableElementImpl implements Process {
   protected static Attribute<ProcessType> processTypeAttribute;
   protected static Attribute<Boolean> isClosedAttribute;
   protected static Attribute<Boolean> isExecutableAttribute;
+  protected static Attribute<String> candidateStarterGroupsAttribute;
+  protected static Attribute<String> candidateStarterUsersAttribute;
   // TODO: definitionalCollaborationRef
   protected static ChildElement<Auditing> auditingChild;
   protected static ChildElement<Monitoring> monitoringChild;
@@ -97,6 +102,20 @@ public class ProcessImpl extends CallableElementImpl implements Process {
         typeBuilder.booleanAttribute(BPMN_ATTRIBUTE_IS_CLOSED).defaultValue(false).build();
 
     isExecutableAttribute = typeBuilder.booleanAttribute(BPMN_ATTRIBUTE_IS_EXECUTABLE).build();
+
+    candidateStarterGroupsAttribute =
+        typeBuilder
+            .stringAttribute(BPMN_ATTRIBUTE_CANDIDATE_STARTER_GROUPS)
+            .defaultValue("")
+            .namespace(ZEEBE_NS)
+            .build();
+
+    candidateStarterUsersAttribute =
+        typeBuilder
+            .stringAttribute(BPMN_ATTRIBUTE_CANDIDATE_STARTER_USERS)
+            .defaultValue("")
+            .namespace(ZEEBE_NS)
+            .build();
 
     // TODO: definitionalCollaborationRef
 
@@ -164,6 +183,16 @@ public class ProcessImpl extends CallableElementImpl implements Process {
   }
 
   @Override
+  public void setCandidateStarterGroups(final String candidateStarterGroups) {
+    candidateStarterGroupsAttribute.setValue(this, candidateStarterGroups);
+  }
+
+  @Override
+  public void setCandidateStarterUsers(final String candidateStarterUsers) {
+    candidateStarterUsersAttribute.setValue(this, candidateStarterUsers);
+  }
+
+  @Override
   public Auditing getAuditing() {
     return auditingChild.getChild(this);
   }
@@ -216,5 +245,15 @@ public class ProcessImpl extends CallableElementImpl implements Process {
   @Override
   public Collection<Process> getSupports() {
     return supportsCollection.getReferenceTargetElements(this);
+  }
+
+  @Override
+  public String getCandidateStarterGroups() {
+    return candidateStarterGroupsAttribute.getValue(this);
+  }
+
+  @Override
+  public String getCandidateStarterUsers() {
+    return candidateStarterUsersAttribute.getValue(this);
   }
 }

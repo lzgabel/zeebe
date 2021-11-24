@@ -66,4 +66,12 @@ public interface Process extends CallableElement {
   Collection<ResourceRole> getResourceRoles();
 
   Collection<Process> getSupports();
+
+  String getCandidateStarterGroups();
+
+  void setCandidateStarterGroups(String candidatestarterGroups);
+
+  String getCandidateStarterUsers();
+
+  void setCandidateStarterUsers(String candidateStarterUsers);
 }

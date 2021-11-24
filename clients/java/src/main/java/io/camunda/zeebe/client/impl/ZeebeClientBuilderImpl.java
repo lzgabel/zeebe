@@ -81,7 +81,7 @@ public final class ZeebeClientBuilderImpl implements ZeebeClientBuilder, ZeebeCl
 
   @Override
   public String getNamespace() {
-      return namespace;
+    return namespace;
   }
 
   @Override
@@ -338,7 +338,7 @@ public final class ZeebeClientBuilderImpl implements ZeebeClientBuilder, ZeebeCl
     return credentialsProvider == null
         && Environment.system().get(OAuthCredentialsProviderBuilder.OAUTH_ENV_CLIENT_ID) != null
         && Environment.system().get(OAuthCredentialsProviderBuilder.OAUTH_ENV_CLIENT_SECRET)
-            != null;
+        != null;
   }
 
   private CredentialsProvider createDefaultCredentialsProvider() {
