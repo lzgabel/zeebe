@@ -22,6 +22,7 @@ import io.camunda.zeebe.util.buffer.BufferUtil;
 import org.agrona.DirectBuffer;
 
 public final class ProcessRecord extends UnifiedRecordValue implements Process {
+
   private final StringProperty bpmnProcessIdProp = new StringProperty(PROP_PROCESS_BPMN_PROCESS_ID);
   private final IntegerProperty versionProp = new IntegerProperty(PROP_PROCESS_VERSION);
   private final LongProperty keyProp = new LongProperty(PROP_PROCESS_KEY);
@@ -29,13 +30,20 @@ public final class ProcessRecord extends UnifiedRecordValue implements Process {
   private final BinaryProperty checksumProp = new BinaryProperty("checksum");
   private final BinaryProperty resourceProp = new BinaryProperty("resource");
 
+  private final StringProperty candidateStarterUsersProp =
+      new StringProperty("candidateStarterUsers", "");
+  private final StringProperty candidateStarterGroupsProp =
+      new StringProperty("candidateStarterGroups", "");
+
   public ProcessRecord() {
     declareProperty(bpmnProcessIdProp)
         .declareProperty(versionProp)
         .declareProperty(keyProp)
         .declareProperty(resourceNameProp)
         .declareProperty(checksumProp)
-        .declareProperty(resourceProp);
+        .declareProperty(resourceProp)
+        .declareProperty(candidateStarterGroupsProp)
+        .declareProperty(candidateStarterUsersProp);
   }
 
   public ProcessRecord wrap(final ProcessMetadata metadata, final byte[] resource) {
@@ -44,6 +52,8 @@ public final class ProcessRecord extends UnifiedRecordValue implements Process {
     checksumProp.setValue(metadata.getChecksumBuffer());
     keyProp.setValue(metadata.getKey());
     resourceNameProp.setValue(metadata.getResourceNameBuffer());
+    candidateStarterGroupsProp.setValue(metadata.getCandidateStarterGroups());
+    candidateStarterUsersProp.setValue(metadata.getCandidateStarterUsers());
     resourceProp.setValue(BufferUtil.wrapArray(resource));
     return this;
   }
@@ -105,6 +115,24 @@ public final class ProcessRecord extends UnifiedRecordValue implements Process {
 
   public ProcessRecord setBpmnProcessId(final DirectBuffer bpmnProcessId) {
     bpmnProcessIdProp.setValue(bpmnProcessId);
+    return this;
+  }
+
+  public String getCandidateStarterGroups() {
+    return BufferUtil.bufferAsString(candidateStarterGroupsProp.getValue());
+  }
+
+  public ProcessRecord setCandidateStarterGroups(final String candidateStarterGroups) {
+    candidateStarterGroupsProp.setValue(candidateStarterGroups);
+    return this;
+  }
+
+  public String getCandidateStarterUsers() {
+    return BufferUtil.bufferAsString(candidateStarterUsersProp.getValue());
+  }
+
+  public ProcessRecord setCandidateStarterUsers(final String candidateStarterUsers) {
+    candidateStarterUsersProp.setValue(candidateStarterUsers);
     return this;
   }
 

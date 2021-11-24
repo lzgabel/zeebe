@@ -17,6 +17,7 @@
 package io.camunda.zeebe.model.bpmn.instance;
 
 import io.camunda.zeebe.model.bpmn.ProcessType;
+import io.camunda.zeebe.model.bpmn.impl.BpmnModelConstants;
 import io.camunda.zeebe.model.bpmn.impl.instance.Supports;
 import java.util.Arrays;
 import java.util.Collection;
@@ -48,6 +49,10 @@ public class ProcessTest extends BpmnModelElementInstanceTest {
     return Arrays.asList(
         new AttributeAssumption("processType", false, false, ProcessType.None),
         new AttributeAssumption("isClosed", false, false, false),
-        new AttributeAssumption("isExecutable"));
+        new AttributeAssumption("isExecutable"),
+        new AttributeAssumption(
+            BpmnModelConstants.ZEEBE_NS, "candidateStarterGroups", false, false, ""),
+        new AttributeAssumption(
+            BpmnModelConstants.ZEEBE_NS, "candidateStarterUsers", false, false, ""));
   }
 }

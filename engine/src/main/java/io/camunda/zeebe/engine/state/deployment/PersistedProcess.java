@@ -17,24 +17,33 @@ import io.camunda.zeebe.protocol.impl.record.value.deployment.ProcessRecord;
 import org.agrona.DirectBuffer;
 
 public final class PersistedProcess extends UnpackedObject implements DbValue {
+
   private final IntegerProperty versionProp = new IntegerProperty("version", -1);
   private final LongProperty keyProp = new LongProperty("key", -1L);
   private final StringProperty bpmnProcessIdProp = new StringProperty("bpmnProcessId");
   private final StringProperty resourceNameProp = new StringProperty("resourceName");
   private final BinaryProperty resourceProp = new BinaryProperty("resource");
+  private final StringProperty candidateStarterGroupsProp =
+      new StringProperty("candidateStarterGroups", "");
+  private final StringProperty candidateStarterUsersProp =
+      new StringProperty("candidateStarterUsers", "");
 
   public PersistedProcess() {
     declareProperty(versionProp)
         .declareProperty(keyProp)
         .declareProperty(bpmnProcessIdProp)
         .declareProperty(resourceNameProp)
-        .declareProperty(resourceProp);
+        .declareProperty(resourceProp)
+        .declareProperty(candidateStarterGroupsProp)
+        .declareProperty(candidateStarterUsersProp);
   }
 
   public void wrap(final ProcessRecord processRecord, final long processDefinitionKey) {
     bpmnProcessIdProp.setValue(processRecord.getBpmnProcessIdBuffer());
     resourceNameProp.setValue(processRecord.getResourceNameBuffer());
     resourceProp.setValue(processRecord.getResourceBuffer());
+    candidateStarterGroupsProp.setValue(processRecord.getCandidateStarterGroups());
+    candidateStarterUsersProp.setValue(processRecord.getCandidateStarterUsers());
 
     versionProp.setValue(processRecord.getVersion());
     keyProp.setValue(processDefinitionKey);
@@ -58,5 +67,13 @@ public final class PersistedProcess extends UnpackedObject implements DbValue {
 
   public DirectBuffer getResource() {
     return resourceProp.getValue();
+  }
+
+  public DirectBuffer getCandidateStarterGroups() {
+    return candidateStarterGroupsProp.getValue();
+  }
+
+  public DirectBuffer getCandidateStarterUsers() {
+    return candidateStarterUsersProp.getValue();
   }
 }

@@ -18,7 +18,10 @@ package io.camunda.zeebe.client.impl;
 import static io.camunda.zeebe.client.impl.BuilderUtils.appendProperty;
 import static io.camunda.zeebe.client.impl.command.ArgumentUtil.ensureNotNull;
 
-import io.camunda.zeebe.client.*;
+import io.camunda.zeebe.client.ClientProperties;
+import io.camunda.zeebe.client.CredentialsProvider;
+import io.camunda.zeebe.client.ZeebeClient;
+import io.camunda.zeebe.client.ZeebeClientCloudBuilderStep1;
 import io.camunda.zeebe.client.ZeebeClientCloudBuilderStep1.ZeebeClientCloudBuilderStep2;
 import io.camunda.zeebe.client.ZeebeClientCloudBuilderStep1.ZeebeClientCloudBuilderStep2.ZeebeClientCloudBuilderStep3;
 import io.camunda.zeebe.client.ZeebeClientCloudBuilderStep1.ZeebeClientCloudBuilderStep2.ZeebeClientCloudBuilderStep3.ZeebeClientCloudBuilderStep4;
@@ -31,9 +34,9 @@ import java.util.Properties;
 
 public class ZeebeClientCloudBuilderImpl
     implements ZeebeClientCloudBuilderStep1,
-        ZeebeClientCloudBuilderStep2,
-        ZeebeClientCloudBuilderStep3,
-        ZeebeClientCloudBuilderStep4 {
+    ZeebeClientCloudBuilderStep2,
+    ZeebeClientCloudBuilderStep3,
+    ZeebeClientCloudBuilderStep4 {
 
   private static final String BASE_ADDRESS = "zeebe.camunda.io";
   private static final String BASE_AUTH_URL = "https://login.cloud.camunda.io/oauth/token";
@@ -72,25 +75,6 @@ public class ZeebeClientCloudBuilderImpl
   }
 
   @Override
-  public ZeebeClientCloudBuilderStep4 gatewayAddress(final String gatewayAddress) {
-    innerBuilder.gatewayAddress(gatewayAddress);
-    return this;
-  }
-
-  @Override
-  public ZeebeClientCloudBuilderStep4 usePlaintext() {
-    innerBuilder.usePlaintext();
-    return this;
-  }
-
-  @Override
-  public ZeebeClientCloudBuilderStep4 credentialsProvider(
-      final CredentialsProvider credentialsProvider) {
-    innerBuilder.credentialsProvider(credentialsProvider);
-    return this;
-  }
-
-  @Override
   public ZeebeClientCloudBuilderStep4 withProperties(final Properties properties) {
     if (properties.containsKey(ClientProperties.CLOUD_CLUSTER_ID)) {
       withClusterId(properties.getProperty(ClientProperties.CLOUD_CLUSTER_ID));
@@ -102,6 +86,12 @@ public class ZeebeClientCloudBuilderImpl
       withClientSecret(properties.getProperty(ClientProperties.CLOUD_CLIENT_SECRET));
     }
     innerBuilder.withProperties(properties);
+    return this;
+  }
+
+  @Override
+  public ZeebeClientCloudBuilderStep4 gatewayAddress(final String gatewayAddress) {
+    innerBuilder.gatewayAddress(gatewayAddress);
     return this;
   }
 
@@ -120,12 +110,6 @@ public class ZeebeClientCloudBuilderImpl
   @Override
   public ZeebeClientCloudBuilderStep4 defaultJobWorkerName(final String workerName) {
     innerBuilder.defaultJobWorkerName(workerName);
-    return this;
-  }
-
-  @Override
-  public ZeebeClientCloudBuilderStep4 namespace(final String namespase) {
-    innerBuilder.namespace(namespase);
     return this;
   }
 
@@ -154,8 +138,21 @@ public class ZeebeClientCloudBuilderImpl
   }
 
   @Override
+  public ZeebeClientCloudBuilderStep4 usePlaintext() {
+    innerBuilder.usePlaintext();
+    return this;
+  }
+
+  @Override
   public ZeebeClientCloudBuilderStep4 caCertificatePath(final String certificatePath) {
     innerBuilder.caCertificatePath(certificatePath);
+    return this;
+  }
+
+  @Override
+  public ZeebeClientCloudBuilderStep4 credentialsProvider(
+      final CredentialsProvider credentialsProvider) {
+    innerBuilder.credentialsProvider(credentialsProvider);
     return this;
   }
 
@@ -178,7 +175,8 @@ public class ZeebeClientCloudBuilderImpl
   }
 
   @Override
-  public ZeebeClientBuilder namespace(String namespace) {
+  public ZeebeClientCloudBuilderStep4 namespace(final String namespase) {
+    innerBuilder.namespace(namespase);
     return this;
   }
 
@@ -230,7 +228,7 @@ public class ZeebeClientCloudBuilderImpl
   private boolean isNeedToSetCloudGatewayAddress() {
     return innerBuilder.getGatewayAddress() == null
         || Objects.equals(
-            innerBuilder.getGatewayAddress(), ZeebeClientBuilderImpl.DEFAULT_GATEWAY_ADDRESS);
+        innerBuilder.getGatewayAddress(), ZeebeClientBuilderImpl.DEFAULT_GATEWAY_ADDRESS);
   }
 
   @Override
