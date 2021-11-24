@@ -181,6 +181,8 @@ public final class DeploymentTransformer {
         processMetadata
             .setBpmnProcessId(BufferUtil.wrapString(process.getId()))
             .setChecksum(resourceDigest)
+            .setCandidateStarterGroups(process.getCandidateStarterGroups())
+            .setCandidateStarterUsers(process.getCandidateStarterUsers())
             .setResourceName(deploymentResource.getResourceNameBuffer());
 
         final var isDuplicate =

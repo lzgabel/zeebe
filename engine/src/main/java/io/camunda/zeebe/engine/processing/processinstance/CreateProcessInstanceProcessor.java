@@ -25,7 +25,13 @@ import io.camunda.zeebe.protocol.record.RejectionType;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceCreationIntent;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import io.camunda.zeebe.protocol.record.value.BpmnElementType;
+import io.camunda.zeebe.util.buffer.BufferUtil;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import org.agrona.DirectBuffer;
+import org.apache.commons.lang3.StringUtils;
 
 public final class CreateProcessInstanceProcessor
     implements CommandProcessor<ProcessInstanceCreationRecord> {
@@ -44,6 +50,10 @@ public final class CreateProcessInstanceProcessor
       "Expected to set variables from document, but the document is invalid: '%s'";
   private static final String ERROR_INVALID_VARIABLES_LOGGED_MESSAGE =
       "Expected to set variables from document, but the document is invalid";
+  private static final String ERROR_MESSAGE_NO_STARTABLEBY_SPECIFIED =
+      "Expected create instance of process with process ID '%s', but there is none user or group given. ";
+  private static final String ERROR_INVALID_PRIVILEGE_MESSAGE =
+      "There is not privilege that '%s' want to create instance of process with process ID '%s', please use correct user or group.";
 
   private final ProcessInstanceRecord newProcessInstance = new ProcessInstanceRecord();
   private final ProcessState processState;
@@ -134,6 +144,9 @@ public final class CreateProcessInstanceProcessor
     newProcessInstance.setBpmnElementType(BpmnElementType.PROCESS);
     newProcessInstance.setElementId(process.getProcess().getId());
     newProcessInstance.setFlowScopeKey(-1);
+    newProcessInstance.setCandidateStarterGroups(
+        bufferAsString(process.getCandidateStarterGroups()));
+    newProcessInstance.setCandidateStarterUsers(bufferAsString(process.getCandidateStarterUsers()));
     return newProcessInstance;
   }
 
@@ -154,6 +167,43 @@ public final class CreateProcessInstanceProcessor
     } else {
       controller.reject(RejectionType.INVALID_ARGUMENT, ERROR_MESSAGE_NO_IDENTIFIER_SPECIFIED);
       process = null;
+    }
+
+    if (process != null) {
+      final List<String> startableByList = new ArrayList<>();
+      Optional.ofNullable(process.getCandidateStarterUsers())
+          .map(BufferUtil::bufferAsString)
+          .map(StringUtils::trim)
+          .filter(StringUtils::isNotBlank)
+          .ifPresent(candidateGroups -> Arrays.stream(candidateGroups.split(","))
+              .map(StringUtils::trim)
+              .filter(StringUtils::isNotBlank).forEach(startableByList::add));
+
+      Optional.ofNullable(process.getCandidateStarterGroups())
+          .map(BufferUtil::bufferAsString)
+          .filter(StringUtils::isNotBlank)
+          .map(StringUtils::trim)
+          .ifPresent(candidateUsers -> Arrays.stream(candidateUsers.split(","))
+              .map(StringUtils::trim)
+              .filter(StringUtils::isNotBlank).forEach(startableByList::add));
+
+      if (!startableByList.isEmpty()) {
+        final String startableBy = bufferAsString(record.startableBy().getValue());
+        if (StringUtils.isBlank(startableBy)) {
+          controller.reject(RejectionType.INVALID_ARGUMENT,
+              String.format(ERROR_MESSAGE_NO_STARTABLEBY_SPECIFIED, bufferAsString(bpmnProcessId)));
+          return null;
+        }
+
+        final Optional<String> startableByOptional = startableByList.stream()
+            .filter(e -> StringUtils.equals(e, startableBy)).findAny();
+        if (startableByOptional.isEmpty()) {
+          controller.reject(RejectionType.INVALID_ARGUMENT,
+              String.format(ERROR_INVALID_PRIVILEGE_MESSAGE, startableBy,
+                  bufferAsString(bpmnProcessId)));
+          return null;
+        }
+      }
     }
 
     return process;

@@ -32,6 +32,16 @@ public class ProcessBuilder extends AbstractProcessBuilder<ProcessBuilder> {
     super(modelInstance, process, ProcessBuilder.class);
   }
 
+  public ProcessBuilder candidateStarterUsers(final String candidateStarterUsers) {
+    element.setCandidateStarterUsers(candidateStarterUsers);
+    return myself;
+  }
+
+  public ProcessBuilder candidateStarterGroups(final String candidateStarterGroups) {
+    element.setCandidateStarterGroups(candidateStarterGroups);
+    return myself;
+  }
+
   public StartEventBuilder startEvent() {
     return startEvent(null);
   }

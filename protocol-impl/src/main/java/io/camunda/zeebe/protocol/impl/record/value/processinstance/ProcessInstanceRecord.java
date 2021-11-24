@@ -29,6 +29,8 @@ public final class ProcessInstanceRecord extends UnifiedRecordValue
   public static final String PROP_PROCESS_KEY = "processDefinitionKey";
   public static final String PROP_PROCESS_BPMN_TYPE = "bpmnElementType";
   public static final String PROP_PROCESS_SCOPE_KEY = "flowScopeKey";
+  public static final String PROP_CANDIDATE_STARTER_USERS = "candidateStarterUsers";
+  public static final String PROP_CANDIDATE_STARTER_GROUPS = "candidateStarterGroups";
 
   private final StringProperty bpmnProcessIdProp =
       new StringProperty(PROP_PROCESS_BPMN_PROCESS_ID, "");
@@ -50,6 +52,11 @@ public final class ProcessInstanceRecord extends UnifiedRecordValue
   private final LongProperty parentElementInstanceKeyProp =
       new LongProperty("parentElementInstanceKey", -1L);
 
+  private final StringProperty candidateStarterUsersProp =
+      new StringProperty(PROP_CANDIDATE_STARTER_USERS, "");
+  private final StringProperty candidateStarterGroupsProp =
+      new StringProperty(PROP_CANDIDATE_STARTER_GROUPS, "");
+
   public ProcessInstanceRecord() {
     declareProperty(bpmnProcessIdProp)
         .declareProperty(versionProp)
@@ -59,7 +66,9 @@ public final class ProcessInstanceRecord extends UnifiedRecordValue
         .declareProperty(flowScopeKeyProp)
         .declareProperty(bpmnElementTypeProp)
         .declareProperty(parentProcessInstanceKeyProp)
-        .declareProperty(parentElementInstanceKeyProp);
+        .declareProperty(parentElementInstanceKeyProp)
+        .declareProperty(candidateStarterGroupsProp)
+        .declareProperty(candidateStarterUsersProp);
   }
 
   public void wrap(final ProcessInstanceRecord record) {
@@ -72,6 +81,8 @@ public final class ProcessInstanceRecord extends UnifiedRecordValue
     bpmnElementTypeProp.setValue(record.getBpmnElementType());
     parentProcessInstanceKeyProp.setValue(record.getParentProcessInstanceKey());
     parentElementInstanceKeyProp.setValue(record.getParentElementInstanceKey());
+    candidateStarterGroupsProp.setValue(record.getCandidateStarterGroups());
+    candidateStarterUsersProp.setValue(record.getCandidateStarterUsers());
   }
 
   @JsonIgnore
@@ -82,16 +93,6 @@ public final class ProcessInstanceRecord extends UnifiedRecordValue
   @JsonIgnore
   public DirectBuffer getElementIdBuffer() {
     return elementIdProp.getValue();
-  }
-
-  @Override
-  public long getProcessInstanceKey() {
-    return processInstanceKeyProp.getValue();
-  }
-
-  public ProcessInstanceRecord setProcessInstanceKey(final long processInstanceKey) {
-    processInstanceKeyProp.setValue(processInstanceKey);
-    return this;
   }
 
   public ProcessInstanceRecord setBpmnProcessId(
@@ -113,6 +114,16 @@ public final class ProcessInstanceRecord extends UnifiedRecordValue
   @Override
   public long getProcessDefinitionKey() {
     return processDefinitionKeyProp.getValue();
+  }
+
+  @Override
+  public long getProcessInstanceKey() {
+    return processInstanceKeyProp.getValue();
+  }
+
+  public ProcessInstanceRecord setProcessInstanceKey(final long processInstanceKey) {
+    processInstanceKeyProp.setValue(processInstanceKey);
+    return this;
   }
 
   @Override
@@ -186,6 +197,24 @@ public final class ProcessInstanceRecord extends UnifiedRecordValue
 
   public ProcessInstanceRecord setBpmnProcessId(final DirectBuffer directBuffer) {
     bpmnProcessIdProp.setValue(directBuffer);
+    return this;
+  }
+
+  public String getCandidateStarterGroups() {
+    return bufferAsString(candidateStarterGroupsProp.getValue());
+  }
+
+  public ProcessInstanceRecord setCandidateStarterGroups(final String candidateStarterGroups) {
+    candidateStarterGroupsProp.setValue(candidateStarterGroups);
+    return this;
+  }
+
+  public String getCandidateStarterUsers() {
+    return bufferAsString(candidateStarterUsersProp.getValue());
+  }
+
+  public ProcessInstanceRecord setCandidateStarterUsers(final String candidateStarterUsers) {
+    candidateStarterUsersProp.setValue(candidateStarterUsers);
     return this;
   }
 
