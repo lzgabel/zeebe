@@ -42,6 +42,7 @@
     <module>exporter-test</module>
     <module>protocol-asserts</module>
     <module>exporters/elasticsearch-exporter</module>
+    <module>exporters/elasticsearch-exporter-6_7</module>
     <module>protocol-impl</module>
     <module>protocol-jackson</module>
     <module>protocol-util</module>

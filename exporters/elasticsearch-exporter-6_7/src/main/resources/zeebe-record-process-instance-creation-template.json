@@ -1,0 +1,40 @@
+{
+  "index_patterns": [
+    "zeebe-record_process-instance-creation_*"
+  ],
+  "version": 1,
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "index.queries.cache.enabled": false
+  },
+  "aliases": {
+    "zeebe-record-process-instance-creation": {}
+  },
+  "mappings": {
+    "_doc": {
+      "properties": {
+        "value": {
+          "dynamic": "strict",
+          "properties": {
+            "bpmnProcessId": {
+              "type": "keyword"
+            },
+            "version": {
+              "type": "integer"
+            },
+            "processDefinitionKey": {
+              "type": "long"
+            },
+            "processInstanceKey": {
+              "type": "long"
+            },
+            "variables": {
+              "enabled": false
+            }
+          }
+        }
+      }
+    }
+  }
+}
