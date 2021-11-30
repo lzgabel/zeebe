@@ -38,13 +38,13 @@
     <spotbugs.exclude>spotbugs/spotbugs-exclude.xml</spotbugs.exclude>
 
     <!-- EXTERNAL LIBS -->
-    <version.agrona>1.13.1</version.agrona>
+    <version.agrona>1.14.0</version.agrona>
     <version.animal-sniffer>1.20</version.animal-sniffer>
     <version.assertj>3.20.2</version.assertj>
     <version.awaitility>4.1.1</version.awaitility>
     <version.bouncycastle>1.69</version.bouncycastle>
     <version.camunda>7.16.0</version.camunda>
-    <version.checkstyle>9.1</version.checkstyle>
+    <version.checkstyle>9.2</version.checkstyle>
     <version.commons-lang>3.12.0</version.commons-lang>
     <version.commons-logging>1.2</version.commons-logging>
     <version.commons-math>3.6.1</version.commons-math>
@@ -79,8 +79,8 @@
     <version.protobuf>3.19.1</version.protobuf>
     <version.protobuf-common>2.6.0</version.protobuf-common>
     <version.micrometer>1.8.0</version.micrometer>
-    <version.rocksdbjni>6.25.3</version.rocksdbjni>
-    <version.sbe>1.24.0</version.sbe>
+    <version.rocksdbjni>6.26.1</version.rocksdbjni>
+    <version.sbe>1.25.1</version.sbe>
     <version.scala-parser>2.1.0</version.scala-parser>
     <version.scala>2.13.7</version.scala>
     <version.slf4j>1.7.32</version.slf4j>
@@ -129,7 +129,7 @@
     <plugin.version.protobuf-maven-plugin>0.6.1</plugin.version.protobuf-maven-plugin>
     <plugin.version.replacer>1.5.3</plugin.version.replacer>
     <plugin.version.resources>3.2.0</plugin.version.resources>
-    <plugin.version.revapi>0.14.5</plugin.version.revapi>
+    <plugin.version.revapi>0.14.6</plugin.version.revapi>
     <plugin.version.scala>4.5.4</plugin.version.scala>
     <plugin.version.shade>3.2.4</plugin.version.shade>
     <plugin.version.sonar>3.9.1.2184</plugin.version.sonar>
