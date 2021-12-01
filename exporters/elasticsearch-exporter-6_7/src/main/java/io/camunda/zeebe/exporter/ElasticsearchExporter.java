@@ -145,6 +145,7 @@ public class ElasticsearchExporter implements Exporter {
     final IndexConfiguration index = configuration.index;
 
     if (index.createTemplate) {
+      createIndexLifecyclePolicy();
       createRootIndexTemplate();
 
       if (index.deployment) {
@@ -189,6 +190,14 @@ public class ElasticsearchExporter implements Exporter {
     }
 
     indexTemplatesCreated = true;
+  }
+
+  private void createIndexLifecyclePolicy() {
+    final String lifecyclePolicyName = configuration.index.lifecyclePolicyName;
+    final String deleteMinAge = configuration.index.deleteMinAge;
+    if (!client.putIndexLifecyclePolicy(lifecyclePolicyName, deleteMinAge)) {
+      log.warn("Put index lifecycle policy {} was not acknowledged", lifecyclePolicyName);
+    }
   }
 
   private void createRootIndexTemplate() {
