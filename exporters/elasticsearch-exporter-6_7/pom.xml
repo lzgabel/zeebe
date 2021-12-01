@@ -148,6 +148,7 @@
   </dependencies>
 
   <build>
+    <finalName>zeebe-elasticsearch-exporter-${project.version}</finalName>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
