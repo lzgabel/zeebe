@@ -15,10 +15,14 @@ public class ElasticsearchExporterConfiguration {
 
   private static final String DEFAULT_URL = "http://localhost:9200";
 
-  /** Comma-separated Elasticsearch http urls */
+  /**
+   * Comma-separated Elasticsearch http urls
+   */
   public String url = DEFAULT_URL;
 
-  /** The request timeout for the elastic search client. The timeout unit is milliseconds. */
+  /**
+   * The request timeout for the elastic search client. The timeout unit is milliseconds.
+   */
   public int requestTimeoutMs = 30_000;
 
   public final IndexConfiguration index = new IndexConfiguration();
@@ -98,6 +102,7 @@ public class ElasticsearchExporterConfiguration {
   }
 
   public static class IndexConfiguration {
+
     // prefix for index and templates
     public String prefix = "zeebe-record";
 
@@ -124,6 +129,10 @@ public class ElasticsearchExporterConfiguration {
     public boolean processInstanceCreation = false;
     public boolean processMessageSubscription = false;
 
+    // index life policy
+    public String lifecyclePolicyName = "zeebe-policy";
+    public String deleteMinAge = "30d";
+
     // index settings
     private Integer numberOfShards = null;
     private Integer numberOfReplicas = null;
@@ -132,7 +141,7 @@ public class ElasticsearchExporterConfiguration {
       return numberOfShards;
     }
 
-    public void setNumberOfShards(Integer numberOfShards) {
+    public void setNumberOfShards(final Integer numberOfShards) {
       this.numberOfShards = numberOfShards;
     }
 
@@ -140,7 +149,7 @@ public class ElasticsearchExporterConfiguration {
       return numberOfReplicas;
     }
 
-    public void setNumberOfReplicas(Integer numberOfReplicas) {
+    public void setNumberOfReplicas(final Integer numberOfReplicas) {
       this.numberOfReplicas = numberOfReplicas;
     }
 
@@ -187,6 +196,7 @@ public class ElasticsearchExporterConfiguration {
   }
 
   public static class BulkConfiguration {
+
     // delay before forced flush
     public int delay = 5;
     // bulk size before flush
@@ -208,6 +218,7 @@ public class ElasticsearchExporterConfiguration {
   }
 
   public static class AuthenticationConfiguration {
+
     private String username;
     private String password;
 
