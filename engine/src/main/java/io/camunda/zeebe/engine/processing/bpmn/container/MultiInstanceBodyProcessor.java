@@ -36,10 +36,20 @@ public final class MultiInstanceBodyProcessor
 
   private static final DirectBuffer NIL_VALUE = new UnsafeBuffer(MsgPackHelper.NIL);
   private static final DirectBuffer LOOP_COUNTER_VARIABLE = BufferUtil.wrapString("loopCounter");
+  private static final DirectBuffer NR_OF_COMPLETED_ELEMENT_INSTANCES =
+      BufferUtil.wrapString("nrOfCompletedElementInstances");
+  private static final DirectBuffer NR_OF_ELEMENT_INSTANCES =
+      BufferUtil.wrapString("nrOfElementInstances");
 
   private final MutableDirectBuffer loopCounterVariableBuffer =
       new UnsafeBuffer(new byte[Long.BYTES + 1]);
+  private final MutableDirectBuffer nrOfElementInstancesVariableBuffer =
+      new UnsafeBuffer(new byte[Long.BYTES + 1]);
+  private final MutableDirectBuffer nrOfCompletedElementInstancesVariableBuffer =
+      new UnsafeBuffer(new byte[Long.BYTES + 1]);
   private final DirectBuffer loopCounterVariableView = new UnsafeBuffer(0, 0);
+  private final DirectBuffer nrOfElementInstancesVariableView = new UnsafeBuffer(0, 0);
+  private final DirectBuffer nrOfCompletedElementInstancesVariableView = new UnsafeBuffer(0, 0);
 
   private final MsgPackReader variableReader = new MsgPackReader();
   private final MsgPackWriter variableWriter = new MsgPackWriter();
@@ -171,7 +181,9 @@ public final class MultiInstanceBodyProcessor
     boolean childInstanceCreated = false;
 
     final var loopCharacteristics = element.getLoopCharacteristics();
-    if (loopCharacteristics.isSequential()) {
+    final boolean canBeCompleted =
+        stateBehavior.canBeCompletedWithCompletionCondition(childContext);
+    if (loopCharacteristics.isSequential() && !canBeCompleted) {
 
       final var inputCollectionOrFailure = readInputCollectionVariable(element, flowScopeContext);
       if (inputCollectionOrFailure.isLeft()) {
@@ -203,10 +215,14 @@ public final class MultiInstanceBodyProcessor
       final ExecutableMultiInstanceBody element,
       final BpmnElementContext flowScopeContext,
       final BpmnElementContext childContext) {
-
-    if (flowScopeContext.getIntent() == ProcessInstanceIntent.ELEMENT_TERMINATING
-        && stateBehavior.canBeTerminated(childContext)) {
-      terminate(element, flowScopeContext);
+    // triggered by completion condition of multi-instance
+    if (stateBehavior.canBeCompletedWithCompletionCondition(childContext)) {
+      stateTransitionBehavior.completeElement(flowScopeContext);
+    } else {
+      if (flowScopeContext.getIntent() == ProcessInstanceIntent.ELEMENT_TERMINATING
+          && stateBehavior.canBeTerminated(childContext)) {
+        terminate(element, flowScopeContext);
+      }
     }
   }
 
@@ -227,6 +243,13 @@ public final class MultiInstanceBodyProcessor
       stateTransitionBehavior.completeElement(activated);
       return;
     }
+
+    // init local variable of multi-instance
+    stateBehavior.setLocalVariable(
+        context, NR_OF_ELEMENT_INSTANCES, wrapNumberOfElementInstances(inputCollection.size()));
+
+    stateBehavior.setLocalVariable(
+        context, NR_OF_COMPLETED_ELEMENT_INSTANCES, wrapNumberOfCompletedElementInstances(0));
 
     if (loopCharacteristics.isSequential()) {
       createInnerInstance(element, activated);
@@ -308,6 +331,28 @@ public final class MultiInstanceBodyProcessor
 
     loopCounterVariableView.wrap(loopCounterVariableBuffer, 0, length);
     return loopCounterVariableView;
+  }
+
+  private DirectBuffer wrapNumberOfElementInstances(final long nrOfElementInstances) {
+    variableWriter.wrap(nrOfElementInstancesVariableBuffer, 0);
+
+    variableWriter.writeInteger(nrOfElementInstances);
+    final var length = variableWriter.getOffset();
+
+    nrOfElementInstancesVariableView.wrap(nrOfElementInstancesVariableBuffer, 0, length);
+    return nrOfElementInstancesVariableView;
+  }
+
+  private DirectBuffer wrapNumberOfCompletedElementInstances(
+      final long nrOfCompletedElementInstances) {
+    variableWriter.wrap(nrOfCompletedElementInstancesVariableBuffer, 0);
+
+    variableWriter.writeInteger(nrOfCompletedElementInstances);
+    final var length = variableWriter.getOffset();
+
+    nrOfCompletedElementInstancesVariableView.wrap(
+        nrOfCompletedElementInstancesVariableBuffer, 0, length);
+    return nrOfCompletedElementInstancesVariableView;
   }
 
   private void initializeOutputCollection(

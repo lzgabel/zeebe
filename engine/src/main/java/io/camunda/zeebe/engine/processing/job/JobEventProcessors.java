@@ -9,6 +9,7 @@ package io.camunda.zeebe.engine.processing.job;
 
 import io.camunda.zeebe.engine.metrics.JobMetrics;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnEventPublicationBehavior;
+import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnStateBehavior;
 import io.camunda.zeebe.engine.processing.common.EventHandle;
 import io.camunda.zeebe.engine.processing.common.EventTriggerBehavior;
 import io.camunda.zeebe.engine.processing.streamprocessor.ReadonlyProcessingContext;
@@ -31,6 +32,7 @@ public final class JobEventProcessors {
       final int maxRecordSize,
       final Writers writers,
       final JobMetrics jobMetrics,
+      final BpmnStateBehavior stateBehavior,
       final EventTriggerBehavior eventTriggerBehavior) {
 
     final var jobState = zeebeState.getJobState();
@@ -48,7 +50,7 @@ public final class JobEventProcessors {
         .onCommand(
             ValueType.JOB,
             JobIntent.COMPLETE,
-            new JobCompleteProcessor(zeebeState, jobMetrics, eventHandle))
+            new JobCompleteProcessor(zeebeState, jobMetrics, eventHandle, stateBehavior))
         .onCommand(
             ValueType.JOB,
             JobIntent.FAIL,

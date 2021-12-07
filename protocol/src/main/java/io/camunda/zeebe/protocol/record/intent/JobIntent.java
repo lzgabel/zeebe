@@ -34,7 +34,9 @@ public enum JobIntent implements ProcessInstanceRelatedIntent {
   CANCELED((short) 10),
 
   THROW_ERROR((short) 11, false),
-  ERROR_THROWN((short) 12);
+  ERROR_THROWN((short) 12),
+
+  TERMINATED((short) 13);
 
   private final short value;
   private final boolean shouldBlacklist;
@@ -80,6 +82,8 @@ public enum JobIntent implements ProcessInstanceRelatedIntent {
         return THROW_ERROR;
       case 12:
         return ERROR_THROWN;
+      case 13:
+        return TERMINATED;
       default:
         return UNKNOWN;
     }

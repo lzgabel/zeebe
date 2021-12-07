@@ -53,7 +53,7 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
     final var commandWriter = writers.command();
     this.expressionBehavior = expressionBehavior;
 
-    stateBehavior = new BpmnStateBehavior(zeebeState, variableBehavior);
+    stateBehavior = new BpmnStateBehavior(zeebeState, variableBehavior, expressionBehavior);
     stateTransitionGuard = new ProcessInstanceStateTransitionGuard(stateBehavior);
     variableMappingBehavior =
         new BpmnVariableMappingBehavior(expressionBehavior, zeebeState, variableBehavior);
