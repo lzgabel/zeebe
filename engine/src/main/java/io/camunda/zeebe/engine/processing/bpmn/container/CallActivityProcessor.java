@@ -89,6 +89,14 @@ public final class CallActivityProcessor
         .ifRightOrLeft(
             completed -> stateTransitionBehavior.takeOutgoingSequenceFlows(element, completed),
             failure -> incidentBehavior.createIncident(failure, context));
+
+    stateBehavior.terminateChildElementInstanceWithCompletionCondition(
+        context,
+        (terminating) -> {
+          final var terminatingContext =
+              stateTransitionBehavior.transitionToTerminating(terminating);
+          onTerminate(element, terminatingContext);
+        });
   }
 
   @Override

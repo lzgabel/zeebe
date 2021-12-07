@@ -7,6 +7,8 @@
  */
 package io.camunda.zeebe.engine.state.instance;
 
+import static io.camunda.zeebe.util.buffer.BufferUtil.bufferAsString;
+
 import io.camunda.zeebe.db.DbValue;
 import io.camunda.zeebe.engine.processing.bpmn.ProcessInstanceLifecycle;
 import io.camunda.zeebe.msgpack.UnpackedObject;
@@ -25,6 +27,8 @@ public final class ElementInstance extends UnpackedObject implements DbValue {
   private final LongProperty jobKeyProp = new LongProperty("jobKey", 0L);
   private final IntegerProperty multiInstanceLoopCounterProp =
       new IntegerProperty("multiInstanceLoopCounter", 0);
+  private final StringProperty multiInstanceCompletionConditionProp =
+      new StringProperty("multiInstanceCompletionCondition", "");
   private final StringProperty interruptingEventKeyProp =
       new StringProperty("interruptingElementId", "");
   private final LongProperty calledChildInstanceKeyProp =
@@ -42,7 +46,8 @@ public final class ElementInstance extends UnpackedObject implements DbValue {
         .declareProperty(interruptingEventKeyProp)
         .declareProperty(calledChildInstanceKeyProp)
         .declareProperty(recordProp)
-        .declareProperty(activeSequenceFlowsProp);
+        .declareProperty(activeSequenceFlowsProp)
+        .declareProperty(multiInstanceCompletionConditionProp);
   }
 
   public ElementInstance(
@@ -129,6 +134,14 @@ public final class ElementInstance extends UnpackedObject implements DbValue {
 
   public void setMultiInstanceLoopCounter(final int loopCounter) {
     multiInstanceLoopCounterProp.setValue(loopCounter);
+  }
+
+  public String getCompletionCondition() {
+    return bufferAsString(multiInstanceCompletionConditionProp.getValue());
+  }
+
+  public void setCompletionCondition(final String expression) {
+    multiInstanceCompletionConditionProp.setValue(expression);
   }
 
   public void incrementMultiInstanceLoopCounter() {

@@ -84,11 +84,11 @@ public final class MultiInstanceActivityTransformer implements ModelElementTrans
 
     final boolean isSequential = elementLoopCharacteristics.isSequential();
 
-    final Optional<Expression> completionCondition =
+    final Optional<DirectBuffer> completionCondition =
         Optional.ofNullable(elementLoopCharacteristics.getCompletionCondition())
             .map(CompletionCondition::getTextContent)
             .filter(e -> !e.isEmpty())
-            .map(context.getExpressionLanguage()::parseExpression);
+            .map(BufferUtil::wrapString);
 
     final ZeebeLoopCharacteristics zeebeLoopCharacteristics =
         elementLoopCharacteristics.getSingleExtensionElement(ZeebeLoopCharacteristics.class);

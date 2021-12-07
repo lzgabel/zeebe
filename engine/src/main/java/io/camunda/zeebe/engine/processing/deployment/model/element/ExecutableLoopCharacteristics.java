@@ -15,7 +15,7 @@ public class ExecutableLoopCharacteristics {
 
   private final boolean isSequential;
 
-  private final Optional<Expression> completionCondition;
+  private final Optional<DirectBuffer> completionCondition;
 
   private final Expression inputCollection;
   private final Optional<DirectBuffer> inputElement;
@@ -25,7 +25,7 @@ public class ExecutableLoopCharacteristics {
 
   public ExecutableLoopCharacteristics(
       final boolean isSequential,
-      final Optional<Expression> completionCondition,
+      final Optional<DirectBuffer> completionCondition,
       final Expression inputCollection,
       final Optional<DirectBuffer> inputElement,
       final Optional<DirectBuffer> outputCollection,
@@ -46,7 +46,7 @@ public class ExecutableLoopCharacteristics {
     return inputCollection;
   }
 
-  public Optional<Expression> getCompletionCondition() {
+  public Optional<DirectBuffer> getCompletionCondition() {
     return completionCondition;
   }
 

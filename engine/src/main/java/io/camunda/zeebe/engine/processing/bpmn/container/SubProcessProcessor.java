@@ -78,6 +78,14 @@ public final class SubProcessProcessor
         .ifRightOrLeft(
             completed -> stateTransitionBehavior.takeOutgoingSequenceFlows(element, completed),
             failure -> incidentBehavior.createIncident(failure, completing));
+
+    stateBehavior.terminateChildElementInstanceWithCompletionCondition(
+        completing,
+        (terminating) -> {
+          final var terminatingContext =
+              stateTransitionBehavior.transitionToTerminating(terminating);
+          onTerminate(element, terminatingContext);
+        });
   }
 
   @Override

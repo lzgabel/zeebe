@@ -13,6 +13,7 @@ import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableCat
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowElementContainer;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowNode;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableJobWorkerElement;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableLoopCharacteristics;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableMultiInstanceBody;
 import io.camunda.zeebe.engine.state.TypedEventApplier;
 import io.camunda.zeebe.engine.state.immutable.ProcessState;
@@ -23,8 +24,11 @@ import io.camunda.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
 import io.camunda.zeebe.protocol.impl.record.value.processinstance.ProcessInstanceRecord;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import io.camunda.zeebe.protocol.record.value.BpmnElementType;
+import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.stream.IntStream;
+import org.agrona.DirectBuffer;
 
 /** Applies state changes for `ProcessInstance:Element_Activating` */
 final class ProcessInstanceElementActivatingApplier
@@ -72,6 +76,7 @@ final class ProcessInstanceElementActivatingApplier
     }
 
     manageMultiInstanceLoopCounter(elementInstanceKey, flowScopeInstance, flowScopeElementType);
+    manageMultiInstanceCompletionCondition(flowScopeInstance, flowScopeElementType);
   }
 
   private void cleanupSequenceFlowsTaken(final ProcessInstanceRecord value) {
@@ -219,6 +224,35 @@ final class ProcessInstanceElementActivatingApplier
       final var loopCounter = flowScopeInstance.getMultiInstanceLoopCounter();
       elementInstanceState.updateInstance(
           elementInstanceKey, instance -> instance.setMultiInstanceLoopCounter(loopCounter));
+    }
+  }
+
+  private void manageMultiInstanceCompletionCondition(
+      final ElementInstance flowScopeInstance, final BpmnElementType flowScopeElementType) {
+    if (flowScopeElementType == BpmnElementType.MULTI_INSTANCE_BODY) {
+
+      // set completion conditon of the multi-instance body
+      if (flowScopeInstance.getCompletionCondition().isEmpty()) {
+        final ProcessInstanceRecord value = flowScopeInstance.getValue();
+        final var flowElement =
+            processState.getFlowElement(
+                value.getProcessDefinitionKey(),
+                value.getElementIdBuffer(),
+                ExecutableMultiInstanceBody.class);
+
+        final ExecutableLoopCharacteristics loopCharacteristics =
+            flowElement.getLoopCharacteristics();
+        final Optional<DirectBuffer> completionCondition =
+            loopCharacteristics.getCompletionCondition();
+
+        completionCondition
+            .map(BufferUtil::bufferAsString)
+            .ifPresent(
+                expression -> {
+                  flowScopeInstance.setCompletionCondition(expression);
+                  elementInstanceState.updateInstance(flowScopeInstance);
+                });
+      }
     }
   }
 

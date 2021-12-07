@@ -9,6 +9,8 @@ package io.camunda.zeebe.engine.processing.message;
 
 import static io.camunda.zeebe.util.buffer.BufferUtil.bufferAsString;
 
+import io.camunda.zeebe.engine.processing.bpmn.BpmnElementContext;
+import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnStateBehavior;
 import io.camunda.zeebe.engine.processing.common.EventHandle;
 import io.camunda.zeebe.engine.processing.common.EventTriggerBehavior;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
@@ -24,6 +26,7 @@ import io.camunda.zeebe.engine.processing.streamprocessor.writers.Writers;
 import io.camunda.zeebe.engine.state.immutable.ElementInstanceState;
 import io.camunda.zeebe.engine.state.immutable.ProcessMessageSubscriptionState;
 import io.camunda.zeebe.engine.state.immutable.ProcessState;
+import io.camunda.zeebe.engine.state.instance.ElementInstance;
 import io.camunda.zeebe.engine.state.message.ProcessMessageSubscription;
 import io.camunda.zeebe.engine.state.mutable.MutableZeebeState;
 import io.camunda.zeebe.protocol.impl.record.value.message.ProcessMessageSubscriptionRecord;
@@ -53,15 +56,18 @@ public final class ProcessMessageSubscriptionCorrelateProcessor
   private final StateWriter stateWriter;
   private final TypedRejectionWriter rejectionWriter;
   private final EventHandle eventHandle;
+  private final BpmnStateBehavior stateBehavior;
 
   public ProcessMessageSubscriptionCorrelateProcessor(
       final ProcessMessageSubscriptionState subscriptionState,
       final SubscriptionCommandSender subscriptionCommandSender,
       final MutableZeebeState zeebeState,
       final EventTriggerBehavior eventTriggerBehavior,
+      final BpmnStateBehavior stateBehavior,
       final Writers writers) {
     this.subscriptionState = subscriptionState;
     this.subscriptionCommandSender = subscriptionCommandSender;
+    this.stateBehavior = stateBehavior;
     processState = zeebeState.getProcessState();
     elementInstanceState = zeebeState.getElementInstanceState();
     stateWriter = writers.state();
@@ -103,27 +109,57 @@ public final class ProcessMessageSubscriptionCorrelateProcessor
         rejectCommand(command, RejectionType.INVALID_STATE, NO_EVENT_OCCURRED_MESSAGE);
 
       } else {
-        // avoid reusing the subscription record directly as any access to the state (e.g. as #get)
-        // will overwrite it - safer to just copy its values into an one-time-use record
-        final ProcessMessageSubscriptionRecord subscriptionRecord = subscription.getRecord();
-        record
-            .setElementId(subscriptionRecord.getElementIdBuffer())
-            .setInterrupting(subscriptionRecord.isInterrupting());
+        acceptCommand(subscription, elementInstanceKey, elementInstance, record);
 
-        stateWriter.appendFollowUpEvent(
-            subscription.getKey(), ProcessMessageSubscriptionIntent.CORRELATED, record);
+        final var parentKey = elementInstance.getParentKey();
+        if (parentKey > 0) {
 
-        final var catchEvent =
-            getCatchEvent(elementInstance.getValue(), record.getElementIdBuffer());
-        eventHandle.activateElement(
-            catchEvent,
-            elementInstanceKey,
-            elementInstance.getValue(),
-            record.getVariablesBuffer());
+          final BpmnElementContext elementContext =
+              stateBehavior.getElementContext(
+                  elementInstanceKey, elementInstance.getValue(), elementInstance.getState());
+          stateBehavior.terminateChildElementInstanceWithCompletionCondition(
+              elementContext,
+              (childContext) -> {
+                final ElementInstance childElementInstance =
+                    elementInstanceState.getInstance(childContext.getElementInstanceKey());
+                if (childElementInstance.isActive()) {
+                  final var key = childElementInstance.getKey();
+                  final ElementInstance instance = elementInstanceState.getInstance(key);
+                  final ProcessMessageSubscription messageSubscription =
+                      subscriptionState.getSubscription(key, record.getMessageNameBuffer());
 
-        sendAcknowledgeCommand(record);
+                  if (messageSubscription != null) {
+                    if (eventHandle.canTriggerElement(instance)) {
+                      acceptCommand(messageSubscription, key, instance, record);
+                    }
+                  }
+                }
+              });
+        }
       }
     }
+  }
+
+  private void acceptCommand(
+      final ProcessMessageSubscription subscription,
+      final long elementInstanceKey,
+      final ElementInstance elementInstance,
+      final ProcessMessageSubscriptionRecord record) {
+    // avoid reusing the subscription record directly as any access to the state (e.g. as #get)
+    // will overwrite it - safer to just copy its values into an one-time-use record
+    final ProcessMessageSubscriptionRecord subscriptionRecord = subscription.getRecord();
+    record
+        .setElementId(subscriptionRecord.getElementIdBuffer())
+        .setInterrupting(subscriptionRecord.isInterrupting());
+
+    stateWriter.appendFollowUpEvent(
+        subscription.getKey(), ProcessMessageSubscriptionIntent.CORRELATED, record);
+
+    final var catchEvent = getCatchEvent(elementInstance.getValue(), record.getElementIdBuffer());
+    eventHandle.activateElement(
+        catchEvent, elementInstanceKey, elementInstance.getValue(), record.getVariablesBuffer());
+
+    sendAcknowledgeCommand(record);
   }
 
   private ExecutableFlowElement getCatchEvent(

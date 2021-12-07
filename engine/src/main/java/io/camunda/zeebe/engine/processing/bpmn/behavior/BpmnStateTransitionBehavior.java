@@ -293,6 +293,7 @@ public final class BpmnStateTransitionBehavior {
     childInstanceRecord
         .setFlowScopeKey(context.getElementInstanceKey())
         .setElementId(childElement.getId())
+        .setParentElementInstanceKey(context.getElementInstanceKey())
         .setBpmnElementType(childElement.getElementType());
 
     final long childInstanceKey = keyGenerator.nextKey();

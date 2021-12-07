@@ -99,6 +99,22 @@ public final class ExpressionProcessor {
    * @return either the evaluation result as boolean, or a failure
    */
   public Either<Failure, Boolean> evaluateBooleanExpression(
+      final String expression, final long scopeKey) {
+    return evaluateExpressionAsEither(expressionLanguage.parseExpression(expression), scopeKey)
+        .flatMap(result -> typeCheck(result, ResultType.BOOLEAN, scopeKey))
+        .map(EvaluationResult::getBoolean);
+  }
+
+  /**
+   * Evaluates the given expression and returns the result as boolean. If the evaluation fails or
+   * the result is not a boolean then a failure is returned.
+   *
+   * @param expression the expression to evaluate
+   * @param scopeKey the scope to load the variables from (a negative key is intended to imply an
+   *     empty variable context)
+   * @return either the evaluation result as boolean, or a failure
+   */
+  public Either<Failure, Boolean> evaluateBooleanExpression(
       final Expression expression, final long scopeKey) {
     return evaluateExpressionAsEither(expression, scopeKey)
         .flatMap(result -> typeCheck(result, ResultType.BOOLEAN, scopeKey))

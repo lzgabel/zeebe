@@ -26,7 +26,6 @@ import io.camunda.zeebe.protocol.record.value.ErrorType;
 import io.camunda.zeebe.util.Either;
 import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.List;
-import java.util.Optional;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.agrona.MutableDirectBuffer;
@@ -37,10 +36,20 @@ public final class MultiInstanceBodyProcessor
 
   private static final DirectBuffer NIL_VALUE = new UnsafeBuffer(MsgPackHelper.NIL);
   private static final DirectBuffer LOOP_COUNTER_VARIABLE = BufferUtil.wrapString("loopCounter");
+  private static final DirectBuffer NR_OF_COMPLETED_ELEMENT_INSTANCES =
+      BufferUtil.wrapString("nrOfCompletedElementInstances");
+  private static final DirectBuffer NR_OF_ELEMENT_INSTANCES =
+      BufferUtil.wrapString("nrOfElementInstances");
 
   private final MutableDirectBuffer loopCounterVariableBuffer =
       new UnsafeBuffer(new byte[Long.BYTES + 1]);
+  private final MutableDirectBuffer nrOfElementInstancesVariableBuffer =
+      new UnsafeBuffer(new byte[Long.BYTES + 1]);
+  private final MutableDirectBuffer nrOfCompletedElementInstancesVariableBuffer =
+      new UnsafeBuffer(new byte[Long.BYTES + 1]);
   private final DirectBuffer loopCounterVariableView = new UnsafeBuffer(0, 0);
+  private final DirectBuffer nrOfElementInstancesVariableView = new UnsafeBuffer(0, 0);
+  private final DirectBuffer nrOfCompletedElementInstancesVariableView = new UnsafeBuffer(0, 0);
 
   private final MsgPackReader variableReader = new MsgPackReader();
   private final MsgPackWriter variableWriter = new MsgPackWriter();
@@ -155,20 +164,12 @@ public final class MultiInstanceBodyProcessor
       return updatedOrFailure;
     }
 
-    // test that completion condition can be evaluated correctly
-    final Either<Failure, Boolean> satisfiesCompletionConditionOrFailure =
-        satisfiesCompletionCondition(element, childContext);
-    if (satisfiesCompletionConditionOrFailure.isLeft()) {
-      return satisfiesCompletionConditionOrFailure;
-    }
-
     if (!element.getLoopCharacteristics().isSequential()) {
-      return Either.right(satisfiesCompletionConditionOrFailure.get());
+      return Either.right(null);
     }
 
     // test that input collection variable can be evaluated correctly
-    return readInputCollectionVariable(element, flowScopeContext)
-        .map(ok -> satisfiesCompletionConditionOrFailure.get());
+    return readInputCollectionVariable(element, flowScopeContext).map(ok -> null);
   }
 
   @Override
@@ -181,20 +182,9 @@ public final class MultiInstanceBodyProcessor
     boolean childInstanceCreated = false;
 
     final var loopCharacteristics = element.getLoopCharacteristics();
-
-    if (satisfiesCompletionCondition) {
-      // terminate all remaining child instances because the completion condition evaluates to true.
-      final boolean hasNoActiveChildren =
-          stateTransitionBehavior.terminateChildInstances(flowScopeContext);
-
-      if (hasNoActiveChildren || loopCharacteristics.isSequential()) {
-        // complete the multi-instance body immediately
-        stateTransitionBehavior.completeElement(flowScopeContext);
-      }
-      return;
-    }
-
-    if (loopCharacteristics.isSequential()) {
+    final boolean canBeCompleted =
+        stateBehavior.canBeCompletedWithCompletionCondition(childContext);
+    if (loopCharacteristics.isSequential() && !canBeCompleted) {
 
       final var inputCollectionOrFailure = readInputCollectionVariable(element, flowScopeContext);
       if (inputCollectionOrFailure.isLeft()) {
@@ -226,14 +216,14 @@ public final class MultiInstanceBodyProcessor
       final ExecutableMultiInstanceBody element,
       final BpmnElementContext flowScopeContext,
       final BpmnElementContext childContext) {
-    if (flowScopeContext.getIntent() == ProcessInstanceIntent.ELEMENT_TERMINATING) {
-      if (stateBehavior.canBeTerminated(childContext)) {
+    // triggered by completion condition of multi-instance
+    if (stateBehavior.canBeCompletedWithCompletionCondition(childContext)) {
+      stateTransitionBehavior.completeElement(flowScopeContext);
+    } else {
+      if (flowScopeContext.getIntent() == ProcessInstanceIntent.ELEMENT_TERMINATING
+          && stateBehavior.canBeTerminated(childContext)) {
         terminate(element, flowScopeContext);
       }
-    } else if (stateBehavior.canBeCompleted(childContext)) {
-      // complete the multi-instance body because it's completion condition was met previously and
-      // all remaining child instances were terminated.
-      stateTransitionBehavior.completeElement(flowScopeContext);
     }
   }
 
@@ -254,6 +244,13 @@ public final class MultiInstanceBodyProcessor
       stateTransitionBehavior.completeElement(activated);
       return;
     }
+
+    // init local variable of multi-instance
+    stateBehavior.setLocalVariable(
+        context, NR_OF_ELEMENT_INSTANCES, wrapNumberOfElementInstances(inputCollection.size()));
+
+    stateBehavior.setLocalVariable(
+        context, NR_OF_COMPLETED_ELEMENT_INSTANCES, wrapNumberOfCompletedElementInstances(0));
 
     if (loopCharacteristics.isSequential()) {
       createInnerInstance(element, activated);
@@ -335,6 +332,28 @@ public final class MultiInstanceBodyProcessor
 
     loopCounterVariableView.wrap(loopCounterVariableBuffer, 0, length);
     return loopCounterVariableView;
+  }
+
+  private DirectBuffer wrapNumberOfElementInstances(final long nrOfElementInstances) {
+    variableWriter.wrap(nrOfElementInstancesVariableBuffer, 0);
+
+    variableWriter.writeInteger(nrOfElementInstances);
+    final var length = variableWriter.getOffset();
+
+    nrOfElementInstancesVariableView.wrap(nrOfElementInstancesVariableBuffer, 0, length);
+    return nrOfElementInstancesVariableView;
+  }
+
+  private DirectBuffer wrapNumberOfCompletedElementInstances(
+      final long nrOfCompletedElementInstances) {
+    variableWriter.wrap(nrOfCompletedElementInstancesVariableBuffer, 0);
+
+    variableWriter.writeInteger(nrOfCompletedElementInstances);
+    final var length = variableWriter.getOffset();
+
+    nrOfCompletedElementInstancesVariableView.wrap(
+        nrOfCompletedElementInstancesVariableBuffer, 0, length);
+    return nrOfCompletedElementInstancesVariableView;
   }
 
   private void initializeOutputCollection(
@@ -419,17 +438,5 @@ public final class MultiInstanceBodyProcessor
 
     resultBuffer.wrap(variableBuffer, 0, length);
     return resultBuffer;
-  }
-
-  private Either<Failure, Boolean> satisfiesCompletionCondition(
-      final ExecutableMultiInstanceBody element, final BpmnElementContext context) {
-    final Optional<Expression> completionCondition =
-        element.getLoopCharacteristics().getCompletionCondition();
-
-    if (completionCondition.isPresent()) {
-      return expressionBehavior.evaluateBooleanExpression(
-          completionCondition.get(), context.getElementInstanceKey());
-    }
-    return Either.right(false);
   }
 }

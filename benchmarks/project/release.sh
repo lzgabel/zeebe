@@ -1,7 +1,7 @@
 #!/bin/bash -eu
 # Usage: ./release.sh [-p] VERSION
 # Example usage:
-#   $ ./release.sh xhzy-1.3.0-SNAPSHOT
+#   $ ./release.sh 1.3.1-SNAPSHOT
 # This script will build the Docker images for the worker and starter applications in this project,
 # for the given version. The `VERSION` should be the semantic version, and match the tag that you
 # want to build. The script will checkout that tag in a temporary worktree, and run the docker
@@ -9,7 +9,7 @@
 #
 # By default, the script is interactive, and it will ask the user whether or not to push the images.
 # You can specify the `-p` flag to automatically push, or the environment variable PUSH=1, e.g.:
-#   $ ./release.sh -p xhzy-1.3.0-SNAPSHOT
+#   $ ./release.sh -p 1.3.1-SNAPSHOT
 
 WORKTREE=$(mktemp -d)
 if [ ! -e "${WORKTREE}" ]; then
@@ -46,11 +46,11 @@ pushImages() {
 
 if [ "$#" -eq "0" ]; then
   echo "Usage: ./release.sh [-p] VERSION"
-  echo "For example, to release version xhzy-1.3.0-SNAPSHOT:"
-  echo "  $ ./release.sh xhzy-1.3.0-SNAPSHOT"
+  echo "For example, to release version 1.3.1-SNAPSHOT:"
+  echo "  $ ./release.sh 1.3.1-SNAPSHOT"
   echo "This will build and ask the user whether to push or not"
   echo "If you wish to push without being asked, use the \`-p\` flag. e.g.:"
-  echo "  $ ./release.sh -p xhzy-1.3.0-SNAPSHOT"
+  echo "  $ ./release.sh -p 1.3.1-SNAPSHOT"
   echo "This will build and push automatically without any user interaction"
   exit 0
 fi
