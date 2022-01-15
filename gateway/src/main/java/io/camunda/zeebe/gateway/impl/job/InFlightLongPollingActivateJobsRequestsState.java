@@ -7,24 +7,24 @@
  */
 package io.camunda.zeebe.gateway.impl.job;
 
-import io.camunda.zeebe.gateway.Loggers;
 import io.camunda.zeebe.gateway.metrics.LongPollingMetrics;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Queue;
-import org.slf4j.Logger;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class InFlightLongPollingActivateJobsRequestsState {
-
-  private static final Logger LOGGER = Loggers.GATEWAY_LOGGER;
 
   private final String jobType;
   private final LongPollingMetrics metrics;
   private final Queue<LongPollingActivateJobsRequest> activeRequests = new LinkedList<>();
-  private final Queue<LongPollingActivateJobsRequest> activeRequestsToBeRepeated =
-      new LinkedList<>();
   private final Queue<LongPollingActivateJobsRequest> pendingRequests = new LinkedList<>();
+  private final Set<LongPollingActivateJobsRequest> activeRequestsToBeRepeated = new HashSet<>();
   private int failedAttempts;
   private long lastUpdatedTime;
+
+  private final AtomicBoolean ongoingNotification = new AtomicBoolean(false);
 
   public InFlightLongPollingActivateJobsRequestsState(
       final String jobType, final LongPollingMetrics metrics) {
@@ -37,11 +37,8 @@ public final class InFlightLongPollingActivateJobsRequestsState {
     this.lastUpdatedTime = lastUpdatedTime;
   }
 
-  public void setFailedAttempts(final int failedAttempts) {
-    this.failedAttempts = failedAttempts;
-    if (failedAttempts == 0) {
-      activeRequestsToBeRepeated.addAll(activeRequests);
-    }
+  public boolean shouldAttempt(final int attemptThreshold) {
+    return failedAttempts < attemptThreshold;
   }
 
   public void resetFailedAttempts() {
@@ -50,6 +47,13 @@ public final class InFlightLongPollingActivateJobsRequestsState {
 
   public int getFailedAttempts() {
     return failedAttempts;
+  }
+
+  public void setFailedAttempts(final int failedAttempts) {
+    this.failedAttempts = failedAttempts;
+    if (failedAttempts == 0) {
+      activeRequestsToBeRepeated.addAll(activeRequests);
+    }
   }
 
   public long getLastUpdatedTime() {
@@ -109,9 +113,18 @@ public final class InFlightLongPollingActivateJobsRequestsState {
 
   /**
    * Returns whether the request should be repeated. A request should be repeated if the failed
-   * attempts were reset to 0 (because new jobs became available) whilst the request was running
+   * attempts were reset to 0 (because new jobs became available) whilst the request was running,
+   * and if the request's long polling is enabled.
    */
   public boolean shouldBeRepeated(final LongPollingActivateJobsRequest request) {
-    return activeRequestsToBeRepeated.contains(request);
+    return activeRequestsToBeRepeated.contains(request) && !request.isLongPollingDisabled();
+  }
+
+  public boolean shouldNotifyAndStartNotification() {
+    return ongoingNotification.compareAndSet(false, true);
+  }
+
+  public void completeNotification() {
+    ongoingNotification.set(false);
   }
 }

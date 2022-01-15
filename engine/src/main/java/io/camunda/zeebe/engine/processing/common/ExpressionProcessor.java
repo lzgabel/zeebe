@@ -241,6 +241,37 @@ public final class ExpressionProcessor {
   }
 
   /**
+   * Evaluates the given expression and returns the result as a list of strings.
+   *
+   * @param expression the expression to evaluate
+   * @param scopeKey the scope to load the variables from (a negative key is intended to imply an
+   *     empty variable context)
+   * @return either the evaluation result as a list of regular strings, or a failure if the
+   *     evaluation fails
+   */
+  public Either<Failure, List<String>> evaluateArrayOfStringsExpression(
+      final Expression expression, final long scopeKey) {
+    final var evaluationResult = evaluateExpressionAsEither(expression, scopeKey);
+    return evaluationResult
+        .flatMap(result -> typeCheck(result, ResultType.ARRAY, scopeKey))
+        .map(EvaluationResult::getListOfStrings)
+        .flatMap(
+            list -> {
+              if (list != null) {
+                return Either.right(list);
+              }
+              return Either.left(
+                  new Failure(
+                      String.format(
+                          "Expected result of the expression '%s' to be 'ARRAY' containing 'STRING' items,"
+                              + " but was 'ARRAY' containing at least one non-'STRING' item.",
+                          expression.getExpression()),
+                      ErrorType.EXTRACT_VALUE_ERROR,
+                      scopeKey));
+            });
+  }
+
+  /**
    * Evaluates the given expression and returns the result as String. If the evaluation result is a
    * number it is automatically converted to a string.
    *

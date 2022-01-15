@@ -7,10 +7,7 @@
  */
 package io.camunda.zeebe.broker.partitioning;
 
-import static org.hamcrest.Matchers.contains;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import io.atomix.cluster.AtomixCluster;
 import io.atomix.cluster.AtomixClusterBuilder;
@@ -18,19 +15,14 @@ import io.atomix.cluster.AtomixClusterRule;
 import io.atomix.cluster.NoopSnapshotStoreFactory;
 import io.atomix.primitive.partition.Partition;
 import io.atomix.primitive.partition.impl.DefaultPartitionService;
-import io.atomix.raft.RaftServer;
 import io.atomix.raft.RaftServer.Role;
 import io.atomix.raft.partition.RaftPartition;
 import io.atomix.raft.partition.RaftPartitionGroup;
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -115,124 +107,7 @@ public final class RaftRolesTest {
     followerLatch.await(10, TimeUnit.SECONDS);
 
     // single node becomes directly leader again
-    assertThat(roles, contains(Role.LEADER, Role.LEADER));
-  }
-
-  @Test
-  public void testStepDownOnRoleChangeInCluster() throws Exception {
-    // given
-    // normal distribution
-    // Partitions \ Nodes
-    //      \   0  1  2
-    //    0     L  F  F
-    //    1     F  L  F
-    //    2     F  F  L
-    final CountDownLatch latch = new CountDownLatch(3);
-    final List<Map<Integer, Role>> nodeRoles = new CopyOnWriteArrayList<>();
-    nodeRoles.add(new ConcurrentHashMap<>());
-    nodeRoles.add(new ConcurrentHashMap<>());
-    nodeRoles.add(new ConcurrentHashMap<>());
-
-    final List<Integer> members = Arrays.asList(1, 2, 3);
-
-    final int firstNodeId = 1;
-    final int expectedFirstNodeLeadingPartition = 1;
-    final CompletableFuture<Void> nodeOneFuture =
-        startPartitionManagerWithPartitionConsumer(
-            firstNodeId,
-            3,
-            members,
-            partition -> {
-              final Map<Integer, RaftServer.Role> roleMap = nodeRoles.get(0);
-              final RaftPartition raftPartition = (RaftPartition) partition;
-              raftPartition.addRoleChangeListener(
-                  (role, term) -> {
-                    final Integer partitionId = partition.id().id();
-                    roleMap.put(partitionId, role);
-
-                    if (role == Role.LEADER) {
-                      if (partitionId == expectedFirstNodeLeadingPartition) {
-                        raftPartition.stepDown();
-                      } else {
-                        latch.countDown();
-                      }
-                    }
-                  });
-            });
-
-    final int secondNodeId = 2;
-    final int expectedSecondNodeLeadingPartition = 2;
-    final CompletableFuture<Void> nodeTwoFuture =
-        startPartitionManagerWithPartitionConsumer(
-            secondNodeId,
-            3,
-            members,
-            partition -> {
-              final Map<Integer, RaftServer.Role> roleMap = nodeRoles.get(1);
-              final RaftPartition raftPartition = (RaftPartition) partition;
-              raftPartition.addRoleChangeListener(
-                  (role, term) -> {
-                    final Integer partitionId = partition.id().id();
-                    roleMap.put(partitionId, role);
-
-                    if (role == Role.LEADER) {
-                      if (partitionId == expectedSecondNodeLeadingPartition) {
-                        raftPartition.stepDown();
-                      } else {
-                        latch.countDown();
-                      }
-                    }
-                  });
-            });
-
-    final int thirdNodeId = 3;
-    final int expectedThirdNodeLeadingPartition = 3;
-    final CompletableFuture<Void> nodeThreeFuture =
-        startPartitionManagerWithPartitionConsumer(
-            thirdNodeId,
-            3,
-            members,
-            partition -> {
-              final Map<Integer, RaftServer.Role> roleMap = nodeRoles.get(2);
-              final RaftPartition raftPartition = (RaftPartition) partition;
-              raftPartition.addRoleChangeListener(
-                  (role, term) -> {
-                    final Integer partitionId = partition.id().id();
-                    roleMap.put(partitionId, role);
-
-                    if (role == Role.LEADER) {
-                      if (partitionId == expectedThirdNodeLeadingPartition) {
-                        raftPartition.stepDown();
-                      } else {
-                        latch.countDown();
-                      }
-                    }
-                  });
-            });
-
-    // then
-    CompletableFuture.allOf(nodeOneFuture, nodeTwoFuture, nodeThreeFuture).join();
-    assertTrue(latch.await(15, TimeUnit.SECONDS));
-
-    // expect normal leaders are not the leaders this time
-    assertEquals(Role.FOLLOWER, nodeRoles.get(0).get(1));
-    assertEquals(Role.FOLLOWER, nodeRoles.get(1).get(2));
-    assertEquals(Role.FOLLOWER, nodeRoles.get(2).get(3));
-
-    final List<Role> leaderRoles =
-        nodeRoles.stream()
-            .flatMap(map -> map.values().stream())
-            .filter(r -> r == Role.LEADER)
-            .collect(Collectors.toList());
-
-    final List<Role> followerRoles =
-        nodeRoles.stream()
-            .flatMap(map -> map.values().stream())
-            .filter(r -> r == Role.FOLLOWER)
-            .collect(Collectors.toList());
-
-    assertEquals(3, leaderRoles.size());
-    assertEquals(6, followerRoles.size());
+    assertThat(roles).containsSequence(Role.INACTIVE, Role.LEADER, Role.LEADER);
   }
 
   private CompletableFuture<Void> startSingleNodeSinglePartitionWithPartitionConsumer(

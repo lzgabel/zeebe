@@ -69,13 +69,15 @@ final class RaftPartitionGroupFactory {
             .withFlushExplicitly(!experimentalCfg.isDisableExplicitRaftFlush())
             .withFreeDiskSpace(dataCfg.getFreeDiskSpaceReplicationWatermark())
             .withJournalIndexDensity(dataCfg.getLogIndexDensity())
-            .withPriorityElection(experimentalCfg.isEnablePriorityElection())
+            .withPriorityElection(clusterCfg.getRaft().isEnablePriorityElection())
             .withPartitionDistributor(partitionDistributor)
             .withElectionTimeout(clusterCfg.getElectionTimeout())
             .withHeartbeatInterval(clusterCfg.getHeartbeatInterval())
             .withRequestTimeout(experimentalCfg.getRaft().getRequestTimeout())
             .withMaxQuorumResponseTimeout(experimentalCfg.getRaft().getMaxQuorumResponseTimeout())
-            .withMinStepDownFailureCount(experimentalCfg.getRaft().getMinStepDownFailureCount());
+            .withMinStepDownFailureCount(experimentalCfg.getRaft().getMinStepDownFailureCount())
+            .withPreferSnapshotReplicationThreshold(
+                experimentalCfg.getRaft().getPreferSnapshotReplicationThreshold());
 
     final int maxMessageSize = (int) networkCfg.getMaxMessageSizeInBytes();
 

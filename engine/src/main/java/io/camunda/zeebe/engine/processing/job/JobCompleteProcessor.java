@@ -31,7 +31,7 @@ public final class JobCompleteProcessor implements CommandProcessor<JobRecord> {
   private final MutableJobState jobState;
   private final MutableEventScopeInstanceState eventScopeInstanceState;
   private final MutableElementInstanceState elementInstanceState;
-  private final DefaultJobCommandPreconditionGuard<JobRecord> defaultProcessor;
+  private final DefaultJobCommandPreconditionGuard defaultProcessor;
   private final JobMetrics jobMetrics;
   private final EventHandle eventHandle;
   private final BpmnStateBehavior stateBehavior;
@@ -45,7 +45,10 @@ public final class JobCompleteProcessor implements CommandProcessor<JobRecord> {
     eventScopeInstanceState = state.getEventScopeInstanceState();
     elementInstanceState = state.getElementInstanceState();
     defaultProcessor =
-        new DefaultJobCommandPreconditionGuard<>("complete", jobState, this::acceptCommand);
+        new DefaultJobCommandPreconditionGuard(
+            "complete",
+            jobState,
+            (record, commandControl, sideEffect) -> acceptCommand(record, commandControl));
     this.jobMetrics = jobMetrics;
     this.eventHandle = eventHandle;
     this.stateBehavior = stateBehavior;

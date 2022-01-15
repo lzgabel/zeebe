@@ -35,22 +35,22 @@ spec:
             -XX:+UseContainerSupport
       resources:
         limits:
-          cpu: 2
-          memory: 16Gi
+          cpu: 8
+          memory: 32Gi
         requests:
-          cpu: 2
-          memory: 16Gi
+          cpu: 8
+          memory: 32Gi
     - name: golang
-      image: golang:1.13.4
+      image: golang:1.15.15
       command: ["cat"]
       tty: true
       resources:
         limits:
-          cpu: 2
-          memory: 1Gi
+          cpu: 8
+          memory: 8Gi
         requests:
-          cpu: 2
-          memory: 1Gi
+          cpu: 8
+          memory: 8Gi
 '''
         }
     }
@@ -67,8 +67,8 @@ spec:
         DEVELOPMENT_VERSION = "${params.DEVELOPMENT_VERSION}"
         PUSH_CHANGES = "${params.PUSH_CHANGES}"
         PUSH_DOCKER = "${params.PUSH_DOCKER}"
-        PUSH_DOCS = "${params.PUSH_DOCS}"
         SKIP_DEPLOY = "${!params.PUSH_CHANGES}"
+        BINDIR = "/usr/local/bin"
     }
 
     options {
@@ -153,16 +153,6 @@ spec:
                         string(name: 'VERSION', value: params.RELEASE_VERSION),
                         booleanParam(name: 'IS_LATEST', value: params.IS_LATEST),
                         booleanParam(name: 'PUSH', value: true)
-                ]
-            }
-        }
-
-        stage('Publish Docs') {
-            when { expression { return params.PUSH_DOCS } }
-            steps {
-                build job: 'zeebe-docs', parameters: [
-                        string(name: 'BRANCH', value: env.RELEASE_BRANCH),
-                        booleanParam(name: 'LIVE', value: true)
                 ]
             }
         }

@@ -176,7 +176,8 @@ public final class MultiInstanceBodyProcessor
   public void afterExecutionPathCompleted(
       final ExecutableMultiInstanceBody element,
       final BpmnElementContext flowScopeContext,
-      final BpmnElementContext childContext) {
+      final BpmnElementContext childContext,
+      final Boolean satisfiesCompletionCondition) {
 
     boolean childInstanceCreated = false;
 

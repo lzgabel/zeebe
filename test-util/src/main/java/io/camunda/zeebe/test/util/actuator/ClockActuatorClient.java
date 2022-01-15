@@ -26,9 +26,9 @@ import java.time.Instant;
  *
  * <pre>
  * final var zeebeContainer = new ZeebeContainer();
- * zeebeContainer.withEnv("zeebe.clock.controllable", "true") .start()
+ * zeebeContainer.withEnv("ZEEBE_CLOCK_CONTROLLED", "true") .start()
  * final var clockClient = new ClockActuatorClient(zeebeContainer.getExternalMonitoringAddress());
- * clockClient.setClock(Instant.now().minus(Duration.ofDays(1)));
+ * clockClient.pinZeebeTime(Instant.now().minus(Duration.ofDays(1)));
  * </pre>
  */
 public final class ClockActuatorClient {
@@ -41,17 +41,17 @@ public final class ClockActuatorClient {
   }
 
   public void resetZeebeTime() throws IOException, InterruptedException {
-    sendRequest("DELETE", "/actuator/clock", null);
+    sendRequest("DELETE", "actuator/clock", null);
   }
 
   public Instant pinZeebeTime(final Instant pinAt) throws IOException, InterruptedException {
-    sendRequest("POST", "/actuator/clock/pin", new PinRequestDto(pinAt));
+    sendRequest("POST", "actuator/clock/pin", new PinRequestDto(pinAt));
     return pinAt;
   }
 
   public Duration offsetZeebeTime(final Duration offsetBy)
       throws IOException, InterruptedException {
-    sendRequest("POST", "/actuator/clock/add", new OffsetRequestDto(offsetBy));
+    sendRequest("POST", "actuator/clock/add", new OffsetRequestDto(offsetBy));
     return offsetBy;
   }
 
