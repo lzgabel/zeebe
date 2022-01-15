@@ -18,6 +18,7 @@
   <properties>
     <zbctl.force>false</zbctl.force>
     <zbctl.rootDir>${maven.multiModuleProjectDirectory}</zbctl.rootDir>
+    <version.elasticsearch>6.7.2</version.elasticsearch>
   </properties>
 
   <dependencies>
@@ -31,9 +32,14 @@
       <artifactId>zeebe-gateway</artifactId>
     </dependency>
 
+<!--    <dependency>-->
+<!--      <groupId>io.camunda</groupId>-->
+<!--      <artifactId>zeebe-elasticsearch-exporter</artifactId>-->
+<!--    </dependency>-->
+
     <dependency>
       <groupId>io.camunda</groupId>
-      <artifactId>zeebe-elasticsearch-exporter</artifactId>
+      <artifactId>zeebe-elasticsearch-exporter-6_7</artifactId>
     </dependency>
 
     <dependency>
