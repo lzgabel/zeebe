@@ -17,6 +17,7 @@
 
   <properties>
     <paths.certificates>${project.build.testResources[0].directory}/certs/</paths.certificates>
+    <version.elasticsearch>6.7.2</version.elasticsearch>
   </properties>
 
   <dependencies>
@@ -33,13 +34,11 @@
     <dependency>
       <groupId>org.elasticsearch.client</groupId>
       <artifactId>elasticsearch-rest-client</artifactId>
-      <version>6.7.2</version>
     </dependency>
 
     <dependency>
       <groupId>org.elasticsearch</groupId>
       <artifactId>elasticsearch-x-content</artifactId>
-      <version>6.7.2</version>
     </dependency>
 
     <dependency>

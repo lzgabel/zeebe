@@ -8,21 +8,7 @@
   "template": {
     "settings": {
       "number_of_shards": 3,
-      "number_of_replicas": 0,
-      "index.queries.cache.enabled": false,
-      "analysis": {
-        "analyzer": {
-          "comma_analyzer": {
-            "tokenizer": "comma_tokenizer"
-          }
-        },
-        "tokenizer": {
-          "comma_tokenizer": {
-            "type": "pattern",
-            "pattern": ","
-          }
-        }
-      }
+      "number_of_replicas": 0
     },
     "aliases": {
       "zeebe-record-process-instance": {}
@@ -46,24 +32,6 @@
             },
             "elementId": {
               "type": "keyword"
-            },
-            "candidateStarterGroups": {
-              "type": "text",
-              "analyzer": "comma_analyzer",
-              "fields": {
-                "keyword": {
-                  "type": "keyword"
-                }
-              }
-            },
-            "candidateStarterUsers": {
-              "type": "text",
-              "analyzer": "comma_analyzer",
-              "fields": {
-                "keyword": {
-                  "type": "keyword"
-                }
-              }
             },
             "flowScopeKey": {
               "type": "long"

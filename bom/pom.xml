@@ -177,6 +177,12 @@
 
       <dependency>
         <groupId>io.camunda</groupId>
+        <artifactId>zeebe-elasticsearch-exporter-6_7</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>io.camunda</groupId>
         <artifactId>zeebe-protocol-asserts</artifactId>
         <version>${project.version}</version>
       </dependency>
