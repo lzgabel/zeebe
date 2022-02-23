@@ -16,14 +16,14 @@
 package io.camunda.zeebe.client.api;
 
 import java.io.InputStream;
+import java.lang.reflect.Type;
 import java.util.Map;
 
 /**
  * This interface is using to customize the way how objects will be serialized and deserialized in
- * JSON format. The default implementation is {@link
- * io.camunda.zeebe.client.impl.ZeebeObjectMapper}. This interface could be implemented to customize
- * the way how variables in the commands serialized/deserialized. For example: there is such map
- * with variables:
+ * JSON format. The default implementation is {@link io.camunda.zeebe.client.impl.ZeebeObjectMapper}.
+ * This interface could be implemented to customize the way how variables in the commands
+ * serialized/deserialized. For example: there is such map with variables:
  *
  * <pre>
  *   final Map<String, Object> variables = new HashMap<>();
@@ -61,9 +61,22 @@ public interface JsonMapper {
    * @param <T> the type of the returned object
    * @return the POJO deserialized from the given JSON string
    * @throws io.camunda.zeebe.client.api.command.InternalClientException on
-   *     serialization/deserialization error
+   * serialization/deserialization error
    */
   <T> T fromJson(final String json, final Class<T> typeClass);
+
+  /**
+   * Deserializes a JSON string into an equivalent POJO of type {@code T}.
+   *
+   * @param json the JSON string to deserialize
+   * @param parameterizedType the object that identifies the parameterized type for the parameter
+   * represented
+   * @param <T> the type of the returned object
+   * @return the POJO deserialized from the given JSON string
+   * @throws io.camunda.zeebe.client.api.command.InternalClientException on
+   * serialization/deserialization error
+   */
+  <T> T fromJson(final String json, final Type parameterizedType);
 
   /**
    * Deserializes a JSON string into a string to object map.
@@ -71,7 +84,7 @@ public interface JsonMapper {
    * @param json the JSON string to deserialize
    * @return the map deserialized from the given JSON string
    * @throws io.camunda.zeebe.client.api.command.InternalClientException on
-   *     serialization/deserialization error
+   * serialization/deserialization error
    */
   Map<String, Object> fromJsonAsMap(final String json);
 
@@ -81,7 +94,7 @@ public interface JsonMapper {
    * @param json the JSON string to deserialize
    * @return the map deserialized from the given JSON string
    * @throws io.camunda.zeebe.client.api.command.InternalClientException on
-   *     serialization/deserialization error
+   * serialization/deserialization error
    */
   Map<String, String> fromJsonAsStringMap(final String json);
 
@@ -91,19 +104,18 @@ public interface JsonMapper {
    * @param value the object to serialize
    * @return a JSON string serialized from the given object
    * @throws io.camunda.zeebe.client.api.command.InternalClientException on
-   *     serialization/deserialization error
+   * serialization/deserialization error
    */
   String toJson(final Object value);
 
   /**
-   * Validates a JSON string. If it is not valid throws a {@link
-   * io.camunda.zeebe.client.api.command.InternalClientException}.
+   * Validates a JSON string. If it is not valid throws a {@link io.camunda.zeebe.client.api.command.InternalClientException}.
    *
    * @param propertyName the property name that contains the JSON string
    * @param jsonInput the JSON string
    * @return the same JSON string, that passed in
    * @throws io.camunda.zeebe.client.api.command.InternalClientException on
-   *     serialization/deserialization error
+   * serialization/deserialization error
    */
   String validateJson(final String propertyName, final String jsonInput);
 
@@ -115,7 +127,7 @@ public interface JsonMapper {
    * @param jsonInput the stream that contains the JSON string
    * @return the JSON string from the stream
    * @throws io.camunda.zeebe.client.api.command.InternalClientException on
-   *     serialization/deserialization error
+   * serialization/deserialization error
    */
   String validateJson(final String propertyName, final InputStream jsonInput);
 }
