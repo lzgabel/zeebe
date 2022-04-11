@@ -184,8 +184,23 @@ public class ElasticsearchExporter implements Exporter {
       if (index.processInstanceCreation) {
         createValueIndexTemplate(ValueType.PROCESS_INSTANCE_CREATION);
       }
+      if (index.processInstanceModification) {
+        createValueIndexTemplate(ValueType.PROCESS_INSTANCE_MODIFICATION);
+      }
       if (index.processMessageSubscription) {
         createValueIndexTemplate(ValueType.PROCESS_MESSAGE_SUBSCRIPTION);
+      }
+      if (index.decisionRequirements) {
+        createValueIndexTemplate(ValueType.DECISION_REQUIREMENTS);
+      }
+      if (index.decision) {
+        createValueIndexTemplate(ValueType.DECISION);
+      }
+      if (index.decisionEvaluation) {
+        createValueIndexTemplate(ValueType.DECISION_EVALUATION);
+      }
+      if (index.checkpoint) {
+        createValueIndexTemplate(ValueType.CHECKPOINT);
       }
     }
 

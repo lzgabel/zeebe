@@ -15,14 +15,10 @@ public class ElasticsearchExporterConfiguration {
 
   private static final String DEFAULT_URL = "http://localhost:9200";
 
-  /**
-   * Comma-separated Elasticsearch http urls
-   */
+  /** Comma-separated Elasticsearch http urls */
   public String url = DEFAULT_URL;
 
-  /**
-   * The request timeout for the elastic search client. The timeout unit is milliseconds.
-   */
+  /** The request timeout for the elastic search client. The timeout unit is milliseconds. */
   public int requestTimeoutMs = 30_000;
 
   public final IndexConfiguration index = new IndexConfiguration();
@@ -81,8 +77,18 @@ public class ElasticsearchExporterConfiguration {
         return index.processInstance;
       case PROCESS_INSTANCE_CREATION:
         return index.processInstanceCreation;
+      case PROCESS_INSTANCE_MODIFICATION:
+        return index.processInstanceModification;
       case PROCESS_MESSAGE_SUBSCRIPTION:
         return index.processMessageSubscription;
+      case DECISION_REQUIREMENTS:
+        return index.decisionRequirements;
+      case DECISION:
+        return index.decision;
+      case DECISION_EVALUATION:
+        return index.decisionEvaluation;
+      case CHECKPOINT:
+        return index.checkpoint;
       default:
         return false;
     }
@@ -127,7 +133,12 @@ public class ElasticsearchExporterConfiguration {
     public boolean variableDocument = true;
     public boolean processInstance = true;
     public boolean processInstanceCreation = false;
+    public boolean processInstanceModification = true;
     public boolean processMessageSubscription = false;
+    public boolean decisionRequirements = true;
+    public boolean decision = true;
+    public boolean decisionEvaluation = true;
+    public boolean checkpoint = false;
 
     // index life policy
     public String lifecyclePolicyName = "zeebe-policy";
@@ -189,8 +200,18 @@ public class ElasticsearchExporterConfiguration {
           + processInstance
           + ", processInstanceCreation="
           + processInstanceCreation
+          + ", processInstanceModification="
+          + processInstanceModification
           + ", processMessageSubscription="
           + processMessageSubscription
+          + ", decisionRequirements="
+          + decisionRequirements
+          + ", decision="
+          + decision
+          + ", decisionEvaluation="
+          + decisionEvaluation
+          + ", checkpoint="
+          + checkpoint
           + '}';
     }
   }

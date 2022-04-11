@@ -1,6 +1,6 @@
 {
   "index_patterns": [
-    "zeebe-record_process-instance-creation_*"
+    "zeebe-record_decision-requirements_*"
   ],
   "version": 1,
   "settings": {
@@ -14,7 +14,7 @@
     }
   },
   "aliases": {
-    "zeebe-record-process-instance-creation": {}
+    "zeebe-record-decision-requirements": {}
   },
   "mappings": {
     "_doc": {
@@ -22,27 +22,32 @@
         "value": {
           "dynamic": "strict",
           "properties": {
-            "bpmnProcessId": {
+            "decisionRequirementsId": {
               "type": "keyword"
             },
-            "version": {
-              "type": "integer"
+            "decisionRequirementsName": {
+              "type": "keyword"
             },
-            "processDefinitionKey": {
+            "decisionRequirementsVersion": {
               "type": "long"
             },
-            "processInstanceKey": {
+            "decisionRequirementsKey": {
               "type": "long"
             },
-            "variables": {
+            "namespace": {
+              "type": "keyword"
+            },
+            "resourceName": {
+              "type": "text"
+            },
+            "resource": {
               "enabled": false
             },
-            "startInstructions": {
-              "properties": {
-                "elementId": {
-                  "type": "keyword"
-                }
-              }
+            "checksum": {
+              "enabled": false
+            },
+            "duplicate": {
+              "type": "boolean"
             }
           }
         }
@@ -50,3 +55,4 @@
     }
   }
 }
+

@@ -1,0 +1,67 @@
+{
+  "index_patterns": [
+    "zeebe-record_process-instance-modification_*"
+  ],
+  "version": 1,
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "index.queries.cache.enabled": false,
+    "index": {
+      "lifecycle": {
+        "name": "zeebe-policy"
+      }
+    }
+  },
+  "aliases": {
+    "zeebe-record-process-instance-modification": {}
+  },
+  "mappings": {
+    "_doc": {
+      "properties": {
+        "value": {
+          "dynamic": "strict",
+          "properties": {
+            "processInstanceKey": {
+              "type": "long"
+            },
+            "terminateInstructions": {
+              "properties": {
+                "elementInstanceKey": {
+                  "type": "long"
+                }
+              }
+            },
+            "activateInstructions": {
+              "properties": {
+                "elementId": {
+                  "type": "keyword"
+                },
+                "ancestorScopeKey": {
+                  "type": "long"
+                },
+                "variableInstructions": {
+                  "properties": {
+                    "variables": {
+                      "enabled": false
+                    },
+                    "elementId": {
+                      "type": "keyword"
+                    }
+                  }
+                },
+                "ancestorScopeKeys": {
+                  "type": "long"
+                }
+              }
+            },
+            "ancestorScopeKeys": {
+              "type": "long"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
