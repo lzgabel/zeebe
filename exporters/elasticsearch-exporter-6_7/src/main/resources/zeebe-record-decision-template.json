@@ -1,0 +1,47 @@
+{
+  "index_patterns": [
+    "zeebe-record_decision_*"
+  ],
+  "version": 1,
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "index.queries.cache.enabled": false
+  },
+  "aliases": {
+    "zeebe-record-decision": {}
+  },
+  "mappings": {
+    "_doc": {
+      "properties": {
+        "value": {
+          "dynamic": "strict",
+          "properties": {
+            "decisionId": {
+              "type": "keyword"
+            },
+            "decisionName": {
+              "type": "keyword"
+            },
+            "version": {
+              "type": "long"
+            },
+            "decisionKey": {
+              "type": "long"
+            },
+            "decisionRequirementsId": {
+              "type": "keyword"
+            },
+            "decisionRequirementsKey": {
+              "type": "long"
+            },
+            "duplicate": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

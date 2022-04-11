@@ -83,6 +83,12 @@ public class ElasticsearchExporterConfiguration {
         return index.processInstanceCreation;
       case PROCESS_MESSAGE_SUBSCRIPTION:
         return index.processMessageSubscription;
+      case DECISION_REQUIREMENTS:
+        return index.decisionRequirements;
+      case DECISION:
+        return index.decision;
+      case DECISION_EVALUATION:
+        return index.decisionEvaluation;
       default:
         return false;
     }
@@ -128,6 +134,9 @@ public class ElasticsearchExporterConfiguration {
     public boolean processInstance = true;
     public boolean processInstanceCreation = false;
     public boolean processMessageSubscription = false;
+    public boolean decisionRequirements = true;
+    public boolean decision = true;
+    public boolean decisionEvaluation = true;
 
     // index life policy
     public String lifecyclePolicyName = "zeebe-policy";

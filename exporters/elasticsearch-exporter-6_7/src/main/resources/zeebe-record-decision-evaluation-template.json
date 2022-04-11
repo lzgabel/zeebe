@@ -1,0 +1,126 @@
+{
+  "index_patterns": [
+    "zeebe-record_decision_evaluation_*"
+  ],
+  "version": 1,
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "index.queries.cache.enabled": false
+  },
+  "aliases": {
+    "zeebe-record-decision-evaluation": {}
+  },
+  "mappings": {
+    "_doc": {
+      "properties": {
+        "value": {
+          "dynamic": "strict",
+          "properties": {
+            "decisionId": {
+              "type": "keyword"
+            },
+            "decisionName": {
+              "type": "keyword"
+            },
+            "decisionVersion": {
+              "type": "long"
+            },
+            "decisionKey": {
+              "type": "long"
+            },
+            "decisionRequirementsId": {
+              "type": "keyword"
+            },
+            "decisionRequirementsKey": {
+              "type": "long"
+            },
+            "decisionOutput": {
+              "enabled": false
+            },
+            "bpmnProcessId": {
+              "type": "keyword"
+            },
+            "processDefinitionKey": {
+              "type": "long"
+            },
+            "processInstanceKey": {
+              "type": "long"
+            },
+            "elementId": {
+              "type": "keyword"
+            },
+            "elementInstanceKey": {
+              "type": "long"
+            },
+            "evaluationFailureMessage": {
+              "type": "keyword"
+            },
+            "failedDecisionId": {
+              "type": "keyword"
+            },
+            "evaluatedDecisions": {
+              "properties": {
+                "decisionId": {
+                  "type": "keyword"
+                },
+                "decisionName": {
+                  "type": "keyword"
+                },
+                "decisionKey": {
+                  "type": "long"
+                },
+                "decisionVersion": {
+                  "type": "long"
+                },
+                "decisionType": {
+                  "type": "keyword"
+                },
+                "decisionOutput": {
+                  "enabled": false
+                },
+                "evaluatedInputs": {
+                  "properties": {
+                    "inputId": {
+                      "type": "keyword"
+                    },
+                    "inputName": {
+                      "type": "keyword"
+                    },
+                    "inputValue": {
+                      "enabled": false
+                    }
+                  }
+                },
+                "matchedRules": {
+                  "properties": {
+                    "ruleId": {
+                      "type": "keyword"
+                    },
+                    "ruleIndex": {
+                      "type": "long"
+                    },
+                    "evaluatedOutputs": {
+                      "properties": {
+                        "outputId": {
+                          "type": "keyword"
+                        },
+                        "outputName": {
+                          "type": "keyword"
+                        },
+                        "outputValue": {
+                          "enabled": false
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

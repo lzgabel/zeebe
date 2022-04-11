@@ -253,6 +253,7 @@ public final class ZeebeClientImpl implements ZeebeClient {
         asyncStub,
         jsonMapper,
         config.getDefaultRequestTimeout(),
+        config.getNamespace(),
         credentialsProvider::shouldRetryRequest);
   }
 
