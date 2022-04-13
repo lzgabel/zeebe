@@ -27,6 +27,6 @@ public final class NoopCredentialsProvider implements CredentialsProvider {
 
   @Override
   public boolean shouldRetryRequest(final Throwable throwable) {
-    return false;
+    return true;
   }
 }
