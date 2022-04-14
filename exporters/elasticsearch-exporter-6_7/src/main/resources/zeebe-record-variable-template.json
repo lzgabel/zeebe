@@ -37,6 +37,9 @@
             },
             "processDefinitionKey": {
               "type": "long"
+            },
+            "bpmnProcessId": {
+              "type": "keyword"
             }
           }
         }
