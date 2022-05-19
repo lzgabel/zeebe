@@ -877,4 +877,111 @@ public final class TimerStartEventTest {
         .extracting(r -> r.getValue().getElementId())
         .containsOnly("timer_start");
   }
+
+  @Test
+  public void shouldWriteTriggeredEventWithProcessInstanceKey() {
+    // given
+    final var deployedProcess =
+        engine
+            .deployment()
+            .withXmlResource(SIMPLE_MODEL)
+            .deploy()
+            .getValue()
+            .getProcessesMetadata()
+            .get(0);
+
+    final long processDefinitionKey = deployedProcess.getProcessDefinitionKey();
+
+    assertThat(
+            RecordingExporter.timerRecords(TimerIntent.CREATED)
+                .withProcessDefinitionKey(processDefinitionKey)
+                .exists())
+        .isTrue();
+
+    // when
+    engine.increaseTime(Duration.ofSeconds(2));
+
+    // then
+    final var processInstanceKey =
+        RecordingExporter.processInstanceRecords(ProcessInstanceIntent.ELEMENT_ACTIVATED)
+            .withElementType(BpmnElementType.PROCESS)
+            .withProcessDefinitionKey(processDefinitionKey)
+            .getFirst()
+            .getKey();
+
+    final var timerTriggered =
+        RecordingExporter.timerRecords(TimerIntent.TRIGGERED)
+            .withProcessDefinitionKey(processDefinitionKey)
+            .getFirst();
+
+    Assertions.assertThat(timerTriggered.getValue())
+        .hasProcessDefinitionKey(processDefinitionKey)
+        .hasProcessInstanceKey(processInstanceKey)
+        .hasElementInstanceKey(-1L)
+        .hasTargetElementId("start_1");
+  }
+
+  @Test
+  public void shouldTriggerAtSpecifiedStartTimeForTimeCycle() {
+    // given
+    // Set the start time to 10 seconds later
+    final ZonedDateTime start =
+        ZonedDateTime.ofInstant(
+                Instant.ofEpochMilli(engine.getClock().getCurrentTimeInMillis()),
+                ZoneId.systemDefault())
+            .plusSeconds(10);
+
+    final long dueDate = start.plusSeconds(10).toInstant().toEpochMilli();
+    final BpmnModelInstance model =
+        Bpmn.createExecutableProcess("process")
+            .startEvent("start")
+            .timerWithCycle(String.format("R1/%s/PT10S", start.toInstant().toString()))
+            .endEvent("end")
+            .done();
+    final var deployedProcess =
+        engine
+            .deployment()
+            .withXmlResource(model)
+            .deploy()
+            .getValue()
+            .getProcessesMetadata()
+            .get(0);
+    final long processDefinitionKey = deployedProcess.getProcessDefinitionKey();
+
+    RecordingExporter.timerRecords(TimerIntent.CREATED)
+        .withProcessDefinitionKey(processDefinitionKey)
+        .await();
+
+    // when
+    engine.increaseTime(Duration.ofSeconds(10));
+
+    // then
+    assertThat(
+            RecordingExporter.timerRecords(TimerIntent.TRIGGERED)
+                .withProcessDefinitionKey(deployedProcess.getProcessDefinitionKey())
+                .exists())
+        .isFalse();
+
+    // when
+    engine.increaseTime(Duration.ofSeconds(10));
+
+    // then
+    final TimerRecordValue timerRecord =
+        RecordingExporter.timerRecords(TimerIntent.TRIGGERED)
+            .withProcessDefinitionKey(deployedProcess.getProcessDefinitionKey())
+            .getFirst()
+            .getValue();
+
+    Assertions.assertThat(timerRecord)
+        .hasDueDate(dueDate)
+        .hasTargetElementId("start")
+        .hasElementInstanceKey(TimerInstance.NO_ELEMENT_INSTANCE);
+
+    assertThat(
+            RecordingExporter.processInstanceRecords(ProcessInstanceIntent.ELEMENT_ACTIVATED)
+                .withElementId("end")
+                .withProcessDefinitionKey(deployedProcess.getProcessDefinitionKey())
+                .exists())
+        .isTrue();
+  }
 }
