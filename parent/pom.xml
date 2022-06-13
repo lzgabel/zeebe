@@ -118,7 +118,7 @@
     <plugin.version.compiler>3.8.1</plugin.version.compiler>
     <plugin.version.dependency-analyzer>1.11.1</plugin.version.dependency-analyzer>
     <plugin.version.dependency>3.1.2</plugin.version.dependency>
-    <plugin.version.enforcer>3.0.0-M3</plugin.version.enforcer>
+    <plugin.version.enforcer>3.1.0</plugin.version.enforcer>
     <plugin.version.exec>3.0.0</plugin.version.exec>
     <plugin.version.failsafe>3.0.0-M5</plugin.version.failsafe>
     <plugin.version.flaky-tests>2.0.3</plugin.version.flaky-tests>
