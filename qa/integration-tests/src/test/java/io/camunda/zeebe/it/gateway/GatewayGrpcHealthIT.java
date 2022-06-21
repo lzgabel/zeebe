@@ -17,7 +17,7 @@ import io.grpc.health.v1.HealthCheckResponse;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import io.grpc.health.v1.HealthGrpc;
 import io.grpc.netty.NettyChannelBuilder;
-import io.grpc.protobuf.services.HealthStatusManager;
+import io.grpc.services.HealthStatusManager;
 import io.zeebe.containers.ZeebeGatewayContainer;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
