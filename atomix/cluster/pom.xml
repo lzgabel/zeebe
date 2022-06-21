@@ -67,10 +67,20 @@
       <groupId>io.netty</groupId>
       <artifactId>netty-common</artifactId>
     </dependency>
-    <dependency>
-      <groupId>io.netty</groupId>
-      <artifactId>netty-transport-classes-epoll</artifactId>
-    </dependency>
+    <!--
+      netty-bom 4.1.70 contains the changes from pull request
+      netty/netty#11798, which moved the classes out
+      of the native modules to make sure the same classes don't end up on the
+      classpath multiple times. For us it should mean that we don't have to
+      depend on the specific native module any more but can simply depend on
+      the common/shared classes module.
+
+      netty version 4.1.58 for xhzy, so delete this dependency
+    -->
+    <!--    <dependency>-->
+    <!--      <groupId>io.netty</groupId>-->
+    <!--      <artifactId>netty-transport-classes-epoll</artifactId>-->
+    <!--    </dependency>-->
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-transport-native-epoll</artifactId>
