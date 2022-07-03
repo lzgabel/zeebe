@@ -16,6 +16,7 @@ import io.camunda.zeebe.model.bpmn.instance.Process;
 import io.camunda.zeebe.model.bpmn.instance.StartEvent;
 import io.camunda.zeebe.model.bpmn.instance.TimerEventDefinition;
 import io.camunda.zeebe.model.bpmn.util.time.RepeatingInterval;
+import io.camunda.zeebe.model.bpmn.util.time.corn.CronTimer;
 import io.camunda.zeebe.util.Either;
 import java.time.format.DateTimeParseException;
 import java.util.function.Function;
@@ -89,7 +90,13 @@ public class TimerCatchEventExpressionValidator implements ModelElementValidator
         try {
           return expressionProcessor
               .evaluateStringExpression(expression, NO_VARIABLE_SCOPE)
-              .map(RepeatingInterval::parse)
+              .map(
+                  text -> {
+                    if (text.startsWith("R")) {
+                      return RepeatingInterval.parse(text);
+                    }
+                    return CronTimer.parse(text);
+                  })
               .mapLeft(wrapFailure("cycle"));
         } catch (final DateTimeParseException e) {
           final var failureDetails = new Failure(e.getMessage());

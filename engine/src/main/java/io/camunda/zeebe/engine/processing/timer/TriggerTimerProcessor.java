@@ -31,6 +31,7 @@ import io.camunda.zeebe.engine.state.mutable.MutableZeebeState;
 import io.camunda.zeebe.model.bpmn.util.time.Interval;
 import io.camunda.zeebe.model.bpmn.util.time.RepeatingInterval;
 import io.camunda.zeebe.model.bpmn.util.time.Timer;
+import io.camunda.zeebe.model.bpmn.util.time.corn.CronTimer;
 import io.camunda.zeebe.protocol.impl.record.value.timer.TimerRecord;
 import io.camunda.zeebe.protocol.record.RejectionType;
 import io.camunda.zeebe.protocol.record.intent.TimerIntent;
@@ -156,25 +157,31 @@ public final class TriggerTimerProcessor implements TypedRecordProcessor<TimerRe
       // todo(#4208): raise incident instead of throwing an exception
     }
 
-    int repetitions = record.getRepetitions();
-    if (repetitions != RepeatingInterval.INFINITE) {
-      repetitions--;
-    }
-
-    // Use the timer's last due date instead of the current time to avoid a time shift.
-    final Interval refreshedInterval =
-        timer
-            .map(Timer::getInterval)
-            .map(interval -> interval.withStart(Instant.ofEpochMilli(record.getDueDate())))
-            .get();
-    final Timer repeatingInterval = new RepeatingInterval(repetitions, refreshedInterval);
+    final Timer refreshedTimer = refreshTimer(timer.get(), record);
     catchEventBehavior.subscribeToTimerEvent(
         record.getElementInstanceKey(),
         record.getProcessInstanceKey(),
         record.getProcessDefinitionKey(),
         event.getId(),
-        repeatingInterval,
+        refreshedTimer,
         writer,
         sideEffects::accept);
+  }
+
+  private Timer refreshTimer(final Timer timer, final TimerRecord record) {
+    // Use the timer's last due date instead of the current time to avoid a time shift.
+    final Instant start = Instant.ofEpochMilli(record.getDueDate());
+
+    if (timer instanceof CronTimer cronTimer) {
+      return cronTimer.withStart(start);
+    }
+
+    int repetitions = record.getRepetitions();
+    if (repetitions != RepeatingInterval.INFINITE) {
+      repetitions--;
+    }
+
+    final Interval refreshedInterval = timer.getInterval().withStart(start);
+    return new RepeatingInterval(repetitions, refreshedInterval);
   }
 }

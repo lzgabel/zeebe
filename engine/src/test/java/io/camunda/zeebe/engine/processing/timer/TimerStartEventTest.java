@@ -75,6 +75,13 @@ public final class TimerStartEventTest {
           .endEvent("end_6")
           .done();
 
+  private static final BpmnModelInstance CRON_MODEL =
+      Bpmn.createExecutableProcess("process_7")
+          .startEvent("start_7")
+          .timerWithCycle("*/10 * * * * *")
+          .endEvent("end_7")
+          .done();
+
   @Rule public final EngineRule engine = EngineRule.singlePartition();
 
   private static BpmnModelInstance createTimerAndMessageStartEventsModel() {
@@ -1191,5 +1198,44 @@ public final class TimerStartEventTest {
                 .limit(2)
                 .count())
         .isEqualTo(2);
+  }
+
+  @Test
+  public void shouldCreateCronTimer() {
+    // when
+    final var now = ZonedDateTime.now(ZoneId.systemDefault()).withSecond(0).withNano(0);
+    engine.getClock().setCurrentTime(now.toInstant());
+
+    final var dueDate = now.plusSeconds(10).toInstant().toEpochMilli();
+    final var deployedProcess =
+        engine
+            .deployment()
+            .withXmlResource(CRON_MODEL)
+            .deploy()
+            .getValue()
+            .getProcessesMetadata()
+            .get(0);
+
+    // when
+    engine.increaseTime(Duration.ofSeconds(15));
+
+    // then
+    final var timerRecord =
+        RecordingExporter.timerRecords(TimerIntent.TRIGGERED)
+            .withProcessDefinitionKey(deployedProcess.getProcessDefinitionKey())
+            .getFirst()
+            .getValue();
+
+    Assertions.assertThat(timerRecord)
+        .hasDueDate(dueDate)
+        .hasTargetElementId("start_7")
+        .hasElementInstanceKey(TimerInstance.NO_ELEMENT_INSTANCE);
+
+    assertThat(
+            RecordingExporter.processInstanceRecords(ProcessInstanceIntent.ELEMENT_ACTIVATED)
+                .withElementId("end_7")
+                .withProcessDefinitionKey(deployedProcess.getProcessDefinitionKey())
+                .exists())
+        .isTrue();
   }
 }
