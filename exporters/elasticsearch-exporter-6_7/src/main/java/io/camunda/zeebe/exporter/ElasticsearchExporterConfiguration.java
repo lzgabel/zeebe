@@ -142,7 +142,7 @@ public class ElasticsearchExporterConfiguration {
 
     // index life policy
     public String lifecyclePolicyName = "zeebe-policy";
-    public String deleteMinAge = "30d";
+    public String deleteMinAge = "60d";
 
     // index settings
     private Integer numberOfShards = null;
