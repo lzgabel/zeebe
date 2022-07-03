@@ -15,14 +15,10 @@ public class ElasticsearchExporterConfiguration {
 
   private static final String DEFAULT_URL = "http://localhost:9200";
 
-  /**
-   * Comma-separated Elasticsearch http urls
-   */
+  /** Comma-separated Elasticsearch http urls */
   public String url = DEFAULT_URL;
 
-  /**
-   * The request timeout for the elastic search client. The timeout unit is milliseconds.
-   */
+  /** The request timeout for the elastic search client. The timeout unit is milliseconds. */
   public int requestTimeoutMs = 30_000;
 
   public final IndexConfiguration index = new IndexConfiguration();
@@ -140,7 +136,7 @@ public class ElasticsearchExporterConfiguration {
 
     // index life policy
     public String lifecyclePolicyName = "zeebe-policy";
-    public String deleteMinAge = "30d";
+    public String deleteMinAge = "60d";
 
     // index settings
     private Integer numberOfShards = null;

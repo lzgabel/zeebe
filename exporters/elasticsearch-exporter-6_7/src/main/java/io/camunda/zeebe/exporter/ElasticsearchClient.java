@@ -176,7 +176,9 @@ public class ElasticsearchClient {
     return bulkRequest.stream().mapToInt(String::length).sum();
   }
 
-  /** @return true if request was acknowledged */
+  /**
+   * @return true if request was acknowledged
+   */
   public boolean putIndexTemplate(final ValueType valueType) {
     final String templateName = indexPrefixForValueType(valueType);
     final String aliasName = aliasNameForValueType(valueType);
@@ -184,7 +186,9 @@ public class ElasticsearchClient {
     return putIndexTemplate(templateName, aliasName, filename);
   }
 
-  /** @return true if request was acknowledged */
+  /**
+   * @return true if request was acknowledged
+   */
   public boolean putIndexTemplate(
       final String templateName, final String aliasName, final String filename) {
     final Map<String, Object> template = getTemplateFromClasspath(filename);
@@ -262,7 +266,9 @@ public class ElasticsearchClient {
     }
   }
 
-  /** @return true if request was acknowledged */
+  /**
+   * @return true if request was acknowledged
+   */
   private boolean putIndexTemplate(final String templateName, final Object body) {
     try {
       final var request = new Request("PUT", "/_template/" + templateName);
@@ -278,14 +284,16 @@ public class ElasticsearchClient {
     }
   }
 
-  /** @return true if request was acknowledged */
+  /**
+   * @return true if request was acknowledged
+   */
   public boolean putIndexLifecyclePolicy(final String policyName, final String deleteMinAge) {
 
     final Map<String, Object> hot =
         Map.of("actions", Map.of("set_priority", Map.of("priority", 100)));
     final Map<String, Object> delete =
         Map.of(
-            "min_age", Optional.ofNullable(deleteMinAge).filter(String::isBlank).orElse("30d"),
+            "min_age", Optional.ofNullable(deleteMinAge).filter(String::isBlank).orElse("60d"),
             "actions", Map.of("delete", Map.of()));
     final Map<String, Object> phases = Map.of("phases", Map.of("hot", hot, "delete", delete));
     final Map<String, Object> policy = Map.of("policy", phases);
@@ -293,7 +301,9 @@ public class ElasticsearchClient {
     return putIndexLifecyclePolicy(policyName, policy);
   }
 
-  /** @return true if request was acknowledged */
+  /**
+   * @return true if request was acknowledged
+   */
   private boolean putIndexLifecyclePolicy(final String policyName, final Object body) {
     try {
 
