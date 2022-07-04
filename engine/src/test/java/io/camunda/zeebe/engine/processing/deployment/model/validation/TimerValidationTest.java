@@ -35,7 +35,7 @@ public final class TimerValidationTest {
         process,
         expect(
             timerEventElementId,
-            "Invalid timer cycle expression (Repetition spec must start with R)"));
+            "Invalid timer cycle expression (Cron expression must consist of 6 fields (found 1 in \"foo\"))"));
   }
 
   @ParameterizedTest(name = "[{index}] {0}")

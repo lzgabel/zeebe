@@ -153,8 +153,12 @@ final class BitsCronField extends CronField {
     } else {
       final int hyphenPos = value.indexOf('-');
       if (hyphenPos == -1) {
-        final int result = type.checkValidValue(Integer.parseInt(value));
-        return ValueRange.of(result, result);
+        try {
+          final int result = type.checkValidValue(Integer.parseInt(value));
+          return ValueRange.of(result, result);
+        } catch (NumberFormatException ex) {
+          throw new IllegalArgumentException(ex.getMessage());
+        }
       } else {
         int min = IntergerUtil.parseInt(value, 0, hyphenPos, 10);
         int max = IntergerUtil.parseInt(value, hyphenPos + 1, value.length(), 10);
@@ -225,8 +229,8 @@ final class BitsCronField extends CronField {
     if (delta == 1) {
       setBits(range);
     } else {
-      for (int i = (int) range.getMinimum(); i <= range.getMaximum(); i += delta) {
-        setBit(i);
+      for (long i = range.getMinimum(); i <= range.getMaximum(); i += delta) {
+        setBit((int) i);
       }
     }
   }
