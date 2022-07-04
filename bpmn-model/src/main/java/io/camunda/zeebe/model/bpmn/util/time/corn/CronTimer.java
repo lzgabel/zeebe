@@ -68,6 +68,7 @@ public class CronTimer implements Timer {
   public long getDueDate(final long fromEpochMilli) {
     final ZonedDateTime start =
         getStart()
+            .filter(s -> s.toInstant().toEpochMilli() > fromEpochMilli)
             .orElseGet(
                 () ->
                     ZonedDateTime.ofInstant(

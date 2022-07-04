@@ -75,7 +75,10 @@ public class Interval implements TemporalAmount {
   }
 
   public long toEpochMilli(final long fromEpochMilli) {
-    if (!start.isPresent()) {
+    final long toEpochMilli =
+        start.map(ZonedDateTime::toInstant).map(Instant::toEpochMilli).orElse(fromEpochMilli);
+
+    if (toEpochMilli <= fromEpochMilli) {
       if (!isCalendarBased()) {
         return fromEpochMilli + getDuration().toMillis();
       }
@@ -86,7 +89,7 @@ public class Interval implements TemporalAmount {
           .toEpochMilli();
     }
 
-    return start.get().toInstant().toEpochMilli();
+    return toEpochMilli;
   }
 
   /**
