@@ -103,8 +103,17 @@
       <artifactId>commons-text</artifactId>
     </dependency>
 
-    <!--    TEST DEPENDENCIES-->
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+    </dependency>
 
+    <dependency>
+      <groupId>com.cronutils</groupId>
+      <artifactId>cron-utils</artifactId>
+    </dependency>
+
+    <!-- TEST DEPENDENCIES -->
     <dependency>
       <groupId>io.camunda</groupId>
       <artifactId>zeebe-protocol-asserts</artifactId>
