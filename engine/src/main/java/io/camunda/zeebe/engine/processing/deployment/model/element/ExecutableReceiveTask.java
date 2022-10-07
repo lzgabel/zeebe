@@ -40,6 +40,11 @@ public class ExecutableReceiveTask extends ExecutableActivity implements Executa
   }
 
   @Override
+  public boolean isLink() {
+    return false;
+  }
+
+  @Override
   public ExecutableMessage getMessage() {
     return message;
   }
@@ -51,6 +56,11 @@ public class ExecutableReceiveTask extends ExecutableActivity implements Executa
 
   @Override
   public ExecutableError getError() {
+    return null;
+  }
+
+  @Override
+  public ExecutableLink getLink() {
     return null;
   }
 

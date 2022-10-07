@@ -23,6 +23,8 @@ public class ExecutableCatchEventElement extends ExecutableFlowNode
 
   private ExecutableMessage message;
   private ExecutableError error;
+  private ExecutableLink link;
+
   private boolean interrupting;
   private BiFunction<ExpressionProcessor, Long, Either<Failure, Timer>> timerFactory;
 
@@ -45,6 +47,11 @@ public class ExecutableCatchEventElement extends ExecutableFlowNode
   @Override
   public boolean isError() {
     return error != null;
+  }
+
+  @Override
+  public boolean isLink() {
+    return link != null;
   }
 
   @Override
@@ -73,6 +80,15 @@ public class ExecutableCatchEventElement extends ExecutableFlowNode
 
   public void setError(final ExecutableError error) {
     this.error = error;
+  }
+
+  @Override
+  public ExecutableLink getLink() {
+    return link;
+  }
+
+  public void setLink(final ExecutableLink link) {
+    this.link = link;
   }
 
   @Override

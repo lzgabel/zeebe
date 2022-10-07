@@ -45,7 +45,13 @@ public class IntermediateCatchEventProcessor
         .applyInputMappings(activating, element)
         .flatMap(ok -> eventSubscriptionBehavior.subscribeToEvents(element, activating))
         .ifRightOrLeft(
-            ok -> stateTransitionBehavior.transitionToActivated(activating),
+            ok -> {
+              final var activated = stateTransitionBehavior.transitionToActivated(activating);
+              if (element.isLink()) {
+                final var completing = stateTransitionBehavior.transitionToCompleting(activated);
+                onComplete(element, completing);
+              }
+            },
             failure -> incidentBehavior.createIncident(failure, activating));
   }
 

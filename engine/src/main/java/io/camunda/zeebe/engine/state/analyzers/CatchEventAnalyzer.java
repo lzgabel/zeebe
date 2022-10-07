@@ -134,6 +134,59 @@ public final class CatchEventAnalyzer {
     return availableCatchEvents;
   }
 
+  public Either<Failure, CatchEventTuple> findLinkCatchEvent(
+      final DirectBuffer name, final ElementInstance instance) {
+
+    final ArrayList<DirectBuffer> availableCatchEvents = new ArrayList<>();
+    final var instanceRecord = instance.getValue();
+    final var process = getProcess(instanceRecord.getProcessDefinitionKey());
+
+    final var found = findLinkCatchEventInScope(name, process, instance);
+    if (found.isRight()) {
+      return Either.right(found.get());
+    } else {
+      availableCatchEvents.addAll(found.getLeft());
+    }
+
+    final String incidentErrorMessage =
+        String.format(
+            availableCatchEvents.isEmpty()
+                ? "No link catch events are available in the scope."
+                : String.format(
+                    "Available link catch events are [%s]",
+                    availableCatchEvents.stream()
+                        .map(BufferUtil::bufferAsString)
+                        .collect(Collectors.joining(", "))));
+
+    // no matching catch event found
+    return Either.left(new Failure(incidentErrorMessage, ErrorType.UNHANDLED_ERROR_EVENT));
+  }
+
+  private Either<List<DirectBuffer>, CatchEventTuple> findLinkCatchEventInScope(
+      final DirectBuffer name, final ExecutableProcess process, final ElementInstance instance) {
+
+    final Either<List<DirectBuffer>, CatchEventTuple> availableCatchEvents =
+        Either.left(new ArrayList<>());
+    final var processInstanceRecord = instance.getValue();
+    final var elementId = processInstanceRecord.getElementIdBuffer();
+    final var elementType = processInstanceRecord.getBpmnElementType();
+
+    final var element = process.getElementById(elementId, elementType, ExecutableActivity.class);
+
+    for (final ExecutableCatchEvent catchEvent : element.getEvents()) {
+      if (catchEvent.isLink()) {
+        availableCatchEvents.getLeft().add(catchEvent.getLink().getName());
+        if (catchEvent.getLink().getName().equals(name)) {
+          catchEventTuple.instance = instance;
+          catchEventTuple.catchEvent = catchEvent;
+          return Either.right(catchEventTuple);
+        }
+      }
+    }
+
+    return availableCatchEvents;
+  }
+
   private ExecutableProcess getProcess(final long processDefinitionKey) {
 
     final var deployedProcess = processState.getProcessByKey(processDefinitionKey);

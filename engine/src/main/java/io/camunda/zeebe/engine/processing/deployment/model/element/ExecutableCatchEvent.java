@@ -21,6 +21,8 @@ public interface ExecutableCatchEvent extends ExecutableFlowElement {
 
   boolean isError();
 
+  boolean isLink();
+
   default boolean isNone() {
     return !isTimer() && !isMessage() && !isError();
   }
@@ -34,4 +36,6 @@ public interface ExecutableCatchEvent extends ExecutableFlowElement {
   BiFunction<ExpressionProcessor, Long, Either<Failure, Timer>> getTimerFactory();
 
   ExecutableError getError();
+
+  ExecutableLink getLink();
 }

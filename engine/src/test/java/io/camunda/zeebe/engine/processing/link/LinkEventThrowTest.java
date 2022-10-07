@@ -23,12 +23,15 @@ import org.junit.Test;
 
 public class LinkEventThrowTest {
 
-  @ClassRule
-  public static final EngineRule ENGINE = EngineRule.singlePartition();
+  @ClassRule public static final EngineRule ENGINE = EngineRule.singlePartition();
 
   @Test
   public void shouldDeployProcess() {
-    final Record<DeploymentRecordValue> deploy = ENGINE.deployment().withXmlResource("""
+    final Record<DeploymentRecordValue> deploy =
+        ENGINE
+            .deployment()
+            .withXmlResource(
+                """
         <?xml version="1.0" encoding="UTF-8"?>
         <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1nzddlq" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.3.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.0.0">
           <bpmn:process id="Process_14apudk" isExecutable="true">
@@ -83,16 +86,19 @@ public class LinkEventThrowTest {
           </bpmndi:BPMNDiagram>
         </bpmn:definitions>
 
-            """.getBytes())
-        .deploy();
+            """
+                    .getBytes())
+            .deploy();
 
-    Assertions.assertThat(deploy).
-        hasIntent(DeploymentIntent.CREATED);
+    Assertions.assertThat(deploy).hasIntent(DeploymentIntent.CREATED);
   }
 
   @Test
   public void shouldCompleteProcess() {
-    ENGINE.deployment().withXmlResource("""
+    ENGINE
+        .deployment()
+        .withXmlResource(
+            """
         <?xml version="1.0" encoding="UTF-8"?>
         <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1nzddlq" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.3.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.0.0">
           <bpmn:process id="Process_14apudk" isExecutable="true">
@@ -148,20 +154,20 @@ public class LinkEventThrowTest {
         </bpmn:definitions>
 
 
-            """.getBytes())
+            """
+                .getBytes())
         .deploy();
 
-    final long processInstanceKey = ENGINE.processInstance().ofBpmnProcessId("Process_14apudk")
-        .create();
+    final long processInstanceKey =
+        ENGINE.processInstance().ofBpmnProcessId("Process_14apudk").create();
 
     assertThat(
-        RecordingExporter.processInstanceRecords()
-            .withProcessInstanceKey(processInstanceKey)
-            .limitToProcessInstanceCompleted())
+            RecordingExporter.processInstanceRecords()
+                .withProcessInstanceKey(processInstanceKey)
+                .limitToProcessInstanceCompleted())
         .extracting(record -> record.getValue().getBpmnElementType(), Record::getIntent)
         .containsSubsequence(
             Tuple.tuple(BpmnElementType.END_EVENT, ProcessInstanceIntent.ELEMENT_COMPLETED),
-            Tuple.tuple(BpmnElementType.PROCESS, ProcessInstanceIntent.ELEMENT_COMPLETED)
-        );
+            Tuple.tuple(BpmnElementType.PROCESS, ProcessInstanceIntent.ELEMENT_COMPLETED));
   }
 }

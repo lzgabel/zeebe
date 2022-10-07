@@ -79,4 +79,17 @@ public final class BpmnEventPublicationBehavior {
     final var flowScopeInstance = elementInstanceState.getInstance(context.getFlowScopeKey());
     return catchEventAnalyzer.findCatchEvent(errorCode, flowScopeInstance, Optional.empty());
   }
+
+  /**
+   * Finds the right catch event for the given name. If none are found, a failure is returned.
+   *
+   * @param name the name of the link event
+   * @param context the current element context
+   * @return
+   */
+  public Either<Failure, CatchEventTuple> findLinkCatchEvent(
+      final DirectBuffer name, final BpmnElementContext context) {
+    final var flowScopeInstance = elementInstanceState.getInstance(context.getFlowScopeKey());
+    return catchEventAnalyzer.findLinkCatchEvent(name, flowScopeInstance);
+  }
 }

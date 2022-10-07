@@ -37,6 +37,10 @@ public class ExecutableActivity extends ExecutableFlowNode implements Executable
     }
   }
 
+  public void attach(final ExecutableCatchEventElement event) {
+    catchEvents.addAll(event.getEvents());
+  }
+
   public void attach(final ExecutableFlowElementContainer eventSubprocess) {
     eventSubprocesses.add(eventSubprocess);
 

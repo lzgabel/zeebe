@@ -31,7 +31,10 @@ public class IntermediateCatchEventValidator
     implements ModelElementValidator<IntermediateCatchEvent> {
   private static final List<Class<? extends EventDefinition>> SUPPORTED_EVENTS =
       Arrays.asList(
-          MessageEventDefinition.class, TimerEventDefinition.class, SignalEventDefinition.class, LinkEventDefinition.class);
+          MessageEventDefinition.class,
+          TimerEventDefinition.class,
+          SignalEventDefinition.class,
+          LinkEventDefinition.class);
 
   @Override
   public Class<IntermediateCatchEvent> getElementType() {

@@ -10,11 +10,17 @@ package io.camunda.zeebe.engine.processing.bpmn.event;
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementContext;
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementProcessor;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnBehaviors;
+import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnEventPublicationBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnIncidentBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnJobBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnStateTransitionBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnVariableMappingBehavior;
+import io.camunda.zeebe.engine.processing.common.ElementActivationBehavior;
+import io.camunda.zeebe.engine.processing.common.Failure;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableCatchEventElement;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableIntermediateThrowEvent;
+import io.camunda.zeebe.engine.state.analyzers.CatchEventAnalyzer.CatchEventTuple;
+import io.camunda.zeebe.util.Either;
 
 public class IntermediateThrowEventProcessor
     implements BpmnElementProcessor<ExecutableIntermediateThrowEvent> {
@@ -23,6 +29,8 @@ public class IntermediateThrowEventProcessor
   private final BpmnStateTransitionBehavior stateTransitionBehavior;
   private final BpmnIncidentBehavior incidentBehavior;
   private final BpmnJobBehavior jobBehavior;
+  private final BpmnEventPublicationBehavior eventPublicationBehavior;
+  private final ElementActivationBehavior elementActivationBehavior;
 
   public IntermediateThrowEventProcessor(
       final BpmnBehaviors bpmnBehaviors,
@@ -31,6 +39,8 @@ public class IntermediateThrowEventProcessor
     this.stateTransitionBehavior = stateTransitionBehavior;
     incidentBehavior = bpmnBehaviors.incidentBehavior();
     jobBehavior = bpmnBehaviors.jobBehavior();
+    eventPublicationBehavior = bpmnBehaviors.eventPublicationBehavior();
+    elementActivationBehavior = bpmnBehaviors.elementActivationBehavior();
   }
 
   @Override
@@ -51,6 +61,17 @@ public class IntermediateThrowEventProcessor
               failure -> incidentBehavior.createIncident(failure, context));
 
     } else {
+      if (element.getLink() != null) {
+        final var link = element.getLink();
+        final Either<Failure, CatchEventTuple> linkCatchEvent =
+            eventPublicationBehavior.findLinkCatchEvent(link.getName(), context);
+        linkCatchEvent.ifRightOrLeft(
+            eventTuple -> {
+              final var catchEvent = (ExecutableCatchEventElement) eventTuple.getCatchEvent();
+              elementActivationBehavior.activateElement(context.getRecordValue(), catchEvent);
+            },
+            failure -> incidentBehavior.createIncident(failure, context));
+      }
       final var activated = stateTransitionBehavior.transitionToActivated(context);
       stateTransitionBehavior.completeElement(activated);
     }
