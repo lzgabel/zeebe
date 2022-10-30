@@ -7,15 +7,23 @@
  */
 package io.camunda.zeebe.engine.processing.bpmn.event;
 
+import static io.camunda.zeebe.util.EnsureUtil.ensureNotNull;
+import static io.camunda.zeebe.util.EnsureUtil.ensureNotNullOrEmpty;
+
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementContext;
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementProcessor;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnBehaviors;
+import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnEventPublicationBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnIncidentBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnJobBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnStateTransitionBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnVariableMappingBehavior;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableIntermediateThrowEvent;
+import io.camunda.zeebe.engine.state.analyzers.CatchEventAnalyzer.CatchEventTuple;
+import io.camunda.zeebe.protocol.impl.record.value.escalation.EscalationRecord;
+import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.List;
+import java.util.Optional;
 
 public class IntermediateThrowEventProcessor
     implements BpmnElementProcessor<ExecutableIntermediateThrowEvent> {
@@ -24,12 +32,14 @@ public class IntermediateThrowEventProcessor
       List.of(
           new NoneIntermediateThrowEventBehavior(),
           new MessageIntermediateThrowEventBehavior(),
-          new LinkIntermediateThrowEventBehavior());
+          new LinkIntermediateThrowEventBehavior(),
+          new EscalationIntermediateThrowEventBehavior());
 
   private final BpmnVariableMappingBehavior variableMappingBehavior;
   private final BpmnStateTransitionBehavior stateTransitionBehavior;
   private final BpmnIncidentBehavior incidentBehavior;
   private final BpmnJobBehavior jobBehavior;
+  private final BpmnEventPublicationBehavior eventPublicationBehavior;
 
   public IntermediateThrowEventProcessor(
       final BpmnBehaviors bpmnBehaviors,
@@ -38,6 +48,7 @@ public class IntermediateThrowEventProcessor
     this.stateTransitionBehavior = stateTransitionBehavior;
     incidentBehavior = bpmnBehaviors.incidentBehavior();
     jobBehavior = bpmnBehaviors.jobBehavior();
+    eventPublicationBehavior = bpmnBehaviors.eventPublicationBehavior();
   }
 
   @Override
@@ -183,6 +194,50 @@ public class IntermediateThrowEventProcessor
               completed ->
                   stateTransitionBehavior.activateElementInstanceInFlowScope(
                       completed, link.getCatchEventElement()),
+              failure -> incidentBehavior.createIncident(failure, completing));
+    }
+  }
+
+  private class EscalationIntermediateThrowEventBehavior implements IntermediateThrowEventBehavior {
+    @Override
+    public boolean isSuitableForEvent(final ExecutableIntermediateThrowEvent element) {
+      return element.isEscalationThrowEvent();
+    }
+
+    @Override
+    public void onActivate(
+        final ExecutableIntermediateThrowEvent element, final BpmnElementContext activating) {
+      final var escalation = element.getEscalation();
+      ensureNotNull("escalation", escalation);
+
+      final var escalationCode = escalation.getEscalationCode();
+      ensureNotNullOrEmpty("escalationCode", escalationCode);
+
+      final var activated = stateTransitionBehavior.transitionToActivated(activating);
+      final Optional<CatchEventTuple> escalationCatchEvent =
+          eventPublicationBehavior.findEscalationCatchEvent(escalationCode, activating);
+
+      final EscalationRecord record = new EscalationRecord();
+      record.setCatchElementId(BufferUtil.wrapString(""));
+      record.setThrowElementId(element.getId());
+      record.setEscalationCode(BufferUtil.bufferAsString(escalationCode));
+      record.setProcessInstanceKey(activated.getProcessInstanceKey());
+      final boolean canBeCompleted =
+          eventPublicationBehavior.throwEscalationEvent(record, escalationCatchEvent);
+
+      if (canBeCompleted) {
+        stateTransitionBehavior.completeElement(activated);
+      }
+    }
+
+    @Override
+    public void onComplete(
+        final ExecutableIntermediateThrowEvent element, final BpmnElementContext completing) {
+      variableMappingBehavior
+          .applyOutputMappings(completing, element)
+          .flatMap(ok -> stateTransitionBehavior.transitionToCompleted(element, completing))
+          .ifRightOrLeft(
+              completed -> stateTransitionBehavior.takeOutgoingSequenceFlows(element, completed),
               failure -> incidentBehavior.createIncident(failure, completing));
     }
   }

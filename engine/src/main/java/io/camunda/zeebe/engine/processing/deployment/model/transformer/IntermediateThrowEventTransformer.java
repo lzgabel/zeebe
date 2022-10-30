@@ -10,6 +10,8 @@ package io.camunda.zeebe.engine.processing.deployment.model.transformer;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableIntermediateThrowEvent;
 import io.camunda.zeebe.engine.processing.deployment.model.transformation.ModelElementTransformer;
 import io.camunda.zeebe.engine.processing.deployment.model.transformation.TransformContext;
+import io.camunda.zeebe.model.bpmn.instance.EscalationEventDefinition;
+import io.camunda.zeebe.model.bpmn.instance.EventDefinition;
 import io.camunda.zeebe.model.bpmn.instance.IntermediateThrowEvent;
 import io.camunda.zeebe.model.bpmn.instance.LinkEventDefinition;
 import io.camunda.zeebe.model.bpmn.instance.MessageEventDefinition;
@@ -33,6 +35,11 @@ public final class IntermediateThrowEventTransformer
       jobWorkerElementTransformer.transform(element, context);
     } else if (isLinkEvent(element)) {
       transformLinkEventDefinition(element, context);
+    } else if (isEscalationEvent(element)) {
+      final var currentProcess = context.getCurrentProcess();
+      final var intermediateThrowEvent =
+          currentProcess.getElementById(element.getId(), ExecutableIntermediateThrowEvent.class);
+      transformEscalationEventDefinition(element, context, intermediateThrowEvent);
     }
   }
 
@@ -43,6 +50,11 @@ public final class IntermediateThrowEventTransformer
 
   private boolean isLinkEvent(final IntermediateThrowEvent element) {
     return element.getEventDefinitions().stream().anyMatch(LinkEventDefinition.class::isInstance);
+  }
+
+  private boolean isEscalationEvent(final IntermediateThrowEvent element) {
+    return element.getEventDefinitions().stream()
+        .anyMatch(EscalationEventDefinition.class::isInstance);
   }
 
   private boolean hasTaskDefinition(final IntermediateThrowEvent element) {
@@ -61,5 +73,18 @@ public final class IntermediateThrowEventTransformer
     final var name = eventDefinition.getName();
     final var executableLink = context.getLink(name);
     executableThrowEventElement.setLink(executableLink);
+  }
+
+  private void transformEscalationEventDefinition(
+      final IntermediateThrowEvent element,
+      final TransformContext context,
+      final ExecutableIntermediateThrowEvent executableElement) {
+
+    final EventDefinition eventDefinition = element.getEventDefinitions().iterator().next();
+    if (eventDefinition instanceof EscalationEventDefinition) {
+      final var escalation = ((EscalationEventDefinition) eventDefinition).getEscalation();
+      final var executableEscalation = context.getEscalation(escalation.getId());
+      executableElement.setEscalation(executableEscalation);
+    }
   }
 }

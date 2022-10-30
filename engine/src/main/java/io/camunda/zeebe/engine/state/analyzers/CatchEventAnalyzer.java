@@ -9,8 +9,10 @@ package io.camunda.zeebe.engine.state.analyzers;
 
 import io.camunda.zeebe.engine.processing.common.Failure;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableActivity;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableBoundaryEvent;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableCatchEvent;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableProcess;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableStartEvent;
 import io.camunda.zeebe.engine.state.immutable.ElementInstanceState;
 import io.camunda.zeebe.engine.state.immutable.ProcessState;
 import io.camunda.zeebe.engine.state.instance.ElementInstance;
@@ -132,6 +134,124 @@ public final class CatchEventAnalyzer {
     }
 
     return availableCatchEvents;
+  }
+
+  public Optional<CatchEventTuple> findEscalationCatchEvent(
+      final DirectBuffer escalationCode, ElementInstance instance) {
+    // assuming that escalation events are used rarely
+    // - just walk through the scope hierarchy and look for a matching catch event
+
+    while (instance != null && instance.isActive()) {
+      final var instanceRecord = instance.getValue();
+      final var process = getProcess(instanceRecord.getProcessDefinitionKey());
+
+      final var found = findEscalationCatchEventInProcess(escalationCode, process, instance);
+      if (found.isPresent()) {
+        return found;
+      }
+
+      // find in parent process instance if exists
+      final var parentElementInstanceKey = instanceRecord.getParentElementInstanceKey();
+      instance = elementInstanceState.getInstance(parentElementInstanceKey);
+    }
+
+    // no matching catch event found
+    return Optional.empty();
+  }
+
+  private Optional<CatchEventTuple> findEscalationCatchEventInProcess(
+      final DirectBuffer escalationCode,
+      final ExecutableProcess process,
+      ElementInstance instance) {
+
+    while (instance != null && instance.isActive() && !instance.isInterrupted()) {
+      final var found = findEscalationCatchEventInScope(escalationCode, process, instance);
+      if (found.isPresent()) {
+        return found;
+      }
+
+      // find in parent scope if exists
+      final var instanceParentKey = instance.getParentKey();
+      instance = elementInstanceState.getInstance(instanceParentKey);
+    }
+
+    return Optional.empty();
+  }
+
+  private Optional<CatchEventTuple> findEscalationCatchEventInScope(
+      final DirectBuffer escalationCode,
+      final ExecutableProcess process,
+      final ElementInstance instance) {
+
+    final var processInstanceRecord = instance.getValue();
+    final var elementId = processInstanceRecord.getElementIdBuffer();
+    final var elementType = processInstanceRecord.getBpmnElementType();
+
+    final var element = process.getElementById(elementId, elementType, ExecutableActivity.class);
+    if (element.getEvents().isEmpty()) {
+      return Optional.empty();
+    }
+
+    final List<ExecutableCatchEvent> catchEvents =
+        element.getEvents().stream().filter(ExecutableCatchEvent::isEscalation).toList();
+
+    final List<ExecutableCatchEvent> catchStartEvents =
+        catchEvents.stream().filter(ExecutableStartEvent.class::isInstance).toList();
+    final List<ExecutableCatchEvent> catchBoundaryEvents =
+        catchEvents.stream().filter(ExecutableBoundaryEvent.class::isInstance).toList();
+
+    if (findEscalationCatchEventWithEscalationCode(escalationCode, instance, catchStartEvents)) {
+      return Optional.of(catchEventTuple);
+    }
+
+    if (findEscalationCatchEventWithEscalationCode(escalationCode, instance, catchBoundaryEvents)) {
+      return Optional.of(catchEventTuple);
+    }
+
+    if (findEscalationCatchEventWithoutEscalationCode(instance, catchStartEvents)) {
+      return Optional.of(catchEventTuple);
+    }
+
+    if (findEscalationCatchEventWithoutEscalationCode(instance, catchBoundaryEvents)) {
+      return Optional.of(catchEventTuple);
+    }
+
+    return Optional.empty();
+  }
+
+  private boolean findEscalationCatchEventWithEscalationCode(
+      final DirectBuffer escalationCode,
+      final ElementInstance instance,
+      final List<ExecutableCatchEvent> catchEvents) {
+    for (final ExecutableCatchEvent catchEvent : catchEvents) {
+      if (catchEvent.getEscalation() != null
+          && escalationCode.equals(catchEvent.getEscalation().getEscalationCode())) {
+        catchEventTuple.instance = instance;
+        catchEventTuple.catchEvent = catchEvent;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean findEscalationCatchEventWithoutEscalationCode(
+      final ElementInstance instance, final List<ExecutableCatchEvent> catchEvents) {
+    final Optional<ExecutableCatchEvent> catchEventWithoutEscalationCode =
+        catchEvents.stream()
+            .filter(
+                catchEvent ->
+                    catchEvent.getEscalation() == null
+                        || catchEvent.getEscalation().getEscalationCode() == null
+                        || BufferUtil.bufferAsString(catchEvent.getEscalation().getEscalationCode())
+                            .isEmpty())
+            .findFirst();
+
+    if (catchEventWithoutEscalationCode.isPresent()) {
+      catchEventTuple.instance = instance;
+      catchEventTuple.catchEvent = catchEventWithoutEscalationCode.get();
+      return true;
+    }
+    return false;
   }
 
   private ExecutableProcess getProcess(final long processDefinitionKey) {
