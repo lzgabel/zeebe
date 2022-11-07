@@ -103,14 +103,14 @@ public class ElasticsearchExporter implements Exporter {
           RECOMMENDED_MAX_BULK_MEMORY_LIMIT);
     }
 
-    final Integer numberOfShards = configuration.index.getNumberOfShards();
+    final Integer numberOfShards = configuration.index.numberOfShards;
     if (numberOfShards != null && numberOfShards < 1) {
       throw new ExporterException(
           String.format(
               "Elasticsearch numberOfShards must be >= 1. Current value: %d", numberOfShards));
     }
 
-    final Integer numberOfReplicas = configuration.index.getNumberOfReplicas();
+    final Integer numberOfReplicas = configuration.index.numberOfReplicas;
     if (numberOfReplicas != null && numberOfReplicas < 0) {
       throw new ExporterException(
           String.format(

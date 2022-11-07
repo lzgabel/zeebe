@@ -13,6 +13,7 @@ import io.camunda.zeebe.exporter.dto.BulkResponse;
 import io.camunda.zeebe.exporter.dto.PutIndexTemplateResponse;
 import io.camunda.zeebe.protocol.record.Record;
 import io.camunda.zeebe.protocol.record.ValueType;
+import io.camunda.zeebe.protocol.record.value.VariableRecordValue;
 import io.camunda.zeebe.util.VersionUtil;
 import io.prometheus.client.Histogram;
 import java.io.IOException;
@@ -91,6 +92,17 @@ public class ElasticsearchClient {
 
   public void bulk(final Map<String, Object> command, final Record<?> record) {
     final String serializedCommand;
+
+    // 2022/11/07 支持过滤部分变量导出到索引
+    if (record.getValueType() == ValueType.VARIABLE) {
+      final List<String> variables = configuration.filterVariables();
+      if (variables != null && !variables.isEmpty()) {
+        final var variableRecord = (VariableRecordValue) record.getValue();
+        if (!variables.contains(variableRecord.getName())) {
+          return;
+        }
+      }
+    }
 
     try {
       serializedCommand = MAPPER.writeValueAsString(command);
@@ -242,13 +254,13 @@ public class ElasticsearchClient {
 
   private void updateSettings(final Map<String, Object> settingsProperties) {
     // update number of shards in template in case it was changed in configuration
-    final Integer numberOfShards = configuration.index.getNumberOfShards();
+    final Integer numberOfShards = configuration.index.numberOfShards;
     if (numberOfShards != null) {
       settingsProperties.put("number_of_shards", numberOfShards);
     }
 
     // update number of replicas in template in case it was changed in configuration
-    final Integer numberOfReplicas = configuration.index.getNumberOfReplicas();
+    final Integer numberOfReplicas = configuration.index.numberOfReplicas;
     if (numberOfReplicas != null) {
       settingsProperties.put("number_of_replicas", numberOfReplicas);
     }
