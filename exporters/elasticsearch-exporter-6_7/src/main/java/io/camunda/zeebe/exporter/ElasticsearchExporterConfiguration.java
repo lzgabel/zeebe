@@ -10,6 +10,9 @@ package io.camunda.zeebe.exporter;
 import io.camunda.zeebe.protocol.record.Record;
 import io.camunda.zeebe.protocol.record.RecordType;
 import io.camunda.zeebe.protocol.record.ValueType;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class ElasticsearchExporterConfiguration {
 
@@ -31,6 +34,10 @@ public class ElasticsearchExporterConfiguration {
 
   public AuthenticationConfiguration getAuthentication() {
     return authentication;
+  }
+
+  public List<String> filterVariables() {
+    return Stream.of(index.filterVariables.split(",", -1)).collect(Collectors.toList());
   }
 
   @Override
@@ -145,24 +152,10 @@ public class ElasticsearchExporterConfiguration {
     public String deleteMinAge = "60d";
 
     // index settings
-    private Integer numberOfShards = null;
-    private Integer numberOfReplicas = null;
+    public Integer numberOfShards = 1;
+    public Integer numberOfReplicas = 0;
 
-    public Integer getNumberOfShards() {
-      return numberOfShards;
-    }
-
-    public void setNumberOfShards(final Integer numberOfShards) {
-      this.numberOfShards = numberOfShards;
-    }
-
-    public Integer getNumberOfReplicas() {
-      return numberOfReplicas;
-    }
-
-    public void setNumberOfReplicas(final Integer numberOfReplicas) {
-      this.numberOfReplicas = numberOfReplicas;
-    }
+    public String filterVariables = "";
 
     @Override
     public String toString() {
@@ -212,6 +205,12 @@ public class ElasticsearchExporterConfiguration {
           + decisionEvaluation
           + ", checkpoint="
           + checkpoint
+          + ", numberOfReplicas="
+          + numberOfReplicas
+          + ", numberOfShards="
+          + numberOfShards
+          + ", filterVariables="
+          + filterVariables
           + '}';
     }
   }
