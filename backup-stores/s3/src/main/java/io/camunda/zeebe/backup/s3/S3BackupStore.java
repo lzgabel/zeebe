@@ -81,7 +81,7 @@ public final class S3BackupStore implements BackupStore {
   static final String MANIFEST_OBJECT_KEY = "manifest.json";
   private static final Logger LOG = LoggerFactory.getLogger(S3BackupStore.class);
   private static final Pattern BACKUP_IDENTIFIER_PATTERN =
-      Pattern.compile("^(?<partitionId>\\d+)/(?<checkpointId>\\d+)/(?<nodeId>\\d+).*");
+      Pattern.compile("^(?<basePath>(\\w*/)*)(?<partitionId>\\d+)/(?<checkpointId>\\d+)/(?<nodeId>\\d+).*");
   private static final int SCAN_PARALLELISM = 16;
   private final S3BackupConfig config;
   private final S3AsyncClient client;
@@ -122,17 +122,26 @@ public final class S3BackupStore implements BackupStore {
    * BackupIdentifierWildcard#matches(BackupIdentifier id)} to ensure that the listed object
    * matches.
    */
-  private static String wildcardPrefix(final BackupIdentifierWildcard wildcard) {
+  private String wildcardPrefix(final BackupIdentifierWildcard wildcard) {
     //noinspection OptionalGetWithoutIsPresent -- checked by takeWhile
-    return Stream.of(wildcard.partitionId(), wildcard.checkpointId(), wildcard.nodeId())
+    final String s = Stream.of(wildcard.partitionId(), wildcard.checkpointId(), wildcard.nodeId())
         .takeWhile(Optional::isPresent)
         .map(Optional::get)
         .map(Number::toString)
         .collect(Collectors.joining("/"));
+    if (config.basePath() == null || config.basePath().isEmpty()) {
+      return s;
+    }
+    return config.basePath() + "/" + s;
   }
 
-  public static String objectPrefix(final BackupIdentifier id) {
+  public String objectPrefix(final BackupIdentifier id) {
+    final var basePath = config.basePath();
+    if (basePath == null || basePath.isEmpty()) {
     return "%s/%s/%s/".formatted(id.partitionId(), id.checkpointId(), id.nodeId());
+    } else {
+      return "%s/%s/%s/%s/".formatted(basePath, id.partitionId(), id.checkpointId(), id.nodeId());
+    }
   }
 
   public static void validateConfig(final S3BackupConfig config) {

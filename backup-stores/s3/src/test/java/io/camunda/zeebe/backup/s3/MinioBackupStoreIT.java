@@ -50,6 +50,7 @@ final class MinioBackupStoreIT implements S3BackupStoreTests {
     config =
         new Builder()
             .withBucketName(RandomStringUtils.randomAlphabetic(10).toLowerCase())
+            .withBasePath(RandomStringUtils.randomAlphabetic(10).toLowerCase())
             .withEndpoint("http://%s:%d".formatted(S3.getHost(), S3.getMappedPort(DEFAULT_PORT)))
             .withRegion(Region.US_EAST_1.id())
             .withCredentials(ACCESS_KEY, SECRET_KEY)

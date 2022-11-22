@@ -27,6 +27,9 @@ import org.apache.commons.compress.compressors.CompressorStreamFactory;
  * @param forcePathStyleAccess Forces the AWS SDK to always use paths for accessing the bucket. Off
  *     by default, which allows the AWS SDK to choose virtual-hosted-style bucket access.
  * @param compressionAlgorithm Algorithm to use (if any) for compressing backup contents.
+ * @param basePath Specifies the path to the repository data within its bucket.
+ *     Defaults to an empty string, meaning that the repository is at the root of the bucket.
+ *     The value of this setting should not start or end with a {@code /}.
  * @see <a
  *     href=https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/region-selection.html#automatically-determine-the-aws-region-from-the-environment>
  *     Automatically determine the Region from the environment</a>
@@ -42,12 +45,18 @@ public record S3BackupConfig(
     Optional<Credentials> credentials,
     Optional<Duration> apiCallTimeout,
     boolean forcePathStyleAccess,
-    Optional<String> compressionAlgorithm) {
+    Optional<String> compressionAlgorithm,
+    String basePath) {
 
   public S3BackupConfig {
     if (bucketName == null || bucketName.isEmpty()) {
       throw new IllegalArgumentException("Bucket name must not be empty.");
     }
+
+    if (basePath.startsWith("/") || basePath.endsWith("/")) {
+      throw new IllegalArgumentException("The base path should not start or end with a '/'");
+    }
+
     if (compressionAlgorithm.isPresent()) {
       final var inputAlgorithms =
           CompressorStreamFactory.getSingleton().getInputStreamCompressorNames();
@@ -64,20 +73,6 @@ public record S3BackupConfig(
     }
   }
 
-  record Credentials(String accessKey, String secretKey) {
-    @Override
-    public String toString() {
-      return "Credentials{"
-          + "accessKey='"
-          + accessKey
-          + '\''
-          + ", secretKey='"
-          + "<redacted>"
-          + '\''
-          + '}';
-    }
-  }
-
   public static class Builder {
 
     private String bucketName;
@@ -87,6 +82,7 @@ public record S3BackupConfig(
     private boolean forcePathStyleAccess = false;
     private String compressionAlgorithm;
     private Credentials credentials;
+    private String basePath;
 
     public Builder withBucketName(final String bucketName) {
       this.bucketName = bucketName;
@@ -104,7 +100,7 @@ public record S3BackupConfig(
     }
 
     public Builder withCredentials(final String accessKey, final String secretKey) {
-      this.credentials = new Credentials(accessKey, secretKey);
+      credentials = new Credentials(accessKey, secretKey);
       return this;
     }
 
@@ -123,6 +119,11 @@ public record S3BackupConfig(
       return this;
     }
 
+    public Builder withBasePath(final String basePath) {
+      this.basePath = basePath;
+      return this;
+    }
+
     public S3BackupConfig build() {
       return new S3BackupConfig(
           bucketName,
@@ -131,7 +132,22 @@ public record S3BackupConfig(
           Optional.ofNullable(credentials),
           Optional.ofNullable(apiCallTimeoutMs),
           forcePathStyleAccess,
-          Optional.ofNullable(compressionAlgorithm));
+          Optional.ofNullable(compressionAlgorithm),
+          basePath);
+    }
+  }
+
+  record Credentials(String accessKey, String secretKey) {
+    @Override
+    public String toString() {
+      return "Credentials{"
+          + "accessKey='"
+          + accessKey
+          + '\''
+          + ", secretKey='"
+          + "<redacted>"
+          + '\''
+          + '}';
     }
   }
 }
