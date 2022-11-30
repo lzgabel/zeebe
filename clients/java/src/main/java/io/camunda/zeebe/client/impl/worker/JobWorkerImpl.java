@@ -15,6 +15,7 @@
  */
 package io.camunda.zeebe.client.impl.worker;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.camunda.zeebe.client.api.response.ActivatedJob;
 import io.camunda.zeebe.client.api.worker.BackoffSupplier;
 import io.camunda.zeebe.client.api.worker.JobWorker;
@@ -22,7 +23,10 @@ import io.camunda.zeebe.client.impl.Loggers;
 import java.io.Closeable;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -62,6 +66,16 @@ public final class JobWorkerImpl implements JobWorker, Closeable {
 
   // job execution facilities
   private final ScheduledExecutorService executor;
+  private final ExecutorService jobExecutorService =
+      new ThreadPoolExecutor(
+          10,
+          50,
+          60L,
+          TimeUnit.SECONDS,
+          new LinkedBlockingQueue<>(1024),
+          new ThreadFactoryBuilder().setNameFormat("job-exec").build(),
+          new ThreadPoolExecutor.CallerRunsPolicy());
+
   private final JobRunnableFactory jobHandlerFactory;
   private final long initialPollInterval;
   private final BackoffSupplier backoffSupplier;
@@ -146,7 +160,9 @@ public final class JobWorkerImpl implements JobWorker, Closeable {
             });
   }
 
-  /** @return an optional job poller if not already in use, otherwise an empty optional */
+  /**
+   * @return an optional job poller if not already in use, otherwise an empty optional
+   */
   private Optional<JobPoller> tryClaimJobPoller() {
     return Optional.ofNullable(claimableJobPoller.getAndSet(null));
   }
@@ -208,7 +224,7 @@ public final class JobWorkerImpl implements JobWorker, Closeable {
   }
 
   private void handleJob(final ActivatedJob job) {
-    executor.execute(jobHandlerFactory.create(job, this::handleJobFinished));
+    jobExecutorService.execute(jobHandlerFactory.create(job, this::handleJobFinished));
   }
 
   private void handleJobFinished() {
