@@ -34,6 +34,8 @@ jobs:
           secret_vault_secretId: ${{ secrets.VAULT_SECRET_ID }}
           secret_vault_address: ${{ secrets.VAULT_ADDR }}
           secret_vault_roleId: ${{ secrets.VAULT_ROLE_ID }}
+      - uses: ./.github/actions/build-zeebe
+        id: build-zeebe
       # Once we're on Go 1.18, use the official gorelease to do this
       - name: Check backwards compatibility
         working-directory: clients/go/
@@ -45,6 +47,12 @@ jobs:
             EXCLUDE="$EXCLUDE --exclude-package $PREFIX/$file"
           done
           gocompat compare --go1compat ${EXCLUDE} ./...
+      - uses: ./.github/actions/build-docker
+        id: build-docker
+        with:
+          repository: camunda/zeebe
+          version: current-test
+          distball: ${{ steps.build-zeebe.outputs.distball }}
       - name: Run Go tests
         working-directory: clients/go
         run: go test -mod=vendor -v ./...
