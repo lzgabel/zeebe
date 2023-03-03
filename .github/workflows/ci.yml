@@ -45,12 +45,6 @@ jobs:
             EXCLUDE="$EXCLUDE --exclude-package $PREFIX/$file"
           done
           gocompat compare --go1compat ${EXCLUDE} ./...
-      - uses: ./.github/actions/build-docker
-        id: build-docker
-        with:
-          repository: camunda/zeebe
-          version: current-test
-          distball: ${{ steps.build-zeebe.outputs.distball }}
       - name: Run Go tests
         working-directory: clients/go
         run: go test -mod=vendor -v ./...
