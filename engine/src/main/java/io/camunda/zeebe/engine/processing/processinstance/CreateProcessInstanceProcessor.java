@@ -137,6 +137,7 @@ public final class CreateProcessInstanceProcessor
 
     final var processInstance = initProcessInstanceRecord(process, processInstanceKey);
     if (record.startInstructions().isEmpty()) {
+      processInstance.setVariables(record.getVariablesBuffer());
       commandWriter.appendFollowUpCommand(
           processInstanceKey, ProcessInstanceIntent.ACTIVATE_ELEMENT, processInstance);
     } else {

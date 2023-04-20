@@ -48,6 +48,9 @@
             },
             "parentElementInstanceKey": {
               "type": "long"
+            },
+            "variables": {
+              "enabled": false
             }
           }
         }
