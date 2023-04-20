@@ -136,6 +136,7 @@ public final class CreateProcessInstanceProcessor
         record, process.getKey(), processInstanceKey, process.getBpmnProcessId());
 
     final var processInstance = initProcessInstanceRecord(process, processInstanceKey);
+    processInstance.setVariables(record.getVariablesBuffer());
     if (record.startInstructions().isEmpty()) {
       commandWriter.appendFollowUpCommand(
           processInstanceKey, ProcessInstanceIntent.ACTIVATE_ELEMENT, processInstance);

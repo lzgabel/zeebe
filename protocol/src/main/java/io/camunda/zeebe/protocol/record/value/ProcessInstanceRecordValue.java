@@ -16,7 +16,7 @@
 package io.camunda.zeebe.protocol.record.value;
 
 import io.camunda.zeebe.protocol.record.ImmutableProtocol;
-import io.camunda.zeebe.protocol.record.RecordValue;
+import io.camunda.zeebe.protocol.record.RecordValueWithVariables;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import org.immutables.value.Value;
 
@@ -27,7 +27,8 @@ import org.immutables.value.Value;
  */
 @Value.Immutable
 @ImmutableProtocol(builder = ImmutableProcessInstanceRecordValue.Builder.class)
-public interface ProcessInstanceRecordValue extends RecordValue, ProcessInstanceRelated {
+public interface ProcessInstanceRecordValue
+    extends RecordValueWithVariables, ProcessInstanceRelated {
   /**
    * @return the BPMN process id this process instance belongs to.
    */
