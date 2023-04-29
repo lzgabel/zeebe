@@ -114,4 +114,6 @@ public enum ZbColumnFamilies {
   // distribution
   PENDING_DISTRIBUTION,
   COMMAND_DISTRIBUTION_RECORD,
+
+  ACTIVATE_ELEMENT_INSTANCES,
 }

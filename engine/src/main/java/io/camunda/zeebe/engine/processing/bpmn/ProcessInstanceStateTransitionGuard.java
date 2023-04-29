@@ -9,14 +9,24 @@ package io.camunda.zeebe.engine.processing.bpmn;
 
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnStateBehavior;
 import io.camunda.zeebe.engine.processing.common.Failure;
+import io.camunda.zeebe.engine.processing.deployment.model.element.AbstractFlowElement;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableActivity;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableBoundaryEvent;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowElement;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowNode;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableProcess;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableSequenceFlow;
+import io.camunda.zeebe.engine.state.deployment.DeployedProcess;
 import io.camunda.zeebe.engine.state.instance.ElementInstance;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import io.camunda.zeebe.protocol.record.value.BpmnElementType;
 import io.camunda.zeebe.util.Either;
 import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Checks the preconditions of a state transition command.
@@ -48,7 +58,8 @@ public final class ProcessInstanceStateTransitionGuard {
       final BpmnElementContext context, final ExecutableFlowElement element) {
     return switch (context.getIntent()) {
       case ACTIVATE_ELEMENT -> hasActiveFlowScopeInstance(context)
-          .flatMap(ok -> canActivateParallelGateway(context, element));
+          .flatMap(ok -> canActivateParallelGateway(context, element))
+          .flatMap(ok -> canActivateInclusiveGateway(context, element));
       case COMPLETE_ELEMENT ->
       // an incident is resolved by writing a COMPLETE command when the element instance is in
       // state COMPLETING
@@ -171,17 +182,85 @@ public final class ProcessInstanceStateTransitionGuard {
     if (context.getBpmnElementType() != BpmnElementType.PARALLEL_GATEWAY) {
       return Either.right(null);
     } else {
+      System.out.println("调用 canActivateParallelGateway ");
       final var element = (ExecutableFlowNode) executableFlowElement;
       final int numberOfIncomingSequenceFlows = element.getIncoming().size();
       final int numberOfTakenSequenceFlows =
           stateBehavior.getNumberOfTakenSequenceFlows(context.getFlowScopeKey(), element.getId());
-      return numberOfTakenSequenceFlows >= numberOfIncomingSequenceFlows
+      final Either<String, ?> res = numberOfTakenSequenceFlows >= numberOfIncomingSequenceFlows
           ? Either.right(null)
           : Either.left(
               String.format(
                   "Expected to be able to activate parallel gateway '%s',"
                       + " but not all sequence flows have been taken.",
                   BufferUtil.bufferAsString(element.getId())));
+      System.out.println("看下是什么值: " + res.isRight() + " [numberOfTakenSequenceFlows: "
+          + numberOfTakenSequenceFlows + " numberOfIncomingSequenceFlows : "
+          + numberOfIncomingSequenceFlows + " ]" + (
+          numberOfTakenSequenceFlows >= numberOfIncomingSequenceFlows));
+      return res;
     }
+  }
+
+  private Either<String, ?> canActivateInclusiveGateway(
+      final BpmnElementContext context, final ExecutableFlowElement executableFlowElement) {
+    if (context.getBpmnElementType() != BpmnElementType.INCLUSIVE_GATEWAY) {
+      return Either.right(null);
+    } else {
+      final List<String> elementIds = stateBehavior.getActivateElementInstance(context);
+      final Optional<DeployedProcess> deployedProcess = stateBehavior.getProcess(
+          context.getProcessDefinitionKey());
+
+      boolean found = deployedProcess.map(process -> {
+        final var target = BufferUtil.bufferAsString(executableFlowElement.getId());
+        final List<String> sources = stateBehavior.getActivateElementInstance(context);
+        for (String source : sources) {
+          final boolean r = dfs(process, source, target);
+          if (r) {
+            return true;
+          }
+        }
+        return false;
+      }).orElse(false);
+
+      final var element = (ExecutableFlowNode) executableFlowElement;
+      System.out.println("!found : ======> " + !found);
+      Either<String, ?> res = !found
+          ? Either.right(null)
+          : Either.left(
+              String.format(
+                  "Expected to be able to activate inclusive gateway '%s',"
+                      + " but there are still sequence flows that have not been taken.",
+                  BufferUtil.bufferAsString(element.getId())));
+      return res;
+    }
+  }
+
+  public boolean dfs(DeployedProcess instance, String source, String target) {
+    if (StringUtils.equals(source, target)) {
+      return true;
+    }
+    ExecutableProcess process = instance.getProcess();
+    ExecutableFlowNode sourceNode = process.getElementById(source, ExecutableFlowNode.class);
+    List<ExecutableSequenceFlow> outgoingSequenceFlows = sourceNode.getOutgoing();
+    // 直接后继
+    for (ExecutableSequenceFlow sequenceFlow: outgoingSequenceFlows) {
+      String s = BufferUtil.bufferAsString(sequenceFlow.getTarget().getId());
+      if (dfs(instance, s, target)) {
+        return true;
+      }
+    }
+
+    // boundary
+    if (sourceNode instanceof ExecutableActivity) {
+      final List<ExecutableBoundaryEvent> boundaryEvents = ((ExecutableActivity) sourceNode).getBoundaryEvents();
+      for (ExecutableBoundaryEvent boundaryEvent: boundaryEvents) {
+        final String s = BufferUtil.bufferAsString(boundaryEvent.getId());
+        if (dfs(instance, s, target)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 }

@@ -9,9 +9,14 @@ package io.camunda.zeebe.engine.state.deployment;
 
 import static io.camunda.zeebe.util.buffer.BufferUtil.wrapString;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.in;
 
 import io.camunda.zeebe.engine.processing.deployment.model.element.AbstractFlowElement;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableActivity;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableBoundaryEvent;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableFlowNode;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableProcess;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableSequenceFlow;
 import io.camunda.zeebe.engine.state.mutable.MutableProcessState;
 import io.camunda.zeebe.engine.state.mutable.MutableProcessingState;
 import io.camunda.zeebe.engine.util.ProcessingStateRule;
@@ -21,8 +26,16 @@ import io.camunda.zeebe.protocol.Protocol;
 import io.camunda.zeebe.protocol.impl.record.value.deployment.DeploymentRecord;
 import io.camunda.zeebe.protocol.impl.record.value.deployment.ProcessRecord;
 import io.camunda.zeebe.stream.api.state.KeyGenerator;
+import io.camunda.zeebe.util.StringUtil;
 import io.camunda.zeebe.util.buffer.BufferUtil;
+import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Rule;
@@ -61,10 +74,43 @@ public final class ProcessStateTest {
     processState.putProcess(processRecord.getKey(), processRecord);
 
     // when
-    final long processVersion = processState.getProcessVersion("processId");
+    final long processVersion = processState.getProcessVersion("test");
+
+    final DeployedProcess instance = processState.getLatestProcessVersionByProcessId(
+        wrapString("test"));
 
     // then
-    assertThat(processVersion).isEqualTo(1L);
+    Set<String> s = new HashSet<>();
+    final boolean dfs = dfs(instance, "Gateway_1k9stn9", "Gateway_1lz8zs8");
+    System.out.println(dfs);
+  }
+
+  public boolean dfs(DeployedProcess instance, String source, String target) {
+    if (StringUtils.equals(source, target)) {
+      return true;
+    }
+    ExecutableProcess process = instance.getProcess();
+    ExecutableFlowNode sourceNode = process.getElementById(source, ExecutableFlowNode.class);
+    List<ExecutableSequenceFlow> outgoingSequenceFlows = sourceNode.getOutgoing();
+    // 直接后继
+    for (ExecutableSequenceFlow sequenceFlow: outgoingSequenceFlows) {
+      String s = BufferUtil.bufferAsString(sequenceFlow.getTarget().getId());
+        if (dfs(instance, s, target)) {
+          return true;
+        }
+    }
+
+    // boundary
+    if (sourceNode instanceof ExecutableActivity) {
+      final List<ExecutableBoundaryEvent> boundaryEvents = ((ExecutableActivity) sourceNode).getBoundaryEvents();
+      for (ExecutableBoundaryEvent boundaryEvent: boundaryEvents) {
+        final String s = BufferUtil.bufferAsString(boundaryEvent.getId());
+          if (dfs(instance, s, target)) {
+            return true;
+          }
+        }
+    }
+    return false;
   }
 
   @Test
@@ -558,7 +604,7 @@ public final class ProcessStateTest {
   }
 
   public static ProcessRecord creatingProcessRecord(final MutableProcessingState processingState) {
-    return creatingProcessRecord(processingState, "processId");
+    return creatingProcessRecord(processingState, "test");
   }
 
   public static ProcessRecord creatingProcessRecord(
@@ -570,16 +616,95 @@ public final class ProcessStateTest {
 
   public static ProcessRecord creatingProcessRecord(
       final MutableProcessingState processingState, final String processId, final int version) {
-    final BpmnModelInstance modelInstance =
-        Bpmn.createExecutableProcess(processId)
-            .startEvent()
-            .serviceTask("test", task -> task.zeebeJobType("type"))
-            .endEvent()
-            .done();
+    String v =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<bpmn:definitions xmlns:bpmn=\"http://www.omg.org/spec/BPMN/20100524/MODEL\" xmlns:bpmndi=\"http://www.omg.org/spec/BPMN/20100524/DI\" xmlns:dc=\"http://www.omg.org/spec/DD/20100524/DC\" xmlns:di=\"http://www.omg.org/spec/DD/20100524/DI\" xmlns:modeler=\"http://camunda.org/schema/modeler/1.0\" id=\"Definitions_0vrbgq3\" targetNamespace=\"http://bpmn.io/schema/bpmn\" exporter=\"Camunda Modeler\" exporterVersion=\"5.6.0\" modeler:executionPlatform=\"Camunda Cloud\" modeler:executionPlatformVersion=\"8.1.0\">\n"
+            + "  <bpmn:process id=\"test\" isExecutable=\"true\">\n"
+            + "    <bpmn:startEvent id=\"StartEvent_1\">\n"
+            + "      <bpmn:outgoing>Flow_16a39h8</bpmn:outgoing>\n"
+            + "    </bpmn:startEvent>\n"
+            + "    <bpmn:sequenceFlow id=\"Flow_16a39h8\" sourceRef=\"StartEvent_1\" targetRef=\"Gateway_1k9stn9\" />\n"
+            + "    <bpmn:endEvent id=\"Event_0tm1xfl\">\n"
+            + "      <bpmn:incoming>Flow_02oksje</bpmn:incoming>\n"
+            + "    </bpmn:endEvent>\n"
+            + "    <bpmn:sequenceFlow id=\"Flow_02oksje\" sourceRef=\"Gateway_1lz8zs8\" targetRef=\"Event_0tm1xfl\" />\n"
+            + "    <bpmn:parallelGateway id=\"Gateway_1lz8zs8\">\n"
+            + "      <bpmn:incoming>Flow_10rz43k</bpmn:incoming>\n"
+            + "      <bpmn:incoming>Flow_0yhcd30</bpmn:incoming>\n"
+            + "      <bpmn:outgoing>Flow_02oksje</bpmn:outgoing>\n"
+            + "    </bpmn:parallelGateway>\n"
+            + "    <bpmn:parallelGateway id=\"Gateway_1k9stn9\">\n"
+            + "      <bpmn:incoming>Flow_16a39h8</bpmn:incoming>\n"
+            + "      <bpmn:outgoing>Flow_10wmvh7</bpmn:outgoing>\n"
+            + "    </bpmn:parallelGateway>\n"
+            + "    <bpmn:task id=\"Activity_0h5uzs0\">\n"
+            + "      <bpmn:outgoing>Flow_10rz43k</bpmn:outgoing>\n"
+            + "    </bpmn:task>\n"
+            + "    <bpmn:sequenceFlow id=\"Flow_10rz43k\" sourceRef=\"Activity_0h5uzs0\" targetRef=\"Gateway_1lz8zs8\" />\n"
+            + "    <bpmn:task id=\"Activity_124t5kb\">\n"
+            + "      <bpmn:incoming>Flow_10wmvh7</bpmn:incoming>\n"
+            + "    </bpmn:task>\n"
+            + "    <bpmn:sequenceFlow id=\"Flow_10wmvh7\" sourceRef=\"Gateway_1k9stn9\" targetRef=\"Activity_124t5kb\" />\n"
+            + "    <bpmn:sequenceFlow id=\"Flow_0yhcd30\" sourceRef=\"Event_0508d1l\" targetRef=\"Gateway_1lz8zs8\" />\n"
+            + "    <bpmn:boundaryEvent id=\"Event_0508d1l\" attachedToRef=\"Activity_124t5kb\">\n"
+            + "      <bpmn:outgoing>Flow_0yhcd30</bpmn:outgoing>\n"
+            + "    </bpmn:boundaryEvent>\n"
+            + "  </bpmn:process>\n"
+            + "  <bpmndi:BPMNDiagram id=\"BPMNDiagram_1\">\n"
+            + "    <bpmndi:BPMNPlane id=\"BPMNPlane_1\" bpmnElement=\"test\">\n"
+            + "      <bpmndi:BPMNShape id=\"_BPMNShape_StartEvent_2\" bpmnElement=\"StartEvent_1\">\n"
+            + "        <dc:Bounds x=\"179\" y=\"319\" width=\"36\" height=\"36\" />\n"
+            + "      </bpmndi:BPMNShape>\n"
+            + "      <bpmndi:BPMNShape id=\"Event_0tm1xfl_di\" bpmnElement=\"Event_0tm1xfl\">\n"
+            + "        <dc:Bounds x=\"842\" y=\"319\" width=\"36\" height=\"36\" />\n"
+            + "      </bpmndi:BPMNShape>\n"
+            + "      <bpmndi:BPMNShape id=\"Gateway_047rtn4_di\" bpmnElement=\"Gateway_1lz8zs8\">\n"
+            + "        <dc:Bounds x=\"645\" y=\"312\" width=\"50\" height=\"50\" />\n"
+            + "      </bpmndi:BPMNShape>\n"
+            + "      <bpmndi:BPMNShape id=\"Gateway_1tn9g96_di\" bpmnElement=\"Gateway_1k9stn9\">\n"
+            + "        <dc:Bounds x=\"265\" y=\"312\" width=\"50\" height=\"50\" />\n"
+            + "      </bpmndi:BPMNShape>\n"
+            + "      <bpmndi:BPMNShape id=\"Activity_0h5uzs0_di\" bpmnElement=\"Activity_0h5uzs0\">\n"
+            + "        <dc:Bounds x=\"400\" y=\"80\" width=\"100\" height=\"80\" />\n"
+            + "      </bpmndi:BPMNShape>\n"
+            + "      <bpmndi:BPMNShape id=\"Activity_124t5kb_di\" bpmnElement=\"Activity_124t5kb\">\n"
+            + "        <dc:Bounds x=\"370\" y=\"297\" width=\"100\" height=\"80\" />\n"
+            + "      </bpmndi:BPMNShape>\n"
+            + "      <bpmndi:BPMNShape id=\"Event_0vyj9ys_di\" bpmnElement=\"Event_0508d1l\">\n"
+            + "        <dc:Bounds x=\"412\" y=\"359\" width=\"36\" height=\"36\" />\n"
+            + "      </bpmndi:BPMNShape>\n"
+            + "      <bpmndi:BPMNEdge id=\"Flow_16a39h8_di\" bpmnElement=\"Flow_16a39h8\">\n"
+            + "        <di:waypoint x=\"215\" y=\"337\" />\n"
+            + "        <di:waypoint x=\"265\" y=\"337\" />\n"
+            + "      </bpmndi:BPMNEdge>\n"
+            + "      <bpmndi:BPMNEdge id=\"Flow_02oksje_di\" bpmnElement=\"Flow_02oksje\">\n"
+            + "        <di:waypoint x=\"695\" y=\"337\" />\n"
+            + "        <di:waypoint x=\"842\" y=\"337\" />\n"
+            + "      </bpmndi:BPMNEdge>\n"
+            + "      <bpmndi:BPMNEdge id=\"Flow_10rz43k_di\" bpmnElement=\"Flow_10rz43k\">\n"
+            + "        <di:waypoint x=\"500\" y=\"120\" />\n"
+            + "        <di:waypoint x=\"670\" y=\"120\" />\n"
+            + "        <di:waypoint x=\"670\" y=\"312\" />\n"
+            + "      </bpmndi:BPMNEdge>\n"
+            + "      <bpmndi:BPMNEdge id=\"Flow_10wmvh7_di\" bpmnElement=\"Flow_10wmvh7\">\n"
+            + "        <di:waypoint x=\"315\" y=\"337\" />\n"
+            + "        <di:waypoint x=\"370\" y=\"337\" />\n"
+            + "      </bpmndi:BPMNEdge>\n"
+            + "      <bpmndi:BPMNEdge id=\"Flow_0yhcd30_di\" bpmnElement=\"Flow_0yhcd30\">\n"
+            + "        <di:waypoint x=\"430\" y=\"395\" />\n"
+            + "        <di:waypoint x=\"430\" y=\"460\" />\n"
+            + "        <di:waypoint x=\"670\" y=\"460\" />\n"
+            + "        <di:waypoint x=\"670\" y=\"362\" />\n"
+            + "      </bpmndi:BPMNEdge>\n"
+            + "    </bpmndi:BPMNPlane>\n"
+            + "  </bpmndi:BPMNDiagram>\n"
+            + "</bpmn:definitions>\n";
+    final var process = Bpmn.readModelFromStream(new BufferedInputStream(new ByteArrayInputStream(v.getBytes(
+        StandardCharsets.UTF_8))));
 
     final ProcessRecord processRecord = new ProcessRecord();
     final String resourceName = "process.bpmn";
-    final var resource = wrapString(Bpmn.convertToString(modelInstance));
+    final var resource = wrapString(Bpmn.convertToString(process));
     final var checksum = wrapString("checksum");
 
     final KeyGenerator keyGenerator = processingState.getKeyGenerator();
@@ -588,7 +713,7 @@ public final class ProcessStateTest {
     processRecord
         .setResourceName(wrapString(resourceName))
         .setResource(resource)
-        .setBpmnProcessId(BufferUtil.wrapString(processId))
+        .setBpmnProcessId(BufferUtil.wrapString("test"))
         .setVersion(version)
         .setKey(key)
         .setResourceName(resourceName)

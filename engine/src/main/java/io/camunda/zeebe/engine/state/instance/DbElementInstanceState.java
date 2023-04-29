@@ -23,7 +23,9 @@ import io.camunda.zeebe.protocol.ZbColumnFamilies;
 import io.camunda.zeebe.protocol.impl.record.value.processinstance.ProcessInstanceRecord;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import org.agrona.DirectBuffer;
@@ -49,7 +51,7 @@ public final class DbElementInstanceState implements MutableElementInstanceState
   private final DbString gatewayElementId = new DbString();
   private final DbString sequenceFlowElementId = new DbString();
   private final DbInt numberOfTakenSequenceFlows = new DbInt();
-  private final DbCompositeKey<DbLong, DbString> flowScopeKeyAndElementId;
+  private final DbCompositeKey<DbLong, DbString> flowScopeKeyAndGatewayElementId;
   private final DbCompositeKey<DbCompositeKey<DbLong, DbString>, DbString>
       numberOfTakenSequenceFlowsKey;
   /**
@@ -57,6 +59,17 @@ public final class DbElementInstanceState implements MutableElementInstanceState
    */
   private final ColumnFamily<DbCompositeKey<DbCompositeKey<DbLong, DbString>, DbString>, DbInt>
       numberOfTakenSequenceFlowsColumnFamily;
+
+  private final DbString elementId = new DbString();
+  private final DbCompositeKey<DbLong, DbString> flowScopeKeyAndElementId;
+
+  private final DbCompositeKey<DbCompositeKey<DbLong, DbString>, DbLong>
+      activateElementInstance;
+  /**
+   * [flow scope key | element id | element instance id] => DbNil
+   */
+  private final ColumnFamily<DbCompositeKey<DbCompositeKey<DbLong, DbString>, DbLong>, DbNil>
+      flowScopeKeyAndElementIdColumnFamily;
 
   private final MutableVariableState variableState;
 
@@ -101,15 +114,25 @@ public final class DbElementInstanceState implements MutableElementInstanceState
             elementInstanceKey,
             awaitResultMetadata);
 
-    flowScopeKeyAndElementId = new DbCompositeKey<>(flowScopeKey, gatewayElementId);
+    flowScopeKeyAndGatewayElementId = new DbCompositeKey<>(flowScopeKey, gatewayElementId);
     numberOfTakenSequenceFlowsKey =
-        new DbCompositeKey<>(flowScopeKeyAndElementId, sequenceFlowElementId);
+        new DbCompositeKey<>(flowScopeKeyAndGatewayElementId, sequenceFlowElementId);
     numberOfTakenSequenceFlowsColumnFamily =
         zeebeDb.createColumnFamily(
             ZbColumnFamilies.NUMBER_OF_TAKEN_SEQUENCE_FLOWS,
             transactionContext,
             numberOfTakenSequenceFlowsKey,
             numberOfTakenSequenceFlows);
+
+    flowScopeKeyAndElementId = new DbCompositeKey<>(flowScopeKey, elementId);
+    activateElementInstance =
+        new DbCompositeKey<>(flowScopeKeyAndElementId, elementInstanceKey);
+    flowScopeKeyAndElementIdColumnFamily =
+        zeebeDb.createColumnFamily(
+            ZbColumnFamilies.ACTIVATE_ELEMENT_INSTANCES,
+            transactionContext,
+            activateElementInstance,
+            DbNil.INSTANCE);
   }
 
   @Override
@@ -144,6 +167,8 @@ public final class DbElementInstanceState implements MutableElementInstanceState
     if (instance == null) {
       return;
     }
+
+
     final long parent = instance.getParentKey();
     parentKey.inner().wrapLong(parent);
     parentChildColumnFamily.deleteIfExists(parentChildKey);
@@ -151,6 +176,10 @@ public final class DbElementInstanceState implements MutableElementInstanceState
     variableState.removeScope(key);
     awaitProcessInstanceResultMetadataColumnFamily.deleteIfExists(elementInstanceKey);
     removeNumberOfTakenSequenceFlows(key);
+    flowScopeKey.wrapLong(instance.getValue().getFlowScopeKey());
+    elementId.wrapBuffer(instance.getValue().getElementIdBuffer());
+    flowScopeKeyAndElementIdColumnFamily.deleteIfExists(activateElementInstance);
+    System.out.println("当前还剩余：" + getActivateElement(instance.getValue().getFlowScopeKey()));
 
     if (parent > 0) {
       elementInstanceKey.wrapLong(parent);
@@ -173,6 +202,13 @@ public final class DbElementInstanceState implements MutableElementInstanceState
     elementInstanceColumnFamily.insert(elementInstanceKey, instance);
     parentChildColumnFamily.insert(parentChildKey, DbNil.INSTANCE);
     variableState.createScope(elementInstanceKey.getValue(), parentKey.inner().getValue());
+
+    final var record = instance.getValue();
+    this.flowScopeKey.wrapLong(record.getFlowScopeKey());
+    this.elementId.wrapBuffer(record.getElementIdBuffer());
+
+    flowScopeKeyAndElementIdColumnFamily.insert(activateElementInstance, DbNil.INSTANCE);
+    //System.out.println("新增后: " + getActivateElement(instance.getValue().getFlowScopeKey()));
   }
 
   @Override
@@ -225,7 +261,7 @@ public final class DbElementInstanceState implements MutableElementInstanceState
     this.gatewayElementId.wrapBuffer(gatewayElementId);
 
     numberOfTakenSequenceFlowsColumnFamily.whileEqualPrefix(
-        flowScopeKeyAndElementId,
+        flowScopeKeyAndGatewayElementId,
         (key, number) -> {
           final var newValue = number.getValue() - 1;
           if (newValue > 0) {
@@ -301,12 +337,29 @@ public final class DbElementInstanceState implements MutableElementInstanceState
 
     final var count = new MutableInteger(0);
     numberOfTakenSequenceFlowsColumnFamily.whileEqualPrefix(
-        flowScopeKeyAndElementId,
+        flowScopeKeyAndGatewayElementId,
         (key, number) -> {
           count.increment();
         });
 
     return count.get();
+  }
+
+  @Override
+  public List<String> getActivateElement(final long flowScopeKey) {
+    this.flowScopeKey.wrapLong(flowScopeKey);
+    Set<String> elementIds = new HashSet<>();
+//    System.out.println("----- 输出测试 before -----");
+//    flowScopeKeyAndElementIdColumnFamily.forEach(
+//        (key, number) -> System.out.println("[ " + key.first().first().toString() + " : " +key.first().second().toString() + " ] : " + key.second().toString()));
+//
+//    System.out.println("----- 输出测试 end -----");
+    flowScopeKeyAndElementIdColumnFamily.whileEqualPrefix(
+        this.flowScopeKey,
+        (key, number) -> {
+          elementIds.add(key.first().second().toString());
+        });
+    return new ArrayList<>(elementIds);
   }
 
   private ElementInstance copyElementInstance(final ElementInstance elementInstance) {

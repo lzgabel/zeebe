@@ -48,4 +48,6 @@ public interface ElementInstanceState {
    * @return the number of taken sequence flows of the given gateway
    */
   int getNumberOfTakenSequenceFlows(final long flowScopeKey, final DirectBuffer gatewayElementId);
+
+  List<String> getActivateElement(final long flowScopeKey);
 }

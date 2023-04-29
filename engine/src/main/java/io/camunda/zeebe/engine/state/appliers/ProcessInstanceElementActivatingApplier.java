@@ -24,9 +24,11 @@ import io.camunda.zeebe.engine.state.mutable.MutableEventScopeInstanceState;
 import io.camunda.zeebe.protocol.impl.record.value.processinstance.ProcessInstanceRecord;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import io.camunda.zeebe.protocol.record.value.BpmnElementType;
+import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 
 /** Applies state changes for `ProcessInstance:Element_Activating` */
 final class ProcessInstanceElementActivatingApplier
@@ -202,7 +204,9 @@ final class ProcessInstanceElementActivatingApplier
       final ElementInstance flowScopeInstance) {
     // Currently the inclusive gateway can only have one incoming sequence flow.
 
-    flowScopeInstance.decrementActiveSequenceFlows();
+    final var size = flowScopeInstance.getActiveSequenceFlows();
+    LongStream.range(0, size).forEach(i -> flowScopeInstance.decrementActiveSequenceFlows());
+    System.out.println("-----taken --- size: " + size);
     elementInstanceState.updateInstance(flowScopeInstance);
   }
 

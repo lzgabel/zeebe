@@ -38,9 +38,9 @@ public class InclusiveGatewayValidator implements ModelElementValidator<Inclusiv
         validationResultCollector.addError(0, "Default flow must start at gateway");
       }
     }
-    if (size > 1) {
-      validationResultCollector.addError(
-          0, "Currently the inclusive gateway can only have one incoming sequence flow");
-    }
+    //    if (size > 1) {
+    //      validationResultCollector.addError(
+    //          0, "Currently the inclusive gateway can only have one incoming sequence flow");
+    //    }
   }
 }

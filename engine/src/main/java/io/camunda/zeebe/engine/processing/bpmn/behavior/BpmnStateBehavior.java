@@ -50,6 +50,10 @@ public final class BpmnStateBehavior {
     return elementInstanceState.getInstance(elementInstanceKey);
   }
 
+  public List<String> getActivateElementInstance(final BpmnElementContext context) {
+    return elementInstanceState.getActivateElement(context.getFlowScopeKey());
+  }
+
   public JobState getJobState() {
     return jobState;
   }
