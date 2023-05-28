@@ -18,6 +18,7 @@ package io.camunda.zeebe.model.bpmn.builder;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.IntermediateThrowEvent;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeMessageDefinition;
 
 /**
  * @author Sebastian Menski
@@ -31,5 +32,99 @@ public abstract class AbstractIntermediateThrowEventBuilder<
       final IntermediateThrowEvent element,
       final Class<?> selfType) {
     super(modelInstance, element, selfType);
+  }
+
+  /**
+   * Sets a static name of the message.
+   *
+   * @param messageName the name of the message
+   * @return the builder object
+   */
+  public B zeebeMessageName(final String messageName) {
+    final ZeebeMessageDefinition messageDefinition =
+        getCreateSingleExtensionElement(ZeebeMessageDefinition.class);
+    messageDefinition.setMessageName(messageName);
+    return myself;
+  }
+
+  /**
+   * Sets a dynamic name of the message. The name is retrieved from the given expression.
+   *
+   * @param messageNameExpression the expression for the name of the message
+   * @return the builder object
+   */
+  public B zeebeMessageNameExpression(final String messageNameExpression) {
+    return zeebeMessageName(asZeebeExpression(messageNameExpression));
+  }
+
+  /**
+   * Sets a static id of the message.
+   *
+   * @param messageId the id of the message
+   * @return the builder object
+   */
+  public B zeebeMessageId(final String messageId) {
+    final ZeebeMessageDefinition messageDefinition =
+        getCreateSingleExtensionElement(ZeebeMessageDefinition.class);
+    messageDefinition.setMessageId(messageId);
+    return myself;
+  }
+
+  /**
+   * Sets a dynamic id of the message. The id is retrieved from the given expression.
+   *
+   * @param messageIdExpression the expression for the id of the message
+   * @return the builder object
+   */
+  public B zeebeMessageIdExpression(final String messageIdExpression) {
+    return zeebeMessageId(asZeebeExpression(messageIdExpression));
+  }
+
+  /**
+   * Sets a static correlation key of the message.
+   *
+   * @param correlationKey the correlation key of the message
+   * @return the builder object
+   */
+  public B zeebeCorrelationKey(String correlationKey) {
+    final ZeebeMessageDefinition messageDefinition =
+        getCreateSingleExtensionElement(ZeebeMessageDefinition.class);
+    messageDefinition.setCorrelationKey(correlationKey);
+    return myself;
+  }
+
+  /**
+   * Sets a dynamic correlation key of the message. The correlation key is retrieved from the given
+   * expression.
+   *
+   * @param correlationKeyExpression the expression for the correlation key of the message
+   * @return the builder object
+   */
+  public B zeebeCorrelationKeyExpression(final String correlationKeyExpression) {
+    return zeebeCorrelationKey(asZeebeExpression(correlationKeyExpression));
+  }
+
+  /**
+   * Sets a static time to live of the message.
+   *
+   * @param timeToLive the correlation key of the message
+   * @return the builder object
+   */
+  public B zeebeTimeToLive(String timeToLive) {
+    final ZeebeMessageDefinition messageDefinition =
+        getCreateSingleExtensionElement(ZeebeMessageDefinition.class);
+    messageDefinition.setTimeToLive(timeToLive);
+    return myself;
+  }
+
+  /**
+   * Sets a dynamic time to live of the message. The time to live is retrieved from the given
+   * expression.
+   *
+   * @param timeToLiveExpression the expression for the time to live of the message
+   * @return the builder object
+   */
+  public B zeebeTimeToLiveExpression(final String timeToLiveExpression) {
+    return zeebeTimeToLive(asZeebeExpression(timeToLiveExpression));
   }
 }
