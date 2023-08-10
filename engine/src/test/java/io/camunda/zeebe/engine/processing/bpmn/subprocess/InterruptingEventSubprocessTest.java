@@ -24,6 +24,7 @@ import io.camunda.zeebe.protocol.record.intent.JobIntent;
 import io.camunda.zeebe.protocol.record.intent.MessageSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
 import io.camunda.zeebe.protocol.record.intent.ProcessMessageSubscriptionIntent;
+import io.camunda.zeebe.protocol.record.intent.SignalSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.TimerIntent;
 import io.camunda.zeebe.protocol.record.value.BpmnElementType;
 import io.camunda.zeebe.protocol.record.value.JobBatchRecordValue;
@@ -53,6 +54,8 @@ public class InterruptingEventSubprocessTest {
   private static final String MESSAGE_CORRELATION_KEY = "123";
 
   private static String messageName;
+
+  private static String signalName;
 
   @Rule public final BrokerClassRuleHelper helper = new BrokerClassRuleHelper();
 
@@ -121,6 +124,20 @@ public class InterruptingEventSubprocessTest {
             key ->
                 ENGINE.job().ofInstance(key).withType(JOB_TYPE).withErrorCode("ERROR").throwError())
       },
+      {
+          "signal",
+          eventSubprocess(s -> s.signal(b -> b.name(signalName))),
+          eventTrigger(
+              key -> {
+                RecordingExporter.signalSubscriptionRecords(SignalSubscriptionIntent.CREATED)
+                    .withSignalName(signalName)
+                    .withCatchEventId("event_sub_start")
+                    .limit(1)
+                    .await();
+
+                ENGINE.signal().withSignalName(signalName).broadcast();
+              }),
+      },
     };
   }
 
@@ -136,6 +153,7 @@ public class InterruptingEventSubprocessTest {
   @Before
   public void init() {
     messageName = helper.getMessageName();
+    signalName = helper.getSignalName();
   }
 
   @Test

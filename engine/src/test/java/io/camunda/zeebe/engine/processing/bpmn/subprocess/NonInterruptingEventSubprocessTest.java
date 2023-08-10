@@ -20,6 +20,7 @@ import io.camunda.zeebe.protocol.record.Record;
 import io.camunda.zeebe.protocol.record.intent.JobIntent;
 import io.camunda.zeebe.protocol.record.intent.MessageSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.ProcessInstanceIntent;
+import io.camunda.zeebe.protocol.record.intent.SignalSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.TimerIntent;
 import io.camunda.zeebe.protocol.record.value.BpmnElementType;
 import io.camunda.zeebe.protocol.record.value.JobBatchRecordValue;
@@ -49,6 +50,7 @@ public class NonInterruptingEventSubprocessTest {
   private static final String CORRELATION_KEY = "123";
 
   private static String messageName;
+  private static String signalName;
 
   @Rule public final BrokerClassRuleHelper helper = new BrokerClassRuleHelper();
 
@@ -132,6 +134,18 @@ public class NonInterruptingEventSubprocessTest {
             }),
         true
       },
+      {
+        "signal",
+        eventSubprocess(s -> s.signal(b -> b.name(signalName))),
+        eventTrigger(
+            key -> {
+              RecordingExporter.signalSubscriptionRecords(SignalSubscriptionIntent.CREATED)
+                  .withSignalName(signalName)
+                  .withCatchEventId("event_sub_start")
+                  .await();
+            }),
+        true
+      },
     };
   }
 
@@ -147,6 +161,7 @@ public class NonInterruptingEventSubprocessTest {
   @Before
   public void init() {
     messageName = helper.getMessageName();
+    signalName = helper.getSignalName();
     correlationKey = String.format("%s-%s", testName, CORRELATION_KEY);
   }
 
