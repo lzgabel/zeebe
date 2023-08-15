@@ -51,6 +51,8 @@ const (
 	Podman        = "podman"
 	ReaperDefault = "reaper_default" // Default network name when bridge is not available
 	packagePath   = "github.com/testcontainers/testcontainers-go"
+
+	logStoppedForOutOfSyncMessage = "Stopping log consumer: Headers out of sync"
 )
 
 // DockerContainer represents a container started using Docker
@@ -191,22 +193,10 @@ func (c *DockerContainer) Start(ctx context.Context) error {
 		return err
 	}
 
-	shortID := c.ID[:12]
-
 	if err := c.provider.client.ContainerStart(ctx, c.ID, types.ContainerStartOptions{}); err != nil {
 		return err
 	}
 	defer c.provider.Close()
-
-	// if a Wait Strategy has been specified, wait before returning
-	if c.WaitingFor != nil {
-		c.logger.Printf("🚧 Waiting for container id %s image: %s", shortID, c.Image)
-		if err := c.WaitingFor.WaitUntilReady(ctx, c); err != nil {
-			return err
-		}
-	}
-
-	c.isRunning = true
 
 	err = c.startedHook(ctx)
 	if err != nil {
@@ -255,6 +245,14 @@ func (c *DockerContainer) Stop(ctx context.Context, timeout *time.Duration) erro
 
 // Terminate is used to kill the container. It is usually triggered by as defer function.
 func (c *DockerContainer) Terminate(ctx context.Context) error {
+	select {
+	// close reaper if it was created
+	case c.terminationSignal <- true:
+	default:
+	}
+
+	defer c.provider.client.Close()
+
 	err := c.terminatingHook(ctx)
 	if err != nil {
 		return err
@@ -265,11 +263,6 @@ func (c *DockerContainer) Terminate(ctx context.Context) error {
 		return err
 	}
 
-	select {
-	// close reaper if it was created
-	case c.terminationSignal <- true:
-	default:
-	}
 	err = c.provider.client.ContainerRemove(ctx, c.GetContainerID(), types.ContainerRemoveOptions{
 		RemoveVolumes: true,
 		Force:         true,
@@ -293,10 +286,6 @@ func (c *DockerContainer) Terminate(ctx context.Context) error {
 		}
 	}
 
-	if err := c.provider.client.Close(); err != nil {
-		return err
-	}
-
 	c.sessionID = uuid.UUID{}
 	c.isRunning = false
 	return nil
@@ -304,22 +293,22 @@ func (c *DockerContainer) Terminate(ctx context.Context) error {
 
 // update container raw info
 func (c *DockerContainer) inspectRawContainer(ctx context.Context) (*types.ContainerJSON, error) {
+	defer c.provider.Close()
 	inspect, err := c.provider.client.ContainerInspect(ctx, c.ID)
 	if err != nil {
 		return nil, err
 	}
-	defer c.provider.Close()
 
 	c.raw = &inspect
 	return c.raw, nil
 }
 
 func (c *DockerContainer) inspectContainer(ctx context.Context) (*types.ContainerJSON, error) {
+	defer c.provider.Close()
 	inspect, err := c.provider.client.ContainerInspect(ctx, c.ID)
 	if err != nil {
 		return nil, err
 	}
-	defer c.provider.Close()
 
 	return &inspect, nil
 }
@@ -665,7 +654,7 @@ func (c *DockerContainer) StartLogProducer(ctx context.Context) error {
 				return
 			default:
 				h := make([]byte, 8)
-				_, err := r.Read(h)
+				_, err := io.ReadFull(r, h)
 				if err != nil {
 					// proper type matching requires https://go-review.googlesource.com/c/go/+/250357/ (go 1.16)
 					if strings.Contains(err.Error(), "use of closed network connection") {
@@ -673,9 +662,13 @@ func (c *DockerContainer) StartLogProducer(ctx context.Context) error {
 						since = fmt.Sprintf("%d.%09d", now.Unix(), int64(now.Nanosecond()))
 						goto BEGIN
 					}
-					// this explicitly ignores errors
-					// because we want to keep procesing even if one of our reads fails
-					continue
+					if errors.Is(err, context.DeadlineExceeded) {
+						// Probably safe to continue here
+						continue
+					}
+					_, _ = fmt.Fprintf(os.Stderr, "container log error: %+v. %s", err, logStoppedForOutOfSyncMessage)
+					// if we would continue here, the next header-read will result into random data...
+					return
 				}
 
 				count := binary.BigEndian.Uint32(h[4:])
@@ -693,11 +686,17 @@ func (c *DockerContainer) StartLogProducer(ctx context.Context) error {
 				logTypes := []string{"", StdoutLog, StderrLog}
 
 				b := make([]byte, count)
-				_, err = r.Read(b)
+				_, err = io.ReadFull(r, b)
 				if err != nil {
 					// TODO: add-logger: use logger to log out this error
 					_, _ = fmt.Fprintf(os.Stderr, "error occurred reading log with known length %s", err.Error())
-					continue
+					if errors.Is(err, context.DeadlineExceeded) {
+						// Probably safe to continue here
+						continue
+					}
+					// we can not continue here as the next read most likely will not be the next header
+					_, _ = fmt.Fprintln(os.Stderr, logStoppedForOutOfSyncMessage)
+					return
 				}
 				for _, c := range c.consumers {
 					c.Accept(Log{
@@ -739,13 +738,9 @@ func (n *DockerNetwork) Remove(ctx context.Context) error {
 	default:
 	}
 
-	err := n.provider.client.NetworkRemove(ctx, n.ID)
-	if err != nil {
-		return err
-	}
 	defer n.provider.Close()
 
-	return nil
+	return n.provider.client.NetworkRemove(ctx, n.ID)
 }
 
 // DockerProvider implements the ContainerProvider interface
@@ -779,43 +774,7 @@ func (p *DockerProvider) SetClient(c client.APIClient) {
 var _ ContainerProvider = (*DockerProvider)(nil)
 
 func NewDockerClient() (cli *client.Client, err error) {
-	tcConfig := ReadConfig()
-	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
-
-	if tcConfig.Host != "" {
-		opts = append(opts, client.WithHost(tcConfig.Host))
-
-		// For further information, read https://docs.docker.com/engine/security/protect-access/.
-		if tcConfig.TLSVerify == 1 {
-			caCertPath := filepath.Join(tcConfig.CertPath, "ca.pem")
-			certPath := filepath.Join(tcConfig.CertPath, "cert.pem")
-			keyPath := filepath.Join(tcConfig.CertPath, "key.pem")
-
-			opts = append(opts, client.WithTLSClientConfig(caCertPath, certPath, keyPath))
-		}
-	}
-
-	opts = append(opts, client.WithHTTPHeaders(
-		map[string]string{
-			"x-tc-sid": testcontainerssession.String(),
-		}),
-	)
-
-	cli, err = client.NewClientWithOpts(opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err = cli.Ping(context.Background()); err != nil {
-		// Fallback to environment.
-		cli, err = testcontainersdocker.NewClient(context.Background())
-		if err != nil {
-			return nil, err
-		}
-	}
-	defer cli.Close()
-
-	return cli, nil
+	return testcontainersdocker.NewClient(context.Background())
 }
 
 // BuildImage will build and image from context and Dockerfile, then return the tag
@@ -928,7 +887,7 @@ func (p *DockerProvider) CreateContainer(ctx context.Context, req ContainerReque
 		opt(&reaperOpts)
 	}
 
-	tcConfig := p.Config()
+	tcConfig := p.Config().Config
 
 	var termSignal chan bool
 	// the reaper does not need to start a reaper for itself
@@ -948,6 +907,13 @@ func (p *DockerProvider) CreateContainer(ctx context.Context, req ContainerReque
 			}
 		}
 	}
+
+	// Cleanup on error, otherwise set termSignal to nil before successful return.
+	defer func() {
+		if termSignal != nil {
+			termSignal <- true
+		}
+	}()
 
 	if err = req.Validate(); err != nil {
 		return nil, err
@@ -1014,6 +980,10 @@ func (p *DockerProvider) CreateContainer(ctx context.Context, req ContainerReque
 		}
 	}
 
+	for k, v := range testcontainersdocker.DefaultLabels() {
+		req.Labels[k] = v
+	}
+
 	dockerInput := &container.Config{
 		Entrypoint: req.Entrypoint,
 		Image:      tag,
@@ -1050,6 +1020,27 @@ func (p *DockerProvider) CreateContainer(ctx context.Context, req ContainerReque
 							return fmt.Errorf("can't copy %s to container: %w", f.HostFilePath, err)
 						}
 					}
+
+					return nil
+				},
+			},
+			PostStarts: []ContainerHook{
+				// first post-start hook is to wait for the container to be ready
+				func(ctx context.Context, c Container) error {
+					dockerContainer := c.(*DockerContainer)
+
+					// if a Wait Strategy has been specified, wait before returning
+					if dockerContainer.WaitingFor != nil {
+						dockerContainer.logger.Printf(
+							"🚧 Waiting for container id %s image: %s. Waiting for: %+v",
+							dockerContainer.ID[:12], dockerContainer.Image, dockerContainer.WaitingFor,
+						)
+						if err := dockerContainer.WaitingFor.WaitUntilReady(ctx, c); err != nil {
+							return err
+						}
+					}
+
+					dockerContainer.isRunning = true
 
 					return nil
 				},
@@ -1106,6 +1097,9 @@ func (p *DockerProvider) CreateContainer(ctx context.Context, req ContainerReque
 		return nil, err
 	}
 
+	// Disable cleanup on success
+	termSignal = nil
+
 	return c, nil
 }
 
@@ -1137,7 +1131,7 @@ func (p *DockerProvider) ReuseOrCreateContainer(ctx context.Context, req Contain
 		return p.CreateContainer(ctx, req)
 	}
 
-	tcConfig := p.Config()
+	tcConfig := p.Config().Config
 
 	var termSignal chan bool
 	if !tcConfig.RyukDisabled {
@@ -1292,7 +1286,7 @@ func (p *DockerProvider) CreateNetwork(ctx context.Context, req NetworkRequest) 
 		req.Labels = make(map[string]string)
 	}
 
-	tcConfig := p.Config()
+	tcConfig := p.Config().Config
 
 	nc := types.NetworkCreate{
 		Driver:         req.Driver,
@@ -1321,6 +1315,13 @@ func (p *DockerProvider) CreateNetwork(ctx context.Context, req NetworkRequest) 
 		}
 	}
 
+	// Cleanup on error, otherwise set termSignal to nil before successful return.
+	defer func() {
+		if termSignal != nil {
+			termSignal <- true
+		}
+	}()
+
 	response, err := p.client.NetworkCreate(ctx, req.Name, nc)
 	if err != nil {
 		return &DockerNetwork{}, err
@@ -1333,6 +1334,9 @@ func (p *DockerProvider) CreateNetwork(ctx context.Context, req NetworkRequest) 
 		terminationSignal: termSignal,
 		provider:          p,
 	}
+
+	// Disable cleanup on success
+	termSignal = nil
 
 	return n, nil
 }
