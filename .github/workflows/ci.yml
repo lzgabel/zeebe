@@ -499,7 +499,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: Import Secrets
         id: secrets
-        uses: hashicorp/vault-action@v2.7.3
+        uses: hashicorp/vault-action@v2.7.4
         with:
           url: ${{ secrets.VAULT_ADDR }}
           method: approle
@@ -543,7 +543,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: Import Secrets
         id: secrets
-        uses: hashicorp/vault-action@v2.7.3
+        uses: hashicorp/vault-action@v2.7.4
         with:
           url: ${{ secrets.VAULT_ADDR }}
           method: approle
