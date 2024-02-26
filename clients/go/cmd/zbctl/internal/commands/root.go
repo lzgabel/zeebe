@@ -98,6 +98,13 @@ var initClient = func(cmd *cobra.Command, args []string) error {
 	var credsProvider zbc.CredentialsProvider
 
 	host, port, err := parseAddress()
+	ip := net.ParseIP(host)
+	if ip == nil {
+		err = fmt.Errorf("Invalid IP address: %s", host)
+	} else if ip.To16() != nil {
+		host = fmt.Sprintf("[%s]", host)
+	}
+
 	if err != nil {
 		return err
 	}

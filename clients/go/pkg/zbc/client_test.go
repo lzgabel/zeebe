@@ -544,6 +544,40 @@ func (s *clientTestSuite) TestOverrideHostAndPortEnvVar() {
 	s.EqualValues(fmt.Sprintf("%s:%s", address, port), config.GatewayAddress)
 }
 
+func (s *clientTestSuite) TestOverrideHostEnvVarWithIPV6() {
+	// given
+	host := "::1"
+
+	env.set(GatewayHostEnvVar, host)
+	config := &ClientConfig{
+		UsePlaintextConnection: true,
+	}
+
+	// when
+	_, err := NewClient(config)
+
+	// then
+	s.NoError(err)
+	s.EqualValues(fmt.Sprintf("[%s]:26500", host), config.GatewayAddress)
+}
+
+func (s *clientTestSuite) TestOverrideAddressEnvVarWithIPV6() {
+	// given
+	address := "[::1]:26500"
+
+	env.set(GatewayAddressEnvVar, address)
+	config := &ClientConfig{
+		UsePlaintextConnection: true,
+	}
+
+	// when
+	_, err := NewClient(config)
+
+	// then
+	s.NoError(err)
+	s.EqualValues(address, config.GatewayAddress)
+}
+
 func createSecureServer(withSan bool) (net.Listener, *grpc.Server) {
 	certFile := "testdata/chain.cert.pem"
 	keyFile := "testdata/private.key.pem"
