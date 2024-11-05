@@ -29,6 +29,7 @@ import io.camunda.zeebe.util.Either;
 import io.camunda.zeebe.util.buffer.BufferUtil;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.LongStream;
 import org.agrona.DirectBuffer;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -87,7 +88,7 @@ public final class MultiInstanceBodyProcessor
   public Either<Failure, ?> onActivate(
       final ExecutableMultiInstanceBody element, final BpmnElementContext context) {
     // verify that the input collection variable is present and valid
-    return readInputCollectionVariable(element, context)
+    return readCollection(element, context)
         .flatMap(
             inputCollection ->
                 eventSubscriptionBehavior
@@ -140,7 +141,7 @@ public final class MultiInstanceBodyProcessor
     final int loopCounter =
         stateBehavior.getElementInstance(childContext).getMultiInstanceLoopCounter();
 
-    return readInputCollectionVariable(multiInstanceBody, childContext)
+    return readCollection(multiInstanceBody, childContext)
         .flatMap(
             collection -> {
               // the loop counter starts at 1
@@ -184,7 +185,7 @@ public final class MultiInstanceBodyProcessor
     }
 
     // test that input collection variable can be evaluated correctly
-    return readInputCollectionVariable(element, flowScopeContext)
+    return readCollection(element, flowScopeContext)
         .map(ok -> satisfiesCompletionConditionOrFailure.get());
   }
 
@@ -210,7 +211,8 @@ public final class MultiInstanceBodyProcessor
       }
       return;
     }
-    final var inputCollectionOrFailure = readInputCollectionVariable(element, flowScopeContext);
+
+    final var inputCollectionOrFailure = readCollection(element, flowScopeContext);
     if (inputCollectionOrFailure.isLeft()) {
       // this incident is un-resolvable
       incidentBehavior.createIncident(inputCollectionOrFailure.getLeft(), childContext);
@@ -363,6 +365,24 @@ public final class MultiInstanceBodyProcessor
         childContext,
         LOOP_COUNTER_VARIABLE,
         wrapVariable(loopCounterVariableBuffer, loopCounterVariableView, loopCounter));
+  }
+
+  private Either<Failure, List<DirectBuffer>> readCollection(
+      final ExecutableMultiInstanceBody element, final BpmnElementContext context) {
+    final Optional<Expression> loopCardinality =
+        element.getLoopCharacteristics().getLoopCardinality();
+    if (loopCardinality.isPresent()) {
+      return expressionBehavior
+          .evaluateLongExpression(loopCardinality.get(), context.getElementInstanceKey())
+          .map(
+              count ->
+                  LongStream.rangeClosed(1, count)
+                      .boxed()
+                      .map(i -> BufferUtil.wrapString(i.toString()))
+                      .toList());
+    }
+
+    return readInputCollectionVariable(element, context);
   }
 
   private Either<Failure, List<DirectBuffer>> readInputCollectionVariable(

@@ -146,6 +146,7 @@ public class MultiInstanceOutputCollectionBehaviorTest {
     return new ExecutableLoopCharacteristics(
         false,
         Optional.empty(),
+        Optional.empty(),
         null,
         Optional.empty(),
         Optional.of(outputCollection),

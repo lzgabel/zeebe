@@ -18,6 +18,7 @@ import io.camunda.zeebe.engine.processing.deployment.model.transformation.ModelE
 import io.camunda.zeebe.engine.processing.deployment.model.transformation.TransformContext;
 import io.camunda.zeebe.model.bpmn.instance.Activity;
 import io.camunda.zeebe.model.bpmn.instance.CompletionCondition;
+import io.camunda.zeebe.model.bpmn.instance.LoopCardinality;
 import io.camunda.zeebe.model.bpmn.instance.MultiInstanceLoopCharacteristics;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeLoopCharacteristics;
 import io.camunda.zeebe.protocol.record.value.BpmnElementType;
@@ -67,10 +68,10 @@ public final class MultiInstanceActivityTransformer implements ModelElementTrans
     final ZeebeLoopCharacteristics zeebeLoopCharacteristics =
         elementLoopCharacteristics.getSingleExtensionElement(ZeebeLoopCharacteristics.class);
 
+    final ExpressionLanguage expressionLanguage = context.getExpressionLanguage();
+
     final Expression inputCollection =
-        context
-            .getExpressionLanguage()
-            .parseExpression(zeebeLoopCharacteristics.getInputCollection());
+        expressionLanguage.parseExpression(zeebeLoopCharacteristics.getInputCollection());
 
     final Optional<DirectBuffer> inputElement =
         Optional.ofNullable(zeebeLoopCharacteristics.getInputElement())
@@ -87,9 +88,15 @@ public final class MultiInstanceActivityTransformer implements ModelElementTrans
             .filter(e -> !e.isEmpty())
             .map(e -> context.getExpressionLanguage().parseExpression(e));
 
+    final Optional<Expression> loopCardinality =
+        Optional.ofNullable(elementLoopCharacteristics.getLoopCardinality())
+            .map(LoopCardinality::getTextContent)
+            .map(expressionLanguage::parseExpression);
+
     return new ExecutableLoopCharacteristics(
         isSequential,
         completionCondition,
+        loopCardinality,
         inputCollection,
         inputElement,
         outputCollection,
