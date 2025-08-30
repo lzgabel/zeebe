@@ -23,6 +23,7 @@ import io.camunda.zeebe.model.bpmn.instance.BaseElement;
 import io.camunda.zeebe.model.bpmn.instance.BoundaryEvent;
 import io.camunda.zeebe.model.bpmn.instance.BpmnModelElementInstance;
 import io.camunda.zeebe.model.bpmn.instance.CallActivity;
+import io.camunda.zeebe.model.bpmn.instance.ConditionalEventDefinition;
 import io.camunda.zeebe.model.bpmn.instance.Error;
 import io.camunda.zeebe.model.bpmn.instance.ErrorEventDefinition;
 import io.camunda.zeebe.model.bpmn.instance.Escalation;
@@ -64,14 +65,15 @@ public class ModelUtil {
           MessageEventDefinition.class,
           TimerEventDefinition.class,
           SignalEventDefinition.class,
-          EscalationEventDefinition.class);
+          EscalationEventDefinition.class,
+          ConditionalEventDefinition.class);
 
   private static final List<Class<? extends Activity>>
       ESCALATION_BOUNDARY_EVENT_SUPPORTED_ACTIVITIES =
           Arrays.asList(SubProcess.class, CallActivity.class);
 
   public static <T extends BpmnModelElementInstance> Collection<T> getExtensionElementsByType(
-      final BaseElement element, Class<T> type) {
+      final BaseElement element, final Class<T> type) {
     final ExtensionElements extensionElements = element.getExtensionElements();
     if (extensionElements == null) {
       return Collections.emptyList();
@@ -103,6 +105,14 @@ public class ModelUtil {
   public static List<EventDefinition> getEventDefinitionsForBoundaryEvents(final Activity element) {
     return element.getBoundaryEvents().stream()
         .flatMap(event -> event.getEventDefinitions().stream())
+        .collect(Collectors.toList());
+  }
+
+  public static List<EventDefinition> getEventDefinitionsForConditionalStartEvents(
+      final ModelElementInstance element) {
+    return element.getChildElementsByType(StartEvent.class).stream()
+        .flatMap(i -> i.getEventDefinitions().stream())
+        .filter(ConditionalEventDefinition.class::isInstance)
         .collect(Collectors.toList());
   }
 
@@ -164,6 +174,21 @@ public class ModelUtil {
     verifyNoDuplicatedEventDefinition(definitions, errorCollector);
   }
 
+  public static void verifyNoDuplicatedConditionalStartEvents(
+      final ModelElementInstance element, final Consumer<String> errorCollector) {
+
+    final List<EventDefinition> definitions = getEventDefinitionsForConditionalStartEvents(element);
+
+    final Stream<String> conditions =
+        getEventDefinition(definitions, ConditionalEventDefinition.class)
+            .map(ConditionalEventDefinition::getCondition)
+            .filter(Objects::nonNull)
+            .map(ModelElementInstance::getTextContent)
+            .filter(condition -> condition != null && !condition.isEmpty());
+
+    getDuplicatedEntries(conditions).map(ModelUtil::duplicatedConditions).forEach(errorCollector);
+  }
+
   public static void verifyLinkIntermediateEvents(
       final ModelElementInstance element, final Consumer<String> errorCollector) {
 
@@ -188,7 +213,7 @@ public class ModelUtil {
   }
 
   private static Map<BpmnModelElementInstance, Set<String>> groupEventsByScope(
-      List<EventDefinition> events) {
+      final List<EventDefinition> events) {
     return getEventDefinition(events, LinkEventDefinition.class)
         .filter(def -> def.getName() != null && !def.getName().isEmpty())
         .collect(
@@ -203,7 +228,7 @@ public class ModelUtil {
       final Consumer<String> errorCollector) {
     throwEventsGroupByScope.forEach(
         (scope, items) -> {
-          for (String item : items) {
+          for (final String item : items) {
             if (!catchEventsGroupByScope
                 .getOrDefault(scope, Collections.emptySet())
                 .contains(item)) {
@@ -388,6 +413,12 @@ public class ModelUtil {
     return String.format(
         "Multiple intermediate catch link event definitions with the same name '%s' are not allowed.",
         linkName);
+  }
+
+  private static String duplicatedConditions(final String condition) {
+    return String.format(
+        "Cannot have more than one conditional event subscription with the same condition '%s'",
+        condition);
   }
 
   private static String noPairedLinkNames(final String linkName) {
