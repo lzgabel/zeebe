@@ -27,6 +27,7 @@ import io.camunda.zeebe.protocol.record.intent.BatchOperationIntent;
 import io.camunda.zeebe.protocol.record.intent.ClockIntent;
 import io.camunda.zeebe.protocol.record.intent.CommandDistributionIntent;
 import io.camunda.zeebe.protocol.record.intent.CompensationSubscriptionIntent;
+import io.camunda.zeebe.protocol.record.intent.ConditionalSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.DecisionEvaluationIntent;
 import io.camunda.zeebe.protocol.record.intent.DecisionIntent;
 import io.camunda.zeebe.protocol.record.intent.DecisionRequirementsIntent;
@@ -147,6 +148,8 @@ public final class EventAppliers implements EventApplier {
     registerUsageMetricsAppliers(state);
 
     registerMultiInstanceAppliers(state);
+
+    registerConditionalSubscriptionAppliers(state);
 
     return this;
   }
@@ -679,6 +682,16 @@ public final class EventAppliers implements EventApplier {
     final var asyncRequestState = state.getAsyncRequestState();
     register(AsyncRequestIntent.RECEIVED, new AsyncRequestReceivedApplier(asyncRequestState));
     register(AsyncRequestIntent.PROCESSED, new AsyncRequestProcessedApplier(asyncRequestState));
+  }
+
+  private void registerConditionalSubscriptionAppliers(final MutableProcessingState state) {
+    final var conditionalSubscriptionState = state.getConditionalSubscriptionState();
+    register(
+        ConditionalSubscriptionIntent.CREATED,
+        new ConditionalSubscriptionCreatedApplier(conditionalSubscriptionState));
+    register(
+        ConditionalSubscriptionIntent.DELETED,
+        new ConditionalSubscriptionDeletedApplier(conditionalSubscriptionState));
   }
 
   private <I extends Intent> void register(final I intent, final TypedEventApplier<I, ?> applier) {
