@@ -20,6 +20,7 @@ import io.camunda.zeebe.engine.state.authorization.DbRoleState;
 import io.camunda.zeebe.engine.state.batchoperation.DbBatchOperationState;
 import io.camunda.zeebe.engine.state.clock.DbClockState;
 import io.camunda.zeebe.engine.state.compensation.DbCompensationSubscriptionState;
+import io.camunda.zeebe.engine.state.condition.DbConditionalSubscriptionState;
 import io.camunda.zeebe.engine.state.deployment.DbDecisionState;
 import io.camunda.zeebe.engine.state.deployment.DbDeploymentState;
 import io.camunda.zeebe.engine.state.deployment.DbFormState;
@@ -50,6 +51,7 @@ import io.camunda.zeebe.engine.state.mutable.MutableBannedInstanceState;
 import io.camunda.zeebe.engine.state.mutable.MutableBatchOperationState;
 import io.camunda.zeebe.engine.state.mutable.MutableClockState;
 import io.camunda.zeebe.engine.state.mutable.MutableCompensationSubscriptionState;
+import io.camunda.zeebe.engine.state.mutable.MutableConditionalSubscriptionState;
 import io.camunda.zeebe.engine.state.mutable.MutableDecisionState;
 import io.camunda.zeebe.engine.state.mutable.MutableDeploymentState;
 import io.camunda.zeebe.engine.state.mutable.MutableDistributionState;
@@ -132,6 +134,7 @@ public class ProcessingDbState implements MutableProcessingState {
   private final MutableAsyncRequestState asyncRequestState;
   private final MutableMultiInstanceState multiInstanceState;
   private final TransientPendingSubscriptionState transientProcessMessageSubscriptionState;
+  private final MutableConditionalSubscriptionState conditionalSubscriptionState;
   private final int partitionId;
 
   public ProcessingDbState(
@@ -190,6 +193,7 @@ public class ProcessingDbState implements MutableProcessingState {
         new DbUsageMetricState(zeebeDb, transactionContext, config.getUsageMetricsExportInterval());
     multiInstanceState = new DbMultiInstanceState(zeebeDb, transactionContext);
     asyncRequestState = new DbAsyncRequestState(zeebeDb, transactionContext);
+    conditionalSubscriptionState = new DbConditionalSubscriptionState(zeebeDb, transactionContext);
     this.transientProcessMessageSubscriptionState = transientProcessMessageSubscriptionState;
   }
 
@@ -374,6 +378,11 @@ public class ProcessingDbState implements MutableProcessingState {
   @Override
   public MutableMultiInstanceState getMultiInstanceState() {
     return multiInstanceState;
+  }
+
+  @Override
+  public MutableConditionalSubscriptionState getConditionalSubscriptionState() {
+    return conditionalSubscriptionState;
   }
 
   @Override
