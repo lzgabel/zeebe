@@ -33,6 +33,7 @@ import io.camunda.zeebe.protocol.impl.record.value.batchoperation.BatchOperation
 import io.camunda.zeebe.protocol.impl.record.value.batchoperation.BatchOperationProcessInstanceModificationPlan;
 import io.camunda.zeebe.protocol.impl.record.value.clock.ClockRecord;
 import io.camunda.zeebe.protocol.impl.record.value.compensation.CompensationSubscriptionRecord;
+import io.camunda.zeebe.protocol.impl.record.value.condition.ConditionalSubscriptionRecord;
 import io.camunda.zeebe.protocol.impl.record.value.decision.DecisionEvaluationRecord;
 import io.camunda.zeebe.protocol.impl.record.value.deployment.DecisionRecord;
 import io.camunda.zeebe.protocol.impl.record.value.deployment.DecisionRequirementsRecord;
@@ -3630,6 +3631,38 @@ final class JsonSerializableToJsonTest {
         "inputCollection": []
       }
       """
+      },
+
+      /////////////////////////////////////////////////////////////////////////////////////////////
+      ////////////////////////// ConditionalSubscriptionRecord ////////////////////////////////////
+      /////////////////////////////////////////////////////////////////////////////////////////////
+      {
+        "ConditionalSubscriptionRecord",
+        (Supplier<UnifiedRecordValue>)
+            () -> {
+              final String condition = "=true";
+              final String catchEventId = "startEvent";
+              final int processDefinitionKey = 22334;
+              final String bpmnProcessId = "process";
+
+              return new ConditionalSubscriptionRecord()
+                  .setCondition(wrapString(condition))
+                  .setCatchEventId(wrapString(catchEventId))
+                  .setProcessDefinitionKey(processDefinitionKey)
+                  .setBpmnProcessId(wrapString(bpmnProcessId))
+                  .setCatchEventInstanceKey(3L)
+                  .setTenantId("acme");
+            },
+        """
+        {
+          "processDefinitionKey":22334,
+          "condition": "=true",
+          "catchEventId": "startEvent",
+          "bpmnProcessId": "process",
+          "catchEventInstanceKey":3,
+          "tenantId": "acme"
+        }
+        """
       },
     };
   }

@@ -80,6 +80,9 @@ final class IntentEncodingDecodingTest {
     result.addAll(buildParameterSets(ClockIntent.class, ClockIntent::from));
     result.addAll(buildParameterSets(TenantIntent.class, TenantIntent::from));
     result.addAll(buildParameterSets(ScaleIntent.class, ScaleIntent::from));
+    result.addAll(
+        buildParameterSets(
+            ConditionalSubscriptionIntent.class, ConditionalSubscriptionIntent::from));
 
     return result.stream();
   }
