@@ -33,7 +33,9 @@ import io.camunda.zeebe.engine.processing.streamprocessor.writers.Writers;
 import io.camunda.zeebe.engine.processing.timer.DueDateTimerChecker;
 import io.camunda.zeebe.engine.processing.timer.TimerCancelProcessor;
 import io.camunda.zeebe.engine.processing.timer.TimerTriggerProcessor;
+import io.camunda.zeebe.engine.processing.variable.VariableCreateProcessor;
 import io.camunda.zeebe.engine.processing.variable.VariableDocumentUpdateProcessor;
+import io.camunda.zeebe.engine.processing.variable.VariableUpdateProcessor;
 import io.camunda.zeebe.engine.state.immutable.ProcessingState;
 import io.camunda.zeebe.engine.state.immutable.ScheduledTaskState;
 import io.camunda.zeebe.engine.state.message.TransientPendingSubscriptionState;
@@ -53,6 +55,7 @@ import io.camunda.zeebe.protocol.record.intent.ProcessInstanceModificationIntent
 import io.camunda.zeebe.protocol.record.intent.ProcessMessageSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.TimerIntent;
 import io.camunda.zeebe.protocol.record.intent.VariableDocumentIntent;
+import io.camunda.zeebe.protocol.record.intent.VariableIntent;
 import io.camunda.zeebe.stream.api.state.KeyGenerator;
 import java.time.InstantSource;
 import java.util.Arrays;
@@ -101,6 +104,7 @@ public final class BpmnProcessors {
         transientProcessMessageSubscriptionState);
     addTimerStreamProcessors(
         typedRecordProcessors, timerChecker, processingState, bpmnBehaviors, writers);
+    addVariableStreamProcessors(typedRecordProcessors, bpmnBehaviors, keyGenerator, writers);
     addVariableDocumentStreamProcessors(
         typedRecordProcessors,
         bpmnBehaviors,
@@ -219,6 +223,24 @@ public final class BpmnProcessors {
             new TimerCancelProcessor(
                 processingState.getTimerState(), writers.state(), writers.rejection()))
         .withListener(timerChecker);
+  }
+
+  private static void addVariableStreamProcessors(
+      final TypedRecordProcessors typedRecordProcessors,
+      final BpmnBehaviors bpmnBehaviors,
+      final KeyGenerator keyGenerator,
+      final Writers writers) {
+    typedRecordProcessors
+        .onCommand(
+            ValueType.VARIABLE,
+            VariableIntent.UPDATE,
+            new VariableUpdateProcessor(
+                keyGenerator, bpmnBehaviors.conditionalEventBehavior(), writers))
+        .onCommand(
+            ValueType.VARIABLE,
+            VariableIntent.CREATE,
+            new VariableCreateProcessor(
+                keyGenerator, bpmnBehaviors.conditionalEventBehavior(), writers));
   }
 
   private static void addVariableDocumentStreamProcessors(

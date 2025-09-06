@@ -15,6 +15,7 @@ import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnIncidentBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnJobBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnStateTransitionBehavior;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnVariableMappingBehavior;
+import io.camunda.zeebe.engine.processing.common.ExpressionProcessor;
 import io.camunda.zeebe.engine.processing.common.Failure;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableCatchEventElement;
 import io.camunda.zeebe.util.Either;
@@ -25,17 +26,21 @@ public class IntermediateCatchEventProcessor
 
   private final List<IntermediateCatchEventBehavior> catchEventBehaviors =
       List.of(
-          new DefaultIntermediateCatchEventBehavior(), new LinkIntermediateCatchEventBehavior());
+          new DefaultIntermediateCatchEventBehavior(),
+          new LinkIntermediateCatchEventBehavior(),
+          new ConditionalIntermediateCatchEventBehavior());
 
   private final BpmnEventSubscriptionBehavior eventSubscriptionBehavior;
   private final BpmnIncidentBehavior incidentBehavior;
   private final BpmnStateTransitionBehavior stateTransitionBehavior;
   private final BpmnVariableMappingBehavior variableMappingBehavior;
   private final BpmnJobBehavior jobBehavior;
+  private final ExpressionProcessor expressionProcessor;
 
   public IntermediateCatchEventProcessor(
       final BpmnBehaviors bpmnBehaviors,
       final BpmnStateTransitionBehavior stateTransitionBehavior) {
+    expressionProcessor = bpmnBehaviors.expressionBehavior();
     eventSubscriptionBehavior = bpmnBehaviors.eventSubscriptionBehavior();
     incidentBehavior = bpmnBehaviors.incidentBehavior();
     this.stateTransitionBehavior = stateTransitionBehavior;
@@ -135,7 +140,7 @@ public class IntermediateCatchEventProcessor
 
     @Override
     public boolean isSuitableForEvent(final ExecutableCatchEventElement element) {
-      return !element.isLink();
+      return !element.isLink() && !element.isConditional();
     }
 
     @Override
@@ -170,6 +175,48 @@ public class IntermediateCatchEventProcessor
           stateTransitionBehavior.transitionToActivated(activating, element.getEventType());
       stateTransitionBehavior.completeElement(activated);
       return SUCCESS;
+    }
+  }
+
+  private final class ConditionalIntermediateCatchEventBehavior
+      implements IntermediateCatchEventBehavior {
+
+    @Override
+    public boolean isSuitableForEvent(final ExecutableCatchEventElement element) {
+      return element.isConditional();
+    }
+
+    @Override
+    public Either<Failure, ?> onActivate(
+        final ExecutableCatchEventElement element, final BpmnElementContext activating) {
+      return variableMappingBehavior
+          .applyInputMappings(activating, element)
+          .flatMap(ok -> eventSubscriptionBehavior.subscribeToEvents(element, activating));
+    }
+
+    @Override
+    public Either<Failure, ?> finalizeActivation(
+        final ExecutableCatchEventElement element, final BpmnElementContext activating) {
+      final var conditional = element.getConditional();
+      final var conditionExpression = conditional.getConditionExpression();
+      return expressionProcessor
+          .evaluateBooleanExpression(conditionExpression, activating.getFlowScopeKey())
+          .flatMap(
+              result ->
+                  eventSubscriptionBehavior
+                      .subscribeToEvents(element, activating)
+                      .map(ok -> result))
+          .thenDo(
+              conditionFulfilled -> {
+                final var activated =
+                    stateTransitionBehavior.transitionToActivated(
+                        activating, element.getEventType());
+                // If the condition is fulfilled we should complete the conditional intermediate
+                // catch event immediately.
+                if (conditionFulfilled) {
+                  stateTransitionBehavior.completeElement(activated);
+                }
+              });
     }
   }
 }

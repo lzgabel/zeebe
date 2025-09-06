@@ -20,6 +20,8 @@ import io.camunda.zeebe.engine.processing.message.command.SubscriptionCommandSen
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.SideEffectWriter;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.StateWriter;
 import io.camunda.zeebe.engine.processing.timer.DueDateTimerChecker;
+import io.camunda.zeebe.engine.state.condition.ConditionalSubscription;
+import io.camunda.zeebe.engine.state.immutable.ConditionalSubscriptionState;
 import io.camunda.zeebe.engine.state.immutable.ProcessMessageSubscriptionState;
 import io.camunda.zeebe.engine.state.immutable.ProcessState;
 import io.camunda.zeebe.engine.state.immutable.ProcessingState;
@@ -32,9 +34,11 @@ import io.camunda.zeebe.engine.state.message.TransientPendingSubscriptionState.P
 import io.camunda.zeebe.engine.state.routing.RoutingInfo;
 import io.camunda.zeebe.engine.state.signal.SignalSubscription;
 import io.camunda.zeebe.model.bpmn.util.time.Timer;
+import io.camunda.zeebe.protocol.impl.record.value.condition.ConditionalSubscriptionRecord;
 import io.camunda.zeebe.protocol.impl.record.value.message.ProcessMessageSubscriptionRecord;
 import io.camunda.zeebe.protocol.impl.record.value.signal.SignalSubscriptionRecord;
 import io.camunda.zeebe.protocol.impl.record.value.timer.TimerRecord;
+import io.camunda.zeebe.protocol.record.intent.ConditionalSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.ProcessMessageSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.SignalSubscriptionIntent;
 import io.camunda.zeebe.protocol.record.intent.TimerIntent;
@@ -59,10 +63,13 @@ public final class CatchEventBehavior {
   private final TimerInstanceState timerInstanceState;
   private final ProcessState processState;
   private final SignalSubscriptionState signalSubscriptionState;
+  private final ConditionalSubscriptionState conditionalSubscriptionState;
 
   private final ProcessMessageSubscriptionRecord subscription =
       new ProcessMessageSubscriptionRecord();
   private final TimerRecord timerRecord = new TimerRecord();
+  private final ConditionalSubscriptionRecord conditionalSubscription =
+      new ConditionalSubscriptionRecord();
   private final DueDateTimerChecker timerChecker;
   private final KeyGenerator keyGenerator;
   private final SignalSubscriptionRecord signalSubscription = new SignalSubscriptionRecord();
@@ -90,6 +97,7 @@ public final class CatchEventBehavior {
     processMessageSubscriptionState = processingState.getProcessMessageSubscriptionState();
     processState = processingState.getProcessState();
     signalSubscriptionState = processingState.getSignalSubscriptionState();
+    conditionalSubscriptionState = processingState.getConditionalSubscriptionState();
 
     this.keyGenerator = keyGenerator;
     this.timerChecker = timerChecker;
@@ -145,6 +153,7 @@ public final class CatchEventBehavior {
     unsubscribeFromMessageEvents(
         elementInstanceKey, sub -> elementIdFilter.test(sub.getRecord().getElementIdBuffer()));
     unsubscribeFromSignalEvents(elementInstanceKey, elementIdFilter);
+    unsubscribeFromConditionalEvents(elementInstanceKey, elementIdFilter);
   }
 
   /**
@@ -186,7 +195,12 @@ public final class CatchEventBehavior {
       final Predicate<CatchEvent> filterAfterEvaluation) {
     final var evaluationResults =
         supplier.getEvents().stream()
-            .filter(event -> event.isTimer() || event.isMessage() || event.isSignal())
+            .filter(
+                event ->
+                    event.isTimer()
+                        || event.isMessage()
+                        || event.isSignal()
+                        || event.isConditional())
             .filter(filterBeforeEvaluation)
             .map(event -> evalExpressions(expressionProcessor, event, context))
             .filter(
@@ -199,6 +213,7 @@ public final class CatchEventBehavior {
           subscribeToMessageEvents(context, results);
           subscribeToTimerEvents(context, results);
           subscribeToSignalEvents(context, results);
+          subscribeToConditionalEvents(context, results);
         });
 
     return evaluationResults.map(r -> null);
@@ -213,6 +228,7 @@ public final class CatchEventBehavior {
         .flatMap(this::evaluateCorrelationKey)
         .flatMap(this::evaluateTimer)
         .flatMap(this::evaluateSignalName)
+        .flatMap(this::evaluateConditionExpression)
         .map(OngoingEvaluation::getResult);
   }
 
@@ -282,6 +298,28 @@ public final class CatchEventBehavior {
         .evaluateStringExpression(signalNameExpression, scopeKey)
         .map(BufferUtil::wrapString)
         .map(evaluation::recordSignalName);
+  }
+
+  private Either<Failure, OngoingEvaluation> evaluateConditionExpression(
+      final OngoingEvaluation evaluation) {
+    final var event = evaluation.event();
+
+    if (!event.isConditional()) {
+      return Either.right(evaluation);
+    }
+
+    final var scopeKey = evaluation.context().getElementInstanceKey();
+    final var conditional = event.getConditional();
+    final var conditionExpression = conditional.getConditionExpression();
+    final var expression =
+        evaluation
+            .expressionProcessor()
+            .evaluateStringExpression(conditionExpression, scopeKey)
+            .getOrElse(conditionExpression.getExpression());
+
+    evaluation.recordConditionExpression(BufferUtil.wrapString(expression));
+
+    return Either.right(evaluation);
   }
 
   private void subscribeToMessageEvents(
@@ -413,6 +451,31 @@ public final class CatchEventBehavior {
         subscriptionKey, SignalSubscriptionIntent.CREATED, signalSubscription);
   }
 
+  private void subscribeToConditionalEvents(
+      final BpmnElementContext context, final List<EvalResult> results) {
+    results.stream()
+        .filter(EvalResult::isConditional)
+        .forEach(result -> subscribeToConditionalEvent(context, result));
+  }
+
+  private void subscribeToConditionalEvent(
+      final BpmnElementContext context, final EvalResult result) {
+    final var event = result.event;
+    final var conditionExpression = result.conditionExpression;
+
+    final DirectBuffer bpmnProcessId = cloneBuffer(context.getBpmnProcessId());
+    final long elementInstanceKey = context.getElementInstanceKey();
+
+    conditionalSubscription.setCondition(conditionExpression);
+    conditionalSubscription.setProcessDefinitionKey(context.getProcessDefinitionKey());
+    conditionalSubscription.setCatchEventInstanceKey(elementInstanceKey);
+    conditionalSubscription.setBpmnProcessId(bpmnProcessId);
+    conditionalSubscription.setCatchEventId(event.getId());
+
+    stateWriter.appendFollowUpEvent(
+        keyGenerator.nextKey(), ConditionalSubscriptionIntent.CREATED, conditionalSubscription);
+  }
+
   public void unsubscribeFromSignalEventsBySubscriptionFilter(
       final long elementInstanceKey, final Predicate<SignalSubscription> signalSubscriptionFilter) {
     signalSubscriptionState.visitByElementInstanceKey(
@@ -430,6 +493,28 @@ public final class CatchEventBehavior {
     unsubscribeFromSignalEventsBySubscriptionFilter(
         elementInstanceKey,
         signal -> elementIdFilter.test(signal.getRecord().getCatchEventIdBuffer()));
+  }
+
+  public void unsubscribeFromConditionalEventsBySubscriptionFilter(
+      final long elementInstanceKey,
+      final Predicate<ConditionalSubscription> conditionalSubscriptionFilter) {
+    conditionalSubscriptionState.visitBySubscriptionKey(
+        elementInstanceKey,
+        subscription -> {
+          if (conditionalSubscriptionFilter.test(subscription)) {
+            stateWriter.appendFollowUpEvent(
+                subscription.getKey(),
+                ConditionalSubscriptionIntent.DELETED,
+                subscription.getRecord());
+          }
+        });
+  }
+
+  public void unsubscribeFromConditionalEvents(
+      final long elementInstanceKey, final Predicate<DirectBuffer> elementIdFilter) {
+    unsubscribeFromConditionalEventsBySubscriptionFilter(
+        elementInstanceKey,
+        subscription -> elementIdFilter.test(subscription.getRecord().getCatchEventIdBuffer()));
   }
 
   public void unsubscribeFromTimerEventsByInstanceFilter(
@@ -555,6 +640,7 @@ public final class CatchEventBehavior {
     private DirectBuffer correlationKey;
     private Timer timer;
     private DirectBuffer signalName;
+    private DirectBuffer conditionExpression;
 
     public OngoingEvaluation(
         final ExpressionProcessor expressionProcessor,
@@ -597,8 +683,14 @@ public final class CatchEventBehavior {
       return this;
     }
 
+    public OngoingEvaluation recordConditionExpression(final DirectBuffer expression) {
+      conditionExpression = expression;
+      return this;
+    }
+
     EvalResult getResult() {
-      return new EvalResult(event, messageName, correlationKey, timer, signalName);
+      return new EvalResult(
+          event, messageName, correlationKey, timer, signalName, conditionExpression);
     }
   }
 
@@ -607,7 +699,8 @@ public final class CatchEventBehavior {
       DirectBuffer messageName,
       DirectBuffer correlationKey,
       Timer timer,
-      DirectBuffer signalName) {
+      DirectBuffer signalName,
+      DirectBuffer conditionExpression) {
 
     public boolean isMessage() {
       return event.isMessage();
@@ -619,6 +712,10 @@ public final class CatchEventBehavior {
 
     public boolean isSignal() {
       return event.isSignal();
+    }
+
+    public boolean isConditional() {
+      return event.isConditional();
     }
   }
 }

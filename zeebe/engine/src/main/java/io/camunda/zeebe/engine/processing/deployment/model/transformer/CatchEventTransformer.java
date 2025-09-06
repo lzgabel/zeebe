@@ -13,6 +13,7 @@ import io.camunda.zeebe.engine.processing.common.Failure;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableActivity;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableCatchEventElement;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableCompensation;
+import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableConditional;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableError;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableEscalation;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableLink;
@@ -25,6 +26,8 @@ import io.camunda.zeebe.engine.processing.timer.CronTimer;
 import io.camunda.zeebe.model.bpmn.instance.Association;
 import io.camunda.zeebe.model.bpmn.instance.CatchEvent;
 import io.camunda.zeebe.model.bpmn.instance.CompensateEventDefinition;
+import io.camunda.zeebe.model.bpmn.instance.Condition;
+import io.camunda.zeebe.model.bpmn.instance.ConditionalEventDefinition;
 import io.camunda.zeebe.model.bpmn.instance.ErrorEventDefinition;
 import io.camunda.zeebe.model.bpmn.instance.EscalationEventDefinition;
 import io.camunda.zeebe.model.bpmn.instance.EventDefinition;
@@ -90,6 +93,9 @@ public final class CatchEventTransformer implements ModelElementTransformer<Catc
     } else if (eventDefinition instanceof CompensateEventDefinition) {
       transformCompensationEventDefinition(
           context, element, executableElement, (CompensateEventDefinition) eventDefinition);
+    } else if (eventDefinition instanceof ConditionalEventDefinition) {
+      transformConditionalEventDefinition(
+          context, executableElement, (ConditionalEventDefinition) eventDefinition);
     }
   }
 
@@ -246,5 +252,22 @@ public final class CatchEventTransformer implements ModelElementTransformer<Catc
         });
 
     executableElement.setEventType(BpmnEventType.COMPENSATION);
+  }
+
+  private void transformConditionalEventDefinition(
+      final TransformContext context,
+      final ExecutableCatchEventElement executableElement,
+      final ConditionalEventDefinition eventDefinition) {
+    final Condition condition = eventDefinition.getCondition();
+
+    final ExpressionLanguage expressionLanguage = context.getExpressionLanguage();
+    final Expression conditionExpression =
+        expressionLanguage.parseExpression(condition.getTextContent());
+
+    final var conditional = new ExecutableConditional(eventDefinition.getId());
+    conditional.setConditionExpression(conditionExpression);
+
+    executableElement.setConditional(conditional);
+    executableElement.setEventType(BpmnEventType.CONDITIONAL);
   }
 }

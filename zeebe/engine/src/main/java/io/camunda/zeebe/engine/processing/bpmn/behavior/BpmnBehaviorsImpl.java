@@ -54,6 +54,7 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
   private final BpmnCompensationSubscriptionBehaviour compensationSubscriptionBehaviour;
   private final JobUpdateBehaviour jobUpdateBehaviour;
   private final BpmnAdHocSubProcessBehavior adHocSubProcessBehavior;
+  private final BpmnConditionalEventBehavior conditionalEventBehavior;
 
   public BpmnBehaviorsImpl(
       final MutableProcessingState processingState,
@@ -74,7 +75,9 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
 
     variableBehavior =
         new VariableBehavior(
-            processingState.getVariableState(), writers.state(), processingState.getKeyGenerator());
+            processingState.getVariableState(),
+            writers.command(),
+            processingState.getKeyGenerator());
 
     catchEventBehavior =
         new CatchEventBehavior(
@@ -212,6 +215,15 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
             stateBehavior,
             variableBehavior,
             processingState);
+
+    conditionalEventBehavior =
+        new BpmnConditionalEventBehavior(
+            processingState,
+            processingState.getKeyGenerator(),
+            eventTriggerBehavior,
+            stateBehavior,
+            expressionBehavior,
+            writers);
   }
 
   @Override
@@ -327,5 +339,10 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
   @Override
   public BpmnAdHocSubProcessBehavior adHocSubProcessBehavior() {
     return adHocSubProcessBehavior;
+  }
+
+  @Override
+  public BpmnConditionalEventBehavior conditionalEventBehavior() {
+    return conditionalEventBehavior;
   }
 }

@@ -7,7 +7,7 @@
  */
 package io.camunda.zeebe.engine.processing.variable;
 
-import io.camunda.zeebe.engine.processing.streamprocessor.writers.StateWriter;
+import io.camunda.zeebe.engine.processing.streamprocessor.writers.TypedCommandWriter;
 import io.camunda.zeebe.engine.state.immutable.VariableState;
 import io.camunda.zeebe.engine.state.variable.DocumentEntry;
 import io.camunda.zeebe.engine.state.variable.IndexedDocument;
@@ -28,7 +28,8 @@ import org.agrona.DirectBuffer;
 public final class VariableBehavior {
 
   private final VariableState variableState;
-  private final StateWriter stateWriter;
+  private final TypedCommandWriter writer;
+  // private final StateWriter stateWriter;
   private final KeyGenerator keyGenerator;
 
   private final IndexedDocument indexedDocument = new IndexedDocument();
@@ -36,10 +37,11 @@ public final class VariableBehavior {
 
   public VariableBehavior(
       final VariableState variableState,
-      final StateWriter stateWriter,
+      final TypedCommandWriter commandWriter,
       final KeyGenerator keyGenerator) {
     this.variableState = variableState;
-    this.stateWriter = stateWriter;
+    writer = commandWriter;
+    // this.stateWriter = stateWriter;
     this.keyGenerator = keyGenerator;
   }
 
@@ -133,8 +135,8 @@ public final class VariableBehavior {
 
         if (variableInstance != null && !variableInstance.getValue().equals(entry.getValue())) {
           applyEntryToRecord(entry);
-          stateWriter.appendFollowUpEvent(
-              variableInstance.getKey(), VariableIntent.UPDATED, variableRecord);
+          writer.appendFollowUpCommand(
+              variableInstance.getKey(), VariableIntent.UPDATE, variableRecord);
           entryIterator.remove();
         }
       }
@@ -193,9 +195,9 @@ public final class VariableBehavior {
         variableState.getVariableInstanceLocal(record.getScopeKey(), record.getNameBuffer());
     if (variableInstance == null) {
       final long key = keyGenerator.nextKey();
-      stateWriter.appendFollowUpEvent(key, VariableIntent.CREATED, record);
+      writer.appendFollowUpCommand(key, VariableIntent.CREATE, record);
     } else if (!variableInstance.getValue().equals(record.getValueBuffer())) {
-      stateWriter.appendFollowUpEvent(variableInstance.getKey(), VariableIntent.UPDATED, record);
+      writer.appendFollowUpCommand(variableInstance.getKey(), VariableIntent.UPDATE, record);
     }
   }
 
